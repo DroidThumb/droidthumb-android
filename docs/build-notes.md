@@ -2,6 +2,8 @@
 
 **Status:** this repo had never been compiled before this pass. This documents what a from-scratch build actually required, what broke, what I fixed vs. what I flagged instead of fixing, how `e2e-tests` was gotten to a green baseline once Podman was available, and what's usable as a regression baseline before more D-19 work starts. Read `droidthumb-android/docs/module-map.md` first for the architecture context.
 
+**For a persistent, always-on debug device** (rather than the ephemeral, per-run containers `e2e-tests` manages itself), see `docs/debug-device.md` — it covers the redroid quadlet unit, the host-level kernel-module/binderfs/podman-socket persistence this doc used to describe as manual per-boot steps, and how to reach/rebuild/verify the device. The host-setup detail below is kept for its historical diagnosis value (the redroid image pull cost, the applicationId-propagation bugs); the "do this every time you boot" framing it used to carry is obsolete — `docs/debug-device.md` is now the source of truth for host setup.
+
 ## Toolchain versions (confirmed working)
 
 | Component | Version | Source |
@@ -45,7 +47,7 @@ Contrary to the initial assumption that JDK/SDK/emulator were already installed,
 
 ### Gotcha #3 — Podman was not installed initially; since resolved, see "e2e-tests" below
 
-At the time this pass first ran, `podman` was not on this machine at all, there was no rootful podman socket, and the `binder_linux` kernel module redroid needs wasn't loaded. None of that was a consequence of anything removed under D-19 — it was a pure infrastructure gap. The owner has since installed Podman and set up the rootful socket themselves (root access I don't have); `e2e-tests` now runs on this machine. See "e2e-tests — working setup" below for the full story, including a real bug the setup process surfaced.
+At the time this pass first ran, `podman` was not on this machine at all, there was no rootful podman socket, and the `binder_linux` kernel module redroid needs wasn't loaded. None of that was a consequence of anything removed under D-19 — it was a pure infrastructure gap. The owner has since installed Podman and set up the rootful socket themselves (root access I don't have); `e2e-tests` now runs on this machine. See "e2e-tests — working setup" below for the full story, including a real bug the setup process surfaced, and `docs/debug-device.md` for how the podman-socket permissions and kernel-module/binderfs setup were later made to survive a reboot instead of being reapplied by hand.
 
 ## What broke, and what I did about it
 
@@ -127,7 +129,7 @@ This is inherited upstream test infrastructure, not project-specific logic — w
 
 ### The sudo-free path
 
-With the fix above, and with this machine's `binder_linux` already loaded and `/dev/binderfs` already mounted (the owner's own prior setup), `ensureKernelModules()` now logs `Kernel modules already loaded` and returns immediately — `sudo` is never invoked. A machine starting from nothing would still need the modprobe/mount step done once (root required, not something I can do), but on an already-prepared machine like this one, `sudo` plays no role at all in a normal `e2e-tests` run.
+With the fix above, `ensureKernelModules()` logs `Kernel modules already loaded` and returns immediately whenever `binder_linux` is loaded and `/dev/binderfs` is mounted — `sudo` is never invoked in that case. At the time this was written, that state was reached manually each boot (a `modprobe`/`mkdir`/`mount` sequence run by hand). That's since been replaced with real boot-time persistence — `/etc/modules-load.d/`, `/etc/modprobe.d/`, and an `/etc/fstab` entry for `/dev/binderfs` — documented in full, including a real boot-ordering bug the first version of that persistence hit, in `docs/debug-device.md`'s "Host setup" section. Once that's confirmed working across a reboot, `sudo` should play no role in a normal `e2e-tests` run on this machine at all, not even a one-time manual step.
 
 ### Redroid image pull
 
