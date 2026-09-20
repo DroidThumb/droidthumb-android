@@ -93,10 +93,6 @@ fun MainScreen(
                         pendingSettingsRoute = SettingsRoute.General.route
                         selectedTabRoute = TopLevelRoute.Settings.route
                     },
-                    onNavigateToTunnelSettings = {
-                        pendingSettingsRoute = SettingsRoute.Tunnel.route
-                        selectedTabRoute = TopLevelRoute.Settings.route
-                    },
                     onOpenPrivacySettings = {
                         pendingSettingsRoute = SettingsRoute.Privacy.route
                         selectedTabRoute = TopLevelRoute.Settings.route
@@ -131,10 +127,6 @@ fun MainScreen(
                     },
                     onNavigateToNetworkSettings = {
                         pendingSettingsRoute = SettingsRoute.General.route
-                        selectedTabRoute = TopLevelRoute.Settings.route
-                    },
-                    onNavigateToTunnelSettings = {
-                        pendingSettingsRoute = SettingsRoute.Tunnel.route
                         selectedTabRoute = TopLevelRoute.Settings.route
                     },
                     onOpenPrivacySettings = {

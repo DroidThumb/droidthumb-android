@@ -67,7 +67,7 @@ lint-results*
 # Test results (keep in CI artifacts, not in repo)
 test-results/
 
-# Native binaries in jniLibs (build artifacts — cloudflared from make compile-cloudflared, ngrok from Gradle extractNgrokNative)
+# Native binaries in jniLibs (build artifacts)
 app/src/main/jniLibs/
 
 # MCP client configuration (contains tokens)

@@ -108,13 +108,6 @@ fun AccessSettingsScreen(
                     body = stringResource(R.string.access_no_auth_warning_body),
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-                if (serverConfig.tunnelEnabled) {
-                    WarningCard(
-                        title = stringResource(R.string.access_internet_exposure_warning_title),
-                        body = stringResource(R.string.access_internet_exposure_warning_body),
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
             }
 
             // OAuth toggle

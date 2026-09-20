@@ -26,8 +26,6 @@
     <string name="settings_access_subtitle">OAuth, bearer token, connected clients</string>
     <string name="settings_security_title">Security</string>
     <string name="settings_security_subtitle">HTTPS, certificate</string>
-    <string name="settings_tunnel_title">Tunnel</string>
-    <string name="settings_tunnel_subtitle">Cloudflare, ngrok</string>
     <string name="settings_mcp_tools_title">MCP Tools</string>
     <string name="settings_mcp_tools_subtitle">Enable or disable tools</string>
     <string name="settings_mcp_tools_placeholder">Tool permissions — available in next update</string>
@@ -133,10 +131,9 @@
     <string name="server_pending_approvals_title">%1$d pending connection approval(s)</string>
     <string name="server_pending_approvals_action">Review</string>
 
-    <!-- Network Access Suggestion (main screen: localhost-only bind with no tunnel) -->
+    <!-- Network Access Suggestion (main screen: localhost-only bind) -->
     <string name="server_network_access_suggestion_title">Reachable from this device only</string>
     <string name="server_network_access_suggestion_wifi">Enable Wi-Fi access</string>
-    <string name="server_network_access_suggestion_tunnel">Set up tunnel</string>
 
     <!-- Battery Optimization -->
     <string name="battery_optimization_card_title">Keep the server running</string>
@@ -152,45 +149,12 @@
     <string name="server_logs_clear_dialog_confirm">Clear</string>
     <string name="server_logs_clear_dialog_cancel">Cancel</string>
     <string name="server_logs_type_tool_call">Tool calls</string>
-    <string name="server_logs_type_tunnel">Tunnel</string>
     <string name="server_logs_type_server">Server</string>
     <string name="server_logs_type_oauth">OAuth</string>
     <string name="server_logs_type_auth">Auth</string>
     <string name="server_logs_type_channel">Channel</string>
     <string name="server_logs_type_settings">Settings</string>
     <string name="server_logs_type_privacy">Privacy</string>
-
-    <!-- Remote Access / Tunnel -->
-    <string name="remote_access_title">Remote Access</string>
-    <string name="remote_access_enabled_label">Enable Remote Access</string>
-    <string name="remote_access_provider_label">Tunnel Provider</string>
-    <string name="remote_access_provider_cloudflare">Cloudflare</string>
-    <string name="remote_access_provider_cloudflare_desc">No account required</string>
-    <string name="remote_access_provider_ngrok">ngrok</string>
-    <string name="remote_access_provider_ngrok_desc">Account required</string>
-    <string name="remote_access_ngrok_authtoken_label">ngrok Authtoken</string>
-    <string name="remote_access_ngrok_domain_label">Domain (optional)</string>
-    <string name="remote_access_ngrok_domain_hint">Leave empty for auto-assigned</string>
-    <string name="remote_access_status_disconnected">Disconnected</string>
-    <string name="remote_access_status_connecting">Connecting…</string>
-    <string name="remote_access_status_connected">Connected</string>
-    <string name="remote_access_status_error">Error: %1$s</string>
-    <string name="remote_access_public_url_label">Public URL</string>
-    <string name="remote_access_ngrok_unsupported">ngrok is not available on this device (requires arm64-v8a or x86_64)</string>
-    <string name="remote_access_cloudflare_mode_label">Cloudflare Mode</string>
-    <string name="remote_access_cloudflare_mode_free">Free</string>
-    <string name="remote_access_cloudflare_mode_free_desc">Random temporary URL, no account</string>
-    <string name="remote_access_cloudflare_mode_token">With Token</string>
-    <string name="remote_access_cloudflare_mode_token_desc">Static hostname via your Cloudflare account</string>
-    <string name="remote_access_cloudflare_token_label">Cloudflare Tunnel Token</string>
-    <string name="remote_access_cloudflare_extra_args_label">Extra Arguments</string>
-    <string name="remote_access_cloudflare_extra_args_hint">--edge region1.v2.argotunnel.com:7844</string>
-    <string name="remote_access_cloudflare_extra_args_help">Optional flags passed to cloudflared (e.g. specify --edge to bypass DNS issues)</string>
-    <string name="remote_access_cloudflare_service_url_help">In your Cloudflare dashboard, set this tunnel\'s Public Hostname → Service to:</string>
-    <string name="remote_access_cloudflare_service_url_copy">Copy service URL</string>
-    <string name="remote_access_https_disabled_warning">Remote access is unavailable while HTTPS is enabled. Disable HTTPS to use a tunnel.</string>
-    <string name="remote_access_no_route_configured">No route configured</string>
-    <string name="remote_access_route_misconfigured">Route does not point to this server</string>
 
     <!-- Connection Info -->
     <string name="connection_info_title">Connection Info</string>
@@ -256,8 +220,6 @@
     <string name="access_public_url_supporting">Leave empty to auto-detect from the request; overrides the host used for OAuth metadata and share links</string>
     <string name="access_no_auth_warning_title">Server has NO authentication</string>
     <string name="access_no_auth_warning_body">Anyone who can reach the server has full control of this device.</string>
-    <string name="access_internet_exposure_warning_title">Reachable over the internet</string>
-    <string name="access_internet_exposure_warning_body">A tunnel is active and authentication is off, so Android Remote Control can be accessed over the internet without any checks — anyone with the URL has full control of this device. Enable OAuth or the bearer token.</string>
     <string name="access_disable_auth_dialog_title">Disable all authentication?</string>
     <string name="access_disable_auth_dialog_body">This leaves the server with NO authentication. Anyone who can reach it has full control. Continue?</string>
     <string name="access_disable_auth_confirm">Disable anyway</string>

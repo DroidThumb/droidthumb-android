@@ -296,9 +296,6 @@ android {
             excludes += "/META-INF/LICENSE.md"
             excludes += "/META-INF/LICENSE-notice.md"
         }
-        jniLibs {
-            useLegacyPackaging = true
-        }
     }
 }
 
@@ -391,12 +388,6 @@ dependencies {
     implementation(libs.bouncy.castle.pkix)
     implementation(libs.bouncy.castle.prov)
 
-    // ngrok tunnel (in-process, JNI-based) — built from source via vendor/ngrok-java submodule
-    // ngrok-java: API module (interfaces, builders, Session)
-    implementation(files("../vendor/ngrok-java/ngrok-java/target/ngrok-java-1.2.0-SNAPSHOT.jar"))
-    // ngrok-java-native: implementation classes (NativeSession, Runtime, etc.)
-    implementation(files("../vendor/ngrok-java/ngrok-java-native/target/ngrok-java-native-classes.jar"))
-
     // MCP SDK
     implementation(libs.mcp.kotlin.sdk.server)
     runtimeOnly(libs.slf4j.android)
@@ -450,13 +441,6 @@ dependencies {
     testImplementation(libs.mcp.kotlin.sdk.client)
     testImplementation(libs.ktor.client.content.negotiation)
     testImplementation(libs.ktor.sse)
-}
-
-dependencies {
-    // ngrok-java host native library packaged as JAR for classpath-based loading.
-    // Runtime.load() uses Class.getResourceAsStream() to extract the .so/.dylib,
-    // so the native library must be inside a JAR on the classpath (not a loose directory).
-    testRuntimeOnly(files("../vendor/ngrok-java/ngrok-java-native/target/ngrok-java-native-host.jar"))
 }
 
 // Offline IP-geolocation database, generated at build time from the CURRENT month's DB-IP City Lite

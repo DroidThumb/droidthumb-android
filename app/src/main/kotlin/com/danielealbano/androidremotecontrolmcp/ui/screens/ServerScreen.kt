@@ -65,7 +65,6 @@ fun ServerScreen(
     onNavigateToPermissions: () -> Unit,
     onShowAllLogs: () -> Unit,
     onNavigateToNetworkSettings: () -> Unit,
-    onNavigateToTunnelSettings: () -> Unit,
     onOpenPrivacySettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel(),
@@ -81,7 +80,6 @@ fun ServerScreen(
     val serverConfig by viewModel.serverConfig.collectAsStateWithLifecycle()
     val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
     val recentServerLogs by logsViewModel.recentServerLogs.collectAsStateWithLifecycle()
-    val tunnelStatus by viewModel.tunnelStatus.collectAsStateWithLifecycle()
 
     val isAccessibilityEnabled by viewModel.isAccessibilityEnabled.collectAsStateWithLifecycle()
     val isBatteryOptimizationIgnored by viewModel.isBatteryOptimizationIgnored.collectAsStateWithLifecycle()
@@ -131,15 +129,11 @@ fun ServerScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            if (serverConfig.bindingAddress == BindingAddress.LOCALHOST && !serverConfig.tunnelEnabled) {
+            if (serverConfig.bindingAddress == BindingAddress.LOCALHOST) {
                 NetworkAccessSuggestionCard(
                     onEnableWifi = {
                         viewModel.updateBindingAddress(BindingAddress.NETWORK)
                         onNavigateToNetworkSettings()
-                    },
-                    onSetUpTunnel = {
-                        viewModel.updateTunnelEnabled(true)
-                        onNavigateToTunnelSettings()
                     },
                 )
                 Spacer(Modifier.height(16.dp))
@@ -178,9 +172,6 @@ fun ServerScreen(
                 port = serverConfig.port,
                 httpsEnabled = serverConfig.httpsEnabled,
                 bearerToken = serverConfig.bearerToken,
-                tunnelEnabled = serverConfig.tunnelEnabled,
-                serverStatus = serverStatus,
-                tunnelStatus = tunnelStatus,
                 onCopyAll = { text ->
                     clipboardManager.setText(AnnotatedString(text))
                     Toast.makeText(context, copiedToClipboardMessage, Toast.LENGTH_SHORT).show()
@@ -229,7 +220,6 @@ private fun NoAuthWarningCard() {
 @Composable
 private fun NetworkAccessSuggestionCard(
     onEnableWifi: () -> Unit,
-    onSetUpTunnel: () -> Unit,
 ) {
     CalloutCard(
         icon = Icons.Default.Info,
@@ -237,9 +227,6 @@ private fun NetworkAccessSuggestionCard(
     ) {
         TextButton(onClick = onEnableWifi) {
             Text(stringResource(R.string.server_network_access_suggestion_wifi))
-        }
-        TextButton(onClick = onSetUpTunnel) {
-            Text(stringResource(R.string.server_network_access_suggestion_tunnel))
         }
     }
 }

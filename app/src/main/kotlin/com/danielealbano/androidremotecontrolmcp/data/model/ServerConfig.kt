@@ -15,12 +15,6 @@ package com.danielealbano.androidremotecontrolmcp.data.model
  * @property httpsEnabled Whether HTTPS is enabled (disabled by default).
  * @property certificateSource The source of the HTTPS certificate.
  * @property certificateHostname The hostname for auto-generated certificates.
- * @property tunnelEnabled Whether remote access via tunnel is enabled.
- * @property tunnelProvider The tunnel provider type (Cloudflare or ngrok).
- * @property ngrokAuthtoken The ngrok authtoken (required when using ngrok).
- * @property ngrokDomain The ngrok domain (optional, empty means auto-assigned).
- * @property cloudflareTunnelMode The Cloudflare tunnel mode (Free quick tunnel vs token-based named tunnel).
- * @property cloudflareTunnelToken The Cloudflare tunnel token (required when using token mode).
  * @property fileSizeLimitMb File size limit for file operations (in MB).
  * @property allowHttpDownloads Whether HTTP (non-HTTPS) downloads are allowed.
  * @property allowUnverifiedHttpsCerts Whether unverified HTTPS certs are accepted for downloads.
@@ -45,13 +39,6 @@ data class ServerConfig(
     val httpsEnabled: Boolean = false,
     val certificateSource: CertificateSource = CertificateSource.AUTO_GENERATED,
     val certificateHostname: String = DEFAULT_CERTIFICATE_HOSTNAME,
-    val tunnelEnabled: Boolean = false,
-    val tunnelProvider: TunnelProviderType = TunnelProviderType.CLOUDFLARE,
-    val ngrokAuthtoken: String = "",
-    val ngrokDomain: String = "",
-    val cloudflareTunnelMode: CloudflareTunnelMode = CloudflareTunnelMode.FREE,
-    val cloudflareTunnelToken: String = "",
-    val cloudflareTunnelExtraArgs: String = "",
     val fileSizeLimitMb: Int = DEFAULT_FILE_SIZE_LIMIT_MB,
     val allowHttpDownloads: Boolean = false,
     val allowUnverifiedHttpsCerts: Boolean = false,

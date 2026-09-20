@@ -49,10 +49,6 @@ import javax.inject.Inject
  *   --ez https_enabled false \
  *   --es certificate_source "AUTO_GENERATED" \
  *   --es certificate_hostname "android-mcp.local" \
- *   --ez tunnel_enabled true \
- *   --es tunnel_provider "CLOUDFLARE" \
- *   --es ngrok_authtoken "your-ngrok-token" \
- *   --es ngrok_domain "your-domain.ngrok-free.app" \
  *   --ei file_size_limit_mb 50 \
  *   --ez allow_http_downloads false \
  *   --ez allow_unverified_https_certs false \

@@ -9,13 +9,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.CertificateSource
-import com.danielealbano.androidremotecontrolmcp.data.model.CloudflareTunnelMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerStatus
 import com.danielealbano.androidremotecontrolmcp.data.model.StorageLocation
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
-import com.danielealbano.androidremotecontrolmcp.data.model.TunnelProviderType
-import com.danielealbano.androidremotecontrolmcp.data.model.TunnelStatus
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.di.IoDispatcher
 import com.danielealbano.androidremotecontrolmcp.mcp.oauth.OAuthApprovalCoordinator
@@ -24,7 +21,6 @@ import com.danielealbano.androidremotecontrolmcp.services.mcp.McpServerService
 import com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService
 import com.danielealbano.androidremotecontrolmcp.services.power.BatteryOptimizationManager
 import com.danielealbano.androidremotecontrolmcp.services.storage.StorageLocationProvider
-import com.danielealbano.androidremotecontrolmcp.services.tunnel.TunnelManager
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import com.danielealbano.androidremotecontrolmcp.utils.PermissionUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,7 +43,6 @@ class MainViewModel
     @Inject
     constructor(
         private val settingsRepository: SettingsRepository,
-        private val tunnelManager: TunnelManager,
         private val storageLocationProvider: StorageLocationProvider,
         private val batteryOptimizationManager: BatteryOptimizationManager,
         @param:IoDispatcher private val ioDispatcher: CoroutineDispatcher,
@@ -92,21 +87,6 @@ class MainViewModel
         private val _isNotificationListenerEnabled = MutableStateFlow(false)
         val isNotificationListenerEnabled: StateFlow<Boolean> = _isNotificationListenerEnabled.asStateFlow()
 
-        private val _tunnelStatus = MutableStateFlow<TunnelStatus>(TunnelStatus.Disconnected)
-        val tunnelStatus: StateFlow<TunnelStatus> = _tunnelStatus.asStateFlow()
-
-        private val _ngrokAuthtokenInput = MutableStateFlow("")
-        val ngrokAuthtokenInput: StateFlow<String> = _ngrokAuthtokenInput.asStateFlow()
-
-        private val _ngrokDomainInput = MutableStateFlow("")
-        val ngrokDomainInput: StateFlow<String> = _ngrokDomainInput.asStateFlow()
-
-        private val _cloudflareTokenInput = MutableStateFlow("")
-        val cloudflareTokenInput: StateFlow<String> = _cloudflareTokenInput.asStateFlow()
-
-        private val _cloudflareExtraArgsInput = MutableStateFlow("")
-        val cloudflareExtraArgsInput: StateFlow<String> = _cloudflareExtraArgsInput.asStateFlow()
-
         private val _storageLocations = MutableStateFlow<List<StorageLocation>>(emptyList())
         val storageLocations: StateFlow<List<StorageLocation>> = _storageLocations.asStateFlow()
 
@@ -147,10 +127,6 @@ class MainViewModel
                     _portError.value = null
                     _hostnameInput.value = config.certificateHostname
                     _hostnameError.value = null
-                    _ngrokAuthtokenInput.value = config.ngrokAuthtoken
-                    _ngrokDomainInput.value = config.ngrokDomain
-                    _cloudflareTokenInput.value = config.cloudflareTunnelToken
-                    _cloudflareExtraArgsInput.value = config.cloudflareTunnelExtraArgs
                     _fileSizeLimitInput.value = config.fileSizeLimitMb.toString()
                     _fileSizeLimitError.value = null
                     _downloadTimeoutInput.value = config.downloadTimeoutSeconds.toString()
@@ -166,12 +142,6 @@ class MainViewModel
             viewModelScope.launch {
                 McpServerService.serverStatus.collect { status ->
                     _serverStatus.value = status
-                }
-            }
-
-            viewModelScope.launch {
-                tunnelManager.tunnelStatus.collect { status ->
-                    _tunnelStatus.value = status
                 }
             }
         }
@@ -298,52 +268,6 @@ class MainViewModel
 
         fun requestBatteryOptimizationExemption() {
             batteryOptimizationManager.requestExemption()
-        }
-
-        fun updateTunnelEnabled(enabled: Boolean) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateTunnelEnabled(enabled)
-            }
-        }
-
-        fun updateTunnelProvider(provider: TunnelProviderType) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateTunnelProvider(provider)
-            }
-        }
-
-        fun updateNgrokAuthtoken(authtoken: String) {
-            _ngrokAuthtokenInput.value = authtoken
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateNgrokAuthtoken(authtoken)
-            }
-        }
-
-        fun updateNgrokDomain(domain: String) {
-            _ngrokDomainInput.value = domain
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateNgrokDomain(domain)
-            }
-        }
-
-        fun updateCloudflareTunnelMode(mode: CloudflareTunnelMode) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateCloudflareTunnelMode(mode)
-            }
-        }
-
-        fun updateCloudflareTunnelToken(token: String) {
-            _cloudflareTokenInput.value = token
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateCloudflareTunnelToken(token)
-            }
-        }
-
-        fun updateCloudflareTunnelExtraArgs(extraArgs: String) {
-            _cloudflareExtraArgsInput.value = extraArgs
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateCloudflareTunnelExtraArgs(extraArgs)
-            }
         }
 
         @Suppress("TooGenericExceptionCaught")

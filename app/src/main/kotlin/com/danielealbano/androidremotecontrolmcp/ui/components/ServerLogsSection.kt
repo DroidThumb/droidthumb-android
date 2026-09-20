@@ -125,7 +125,6 @@ private fun ServerLogEntryRow(entry: ServerLogEntry) {
             }
         }
 
-        ServerLogEntry.Type.TUNNEL,
         ServerLogEntry.Type.SERVER,
         ServerLogEntry.Type.OAUTH,
         ServerLogEntry.Type.AUTH,
@@ -171,11 +170,6 @@ private fun ServerLogsSectionPreview() {
                         message = "tap",
                         toolName = "tap",
                         durationMs = 42,
-                    ),
-                    ServerLogEntry(
-                        timestamp = System.currentTimeMillis(),
-                        type = ServerLogEntry.Type.TUNNEL,
-                        message = "Tunnel connected: https://random-words.trycloudflare.com",
                     ),
                 ),
             onShowMore = {},

@@ -55,7 +55,6 @@ private val CHIP_DISPLAY_ORDER =
     listOf(
         ServerLogEntry.Type.SERVER,
         ServerLogEntry.Type.TOOL_CALL,
-        ServerLogEntry.Type.TUNNEL,
         ServerLogEntry.Type.OAUTH,
         ServerLogEntry.Type.AUTH,
         ServerLogEntry.Type.CHANNEL,
@@ -219,7 +218,6 @@ private fun typeLabel(type: ServerLogEntry.Type): String =
     stringResource(
         when (type) {
             ServerLogEntry.Type.TOOL_CALL -> R.string.server_logs_type_tool_call
-            ServerLogEntry.Type.TUNNEL -> R.string.server_logs_type_tunnel
             ServerLogEntry.Type.SERVER -> R.string.server_logs_type_server
             ServerLogEntry.Type.OAUTH -> R.string.server_logs_type_oauth
             ServerLogEntry.Type.AUTH -> R.string.server_logs_type_auth

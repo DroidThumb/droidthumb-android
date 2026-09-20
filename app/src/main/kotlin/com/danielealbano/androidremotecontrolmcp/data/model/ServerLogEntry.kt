@@ -1,8 +1,9 @@
 package com.danielealbano.androidremotecontrolmcp.data.model
 
 // On-disk byte ids for ServerLogEntry.Type — NEVER renumber (constants, not literals, for detekt MagicNumber).
+// Id 1 was TUNNEL, retired when the tunnel subsystem was removed — do not reuse it; old devices
+// may still have persisted entries with byte id 1, which Type.fromId now correctly maps to null.
 private const val TYPE_ID_TOOL_CALL: Byte = 0
-private const val TYPE_ID_TUNNEL: Byte = 1
 private const val TYPE_ID_SERVER: Byte = 2
 private const val TYPE_ID_OAUTH: Byte = 3
 private const val TYPE_ID_AUTH: Byte = 4
@@ -33,9 +34,6 @@ data class ServerLogEntry(
     ) {
         /** An MCP tool call (has toolName, durationMs; message holds a failure marker or is empty). */
         TOOL_CALL(TYPE_ID_TOOL_CALL),
-
-        /** A tunnel lifecycle event (connecting, connected, stopped, error). */
-        TUNNEL(TYPE_ID_TUNNEL),
 
         /** A general server event (starting, started, stopping, stopped, error). */
         SERVER(TYPE_ID_SERVER),
