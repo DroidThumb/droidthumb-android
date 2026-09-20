@@ -1,6 +1,6 @@
-# Build notes — first real build, applicationId verification, D-19 tunnel removal
+# Build notes — first real build, applicationId verification, D-19 tunnel removal, e2e-tests
 
-**Status:** this repo had never been compiled before this pass. This documents what a from-scratch build actually required, what broke, what I fixed vs. what I flagged instead of fixing, and what's usable as a regression baseline before more D-19 work starts. Read `droidthumb-android/docs/module-map.md` first for the architecture context.
+**Status:** this repo had never been compiled before this pass. This documents what a from-scratch build actually required, what broke, what I fixed vs. what I flagged instead of fixing, how `e2e-tests` was gotten to a green baseline once Podman was available, and what's usable as a regression baseline before more D-19 work starts. Read `droidthumb-android/docs/module-map.md` first for the architecture context.
 
 ## Toolchain versions (confirmed working)
 
@@ -19,6 +19,7 @@
 | Kotlin | 2.4.10 | pinned in `gradle/libs.versions.toml`, untouched |
 | KSP | 2.3.11 | pinned, untouched |
 | Hilt | 2.60.1 | pinned, untouched |
+| Podman | 4.9.3 | rootful socket at `/run/podman/podman.sock`, installed and configured by the owner (root required) — needed only for `:e2e-tests` |
 
 **No pinned version in the repo (Gradle, AGP, JDK target, SDK versions) needed to change.** Everything in the existing config built cleanly once the SDK was populated correctly. I did not touch `gradle/libs.versions.toml`, `gradle/wrapper/gradle-wrapper.properties`, `compileSdk`/`minSdk`/`targetSdk`, or `sourceCompatibility`/`jvmTarget` — none of the environmental failures required it, so nothing here was a "stop and ask" case.
 
@@ -42,9 +43,9 @@ Contrary to the initial assumption that JDK/SDK/emulator were already installed,
 
 `groups` for this user does **not** list `kvm`, and `getent group kvm` shows no members — a naive check (`groups | grep kvm`) says "no access." But `/dev/kvm` carries an explicit POSIX ACL (`getfacl /dev/kvm` shows `user:danny-harris:rw-`) that grants this specific user read/write outside the normal group mechanism, and the emulator used it successfully (fast boot, no software-rendering fallback warnings in the log). **A second person on a different machine should not assume this ACL exists.** Check with `ls -l /dev/kvm` (should show `crw-rw----+`, note the `+`) and `getfacl /dev/kvm`; if there's no ACL and the user isn't in the `kvm` group, they need `sudo usermod -aG kvm $USER` (then log out/in) or an equivalent ACL grant — a command I cannot run myself.
 
-### Gotcha #3 — Podman is not installed, e2e-tests cannot run here
+### Gotcha #3 — Podman was not installed initially; since resolved, see "e2e-tests" below
 
-`podman` is not on this machine at all, there's no rootful podman socket, and the `binder_linux` kernel module redroid needs isn't loaded. None of this is fixable without root. This is **not** a consequence of anything removed under D-19 — it's a pure infrastructure gap that would have blocked `e2e-tests` on this machine regardless. See the e2e-tests section below.
+At the time this pass first ran, `podman` was not on this machine at all, there was no rootful podman socket, and the `binder_linux` kernel module redroid needs wasn't loaded. None of that was a consequence of anything removed under D-19 — it was a pure infrastructure gap. The owner has since installed Podman and set up the rootful socket themselves (root access I don't have); `e2e-tests` now runs on this machine. See "e2e-tests — working setup" below for the full story, including a real bug the setup process surfaced.
 
 ## What broke, and what I did about it
 
@@ -99,15 +100,77 @@ Confirmed: release id identical across flavours; debug ids get the per-flavour s
 | `:privacy:test` | **79 tests, 0 failures, 0 errors, 4 skipped** | Skips are the gated real-model tests (`OrtPiiModelRunnerRealModelTest` etc.) that need `PRIVACY_MODEL_DIR` set — pre-existing, not related to today's changes |
 | `:privacy-benchmark:test` | **45 tests, 0 failures, 0 errors, 1 skipped** | |
 | `test-integration` (`:app:testGmsDebugUnitTest --tests "...integration.*"`) | **included in the above** | Makefile's own comment says this is a subset of `test-unit` since both are JVM-based; no separate run needed |
-| `:e2e-tests` | **not run — cannot run on this machine** | No Podman, no rootful socket, no `binder_linux` kernel module. `:e2e-tests:testClasses` (compile-only) succeeds, confirming the tunnel removal didn't break the e2e source, but the actual containerized suite (calculator, camera, storage, screenshots, WebView, and — significantly — `OAuthFlowE2ETest.kt`, the full OAuth DCR-through-authenticated-call flow) has never been exercised in this pass |
+| `:e2e-tests` | **92 tests, 78 passed, 0 failed, 14 skipped** | Now runs end-to-end on this machine. See "e2e-tests — working setup" below for how, and for two real applicationId-propagation bugs the setup process found and fixed. |
 
-### Which suites are a usable regression baseline before D-19 work starts
+## e2e-tests — working setup
+
+Once the owner installed Podman and set up the rootful socket, getting `e2e-tests` fully green took three fix passes. Each is its own commit; summarized here so a future session knows what "green" looks like and doesn't have to rediscover any of this.
+
+### Running it
+
+```bash
+DOCKER_HOST=unix:///run/podman/podman.sock TESTCONTAINERS_RYUK_DISABLED=true ./gradlew :e2e-tests:test
+```
+
+No `sudo` is required for a normal run on this machine — see "the sudo-free path" below. Kill any stray Gradle/Kotlin daemons first (`./gradlew --stop`) if a previous run didn't exit cleanly; a leftover daemon can hold the podman socket or stale compiled test classes.
+
+### Kernel-module detection fix (fuse is built into this kernel)
+
+First attempt failed in 56s, before the container ever got created: `ensureKernelModules()` in `AndroidContainerSetup.kt` checked `/proc/modules` for both `binder_linux` and `fuse`, and only ran `sudo modprobe ...` if either was missing. `binder_linux` was loaded, but this kernel has `fuse` compiled in rather than shipped as a loadable module, so it never appears in `/proc/modules` — the check always read as "not satisfied," so it always fell through to a non-interactive `sudo modprobe binder_linux ...`, which failed immediately (no TTY, no cached credentials): `sudo: a password is required`.
+
+Fixed by accepting two alternative satisfaction signals, narrowly scoped to the detection logic only (nothing about the container config or the sudo invocation itself changed):
+
+- binder: `/proc/modules` **or** `/dev/binderfs` already mounted
+- fuse: `/proc/modules` **or** `/dev/fuse` device node existing
+
+This is inherited upstream test infrastructure, not project-specific logic — worth sending upstream if this kernel-packaging variance (fuse built-in vs. loadable) affects other users of the same harness.
+
+### The sudo-free path
+
+With the fix above, and with this machine's `binder_linux` already loaded and `/dev/binderfs` already mounted (the owner's own prior setup), `ensureKernelModules()` now logs `Kernel modules already loaded` and returns immediately — `sudo` is never invoked. A machine starting from nothing would still need the modprobe/mount step done once (root required, not something I can do), but on an already-prepared machine like this one, `sudo` plays no role at all in a normal `e2e-tests` run.
+
+### Redroid image pull
+
+`redroid/redroid:14.0.0-latest` is 828MB, pulled once via the rootful Podman socket (~28s at ~29MB/s on this connection) and cached by Podman thereafter — every run after the first skips straight to container creation. Boot itself (container start → ADB-reachable) is fast once the image is local: consistently 8-9 seconds across four separate runs.
+
+### Two applicationId-propagation bugs found and fixed
+
+Getting `e2e-tests` running for the first time since the `800198a` applicationId rename surfaced two real bugs — the rename only touched `app/build.gradle.kts` and `compose-test-app/build.gradle.kts`, and nothing in `e2e-tests/` was in scope at the time:
+
+1. **`APP_PACKAGE`** — hardcoded in two independent places (`AndroidContainerSetup.kt`, `StorageE2E.kt`) to the pre-rename applicationId. Every `adb -n`/`pm`/`pidof` command addressed a package that no longer exists on the device, so the app never launched and the MCP server never started (`MCP server did not become ready within 60000ms`). Fixed by updating both constants to `uk.co.drhconsulting.droidthumb.gms.debug`.
+2. **`COMPOSE_TEST_PACKAGE`** — same root problem, one level deeper. `compose-test-app`'s applicationId was renamed but its namespace deliberately wasn't (same pattern as the main app), so this single constant was being used two incompatible ways: as a bare package name (`force-stop`, where the applicationId is correct) and as the prefix for `-n pkg/.MainActivity`-style relative component references, which Android resolves by literally concatenating the relative class name onto whatever precedes the slash — so *that* usage needed the namespace, not the applicationId. No single string value could satisfy both. Split into `COMPOSE_TEST_APPLICATION_ID` (bare uses) and `COMPOSE_TEST_MAIN_ACTIVITY_CLASS`/`COMPOSE_TEST_WEBVIEW_ACTIVITY_CLASS` (fully-qualified, used with `-n`), matching the pattern `AndroidContainerSetup.kt` already used correctly for the main app. Also deleted a dead, unused duplicate of the old constant in `E2EComposeRefreshTest.kt`.
+
+Worth checking for the same applicationId/namespace-divergence trap anywhere else a future rename touches an app whose namespace stays fixed.
+
+### Pass/fail/skip baseline (post-fix, current `main`)
+
+**92 tests, 78 passed, 0 failed, 14 skipped — this is green.**
+
+| Test class | Tests | Skipped |
+|---|---|---|
+| `E2ECalculatorTest` | 3 | 0 |
+| `E2ECameraTest` | 16 | 14 |
+| `E2EComposeRefreshTest` | 2 | 0 |
+| `E2EErrorHandlingTest` | 6 | 0 |
+| `E2EScreenshotTest` | 1 | 0 |
+| `E2EStorageEdgeCasesTest` | 20 | 0 |
+| `E2EStoragePartialAccessTest` | 8 | 0 |
+| `E2EStorageToolsTest` | 31 | 0 |
+| `E2EWebViewNodeReductionTest` | 1 | 0 |
+| `E2EWebViewRefreshTest` | 3 | 0 |
+| `OAuthFlowE2ETest` | 1 | 0 |
+
+All 14 skips are `E2ECameraTest`, gated by `Assumptions.assumeTrue(...)` in the test source — redroid has no real camera hardware, so these skip gracefully by design rather than failing. Not an environmental gap worth chasing.
+
+## Which suites are a usable regression baseline before D-19 work starts
 
 **`:app:test` + `:privacy:test` + `:privacy-benchmark:test` (i.e. `make test-unit`) are a real, currently-green baseline** — 4330 tests total, 0 failures, run in a few minutes, no emulator or containers required. Use this before and after each D-19 step to catch regressions in the executor, tree parser, selector engine, settings, OAuth logic, and privacy pipeline.
 
-**`e2e-tests` is not currently a usable baseline on this machine** — not because of D-19, but because the container stack was never available here to begin with. Whoever has a working Podman+redroid setup should run it once against the current `main` (post tunnel-removal) to get a real pre-D-19 baseline, because two things about it are directly relevant to the D-19 work still to come:
+**`e2e-tests` is now also a real, green baseline on this machine** (92 tests, 78 passed, 0 failed, 14 skipped — see above), but its usable lifespan is short relative to the D-19 work still ahead:
 
-1. **`OAuthFlowE2ETest.kt`** exercises the full on-device OAuth server end-to-end. D-19's eventual removal of the on-device HTTP/OAuth server (not done in this pass — only tunnels were removed) will delete this test's entire subject, not just require edits to it.
+1. **`OAuthFlowE2ETest.kt`** currently passes — it exercises the full on-device OAuth server end-to-end (DCR through authenticated tool call) and that server still exists (only tunnels were removed in this pass). D-19's eventual removal of the on-device HTTP/OAuth server will delete this test's entire subject, not just require edits to it.
 2. **`AndroidContainerSetup`/`SharedAndroidContainer`/`McpClient`** all assume the device *listens* and the test *dials in* over HTTP — exactly the architecture D-19 replaces with a device that dials *out*. This harness will need a fundamental redesign (a fake-relay-in-the-loop, per the design doc's own `tools/fake-device` concept), not incremental fixes, once the on-device server itself is removed. Flagged in `module-map.md` already; repeating it here because it's directly relevant to "what's a usable baseline."
+
+So: run it now, while it's green, to catch any regression from tunnel removal or the applicationId-propagation fixes above — but expect it to need a real redesign, not incremental patching, once D-19's on-device-server removal lands.
 
 Also worth noting: **Play Integrity fails on emulators** (per the design doc's Appendix B), so any real device-facing behaviour that depends on Play Integrity cannot be validated on this AVD — only on a real device, which is explicitly the founder's own responsibility per B-15/§11.5 of the design doc.
