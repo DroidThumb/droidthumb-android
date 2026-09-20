@@ -11,13 +11,11 @@ import app.cash.turbine.test
 import com.danielealbano.androidremotecontrolmcp.data.model.BindingAddress
 import com.danielealbano.androidremotecontrolmcp.data.model.BuiltinPermissions
 import com.danielealbano.androidremotecontrolmcp.data.model.CertificateSource
-import com.danielealbano.androidremotecontrolmcp.data.model.CloudflareTunnelMode
 import com.danielealbano.androidremotecontrolmcp.data.model.PlaceholderFormat
 import com.danielealbano.androidremotecontrolmcp.data.model.PrivacyModeConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.RedactionMode
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
-import com.danielealbano.androidremotecontrolmcp.data.model.TunnelProviderType
 import com.danielealbano.androidremotecontrolmcp.privacy.PiiCategory
 import com.danielealbano.androidremotecontrolmcp.testutil.RecordingServerLogRepository
 import io.mockk.every
@@ -105,10 +103,6 @@ class SettingsRepositoryImplTest {
                 assertFalse(config.httpsEnabled)
                 assertEquals(CertificateSource.AUTO_GENERATED, config.certificateSource)
                 assertEquals(ServerConfig.DEFAULT_CERTIFICATE_HOSTNAME, config.certificateHostname)
-                assertFalse(config.tunnelEnabled)
-                assertEquals(TunnelProviderType.CLOUDFLARE, config.tunnelProvider)
-                assertEquals("", config.ngrokAuthtoken)
-                assertEquals("", config.ngrokDomain)
                 assertEquals("", config.deviceSlug)
             }
 
@@ -515,172 +509,6 @@ class SettingsRepositoryImplTest {
 
                     cancelAndIgnoreRemainingEvents()
                 }
-            }
-    }
-
-    @Nested
-    @DisplayName("updateTunnelEnabled")
-    inner class UpdateTunnelEnabled {
-        @Test
-        fun `enables tunnel`() =
-            testScope.runTest {
-                repository.updateTunnelEnabled(true)
-                val config = repository.getServerConfig()
-
-                assertTrue(config.tunnelEnabled)
-            }
-
-        @Test
-        fun `disables tunnel`() =
-            testScope.runTest {
-                repository.updateTunnelEnabled(true)
-                repository.updateTunnelEnabled(false)
-                val config = repository.getServerConfig()
-
-                assertFalse(config.tunnelEnabled)
-            }
-    }
-
-    @Nested
-    @DisplayName("updateTunnelProvider")
-    inner class UpdateTunnelProvider {
-        @Test
-        fun `updates tunnel provider to NGROK`() =
-            testScope.runTest {
-                repository.updateTunnelProvider(TunnelProviderType.NGROK)
-                val config = repository.getServerConfig()
-
-                assertEquals(TunnelProviderType.NGROK, config.tunnelProvider)
-            }
-
-        @Test
-        fun `updates tunnel provider to CLOUDFLARE`() =
-            testScope.runTest {
-                repository.updateTunnelProvider(TunnelProviderType.NGROK)
-                repository.updateTunnelProvider(TunnelProviderType.CLOUDFLARE)
-                val config = repository.getServerConfig()
-
-                assertEquals(TunnelProviderType.CLOUDFLARE, config.tunnelProvider)
-            }
-    }
-
-    @Nested
-    @DisplayName("updateNgrokAuthtoken")
-    inner class UpdateNgrokAuthtoken {
-        @Test
-        fun `updates ngrok authtoken`() =
-            testScope.runTest {
-                repository.updateNgrokAuthtoken("test-authtoken-abc123")
-                val config = repository.getServerConfig()
-
-                assertEquals("test-authtoken-abc123", config.ngrokAuthtoken)
-            }
-
-        @Test
-        fun `reads persisted ngrok authtoken`() =
-            testScope.runTest {
-                repository.updateNgrokAuthtoken("persisted-token")
-                val config1 = repository.getServerConfig()
-                val config2 = repository.getServerConfig()
-
-                assertEquals(config1.ngrokAuthtoken, config2.ngrokAuthtoken)
-            }
-    }
-
-    @Nested
-    @DisplayName("updateNgrokDomain")
-    inner class UpdateNgrokDomain {
-        @Test
-        fun `updates ngrok domain`() =
-            testScope.runTest {
-                repository.updateNgrokDomain("my-app.ngrok-free.app")
-                val config = repository.getServerConfig()
-
-                assertEquals("my-app.ngrok-free.app", config.ngrokDomain)
-            }
-
-        @Test
-        fun `reads persisted ngrok domain`() =
-            testScope.runTest {
-                repository.updateNgrokDomain("test-domain.ngrok.io")
-                val config1 = repository.getServerConfig()
-                val config2 = repository.getServerConfig()
-
-                assertEquals(config1.ngrokDomain, config2.ngrokDomain)
-            }
-    }
-
-    @Nested
-    @DisplayName("updateCloudflareTunnelMode")
-    inner class UpdateCloudflareTunnelMode {
-        @Test
-        fun `defaults to FREE when unset`() =
-            testScope.runTest {
-                val config = repository.getServerConfig()
-
-                assertEquals(CloudflareTunnelMode.FREE, config.cloudflareTunnelMode)
-            }
-
-        @Test
-        fun `persists TOKEN mode`() =
-            testScope.runTest {
-                repository.updateCloudflareTunnelMode(CloudflareTunnelMode.TOKEN)
-                val config = repository.getServerConfig()
-
-                assertEquals(CloudflareTunnelMode.TOKEN, config.cloudflareTunnelMode)
-            }
-
-        @Test
-        fun `unknown stored mode falls back to FREE`() =
-            testScope.runTest {
-                dataStore.edit { prefs ->
-                    prefs[stringPreferencesKey("cloudflare_tunnel_mode")] = "NOT_A_MODE"
-                }
-                val config = repository.getServerConfig()
-
-                assertEquals(CloudflareTunnelMode.FREE, config.cloudflareTunnelMode)
-            }
-    }
-
-    @Nested
-    @DisplayName("updateCloudflareTunnelToken")
-    inner class UpdateCloudflareTunnelToken {
-        @Test
-        fun `defaults to empty when unset`() =
-            testScope.runTest {
-                val config = repository.getServerConfig()
-
-                assertEquals("", config.cloudflareTunnelToken)
-            }
-
-        @Test
-        fun `persists token`() =
-            testScope.runTest {
-                repository.updateCloudflareTunnelToken("cf-token-xyz789")
-                val config = repository.getServerConfig()
-
-                assertEquals("cf-token-xyz789", config.cloudflareTunnelToken)
-            }
-    }
-
-    @Nested
-    @DisplayName("updateCloudflareTunnelExtraArgs")
-    inner class UpdateCloudflareTunnelExtraArgs {
-        @Test
-        fun `defaults to empty when unset`() =
-            testScope.runTest {
-                val config = repository.getServerConfig()
-
-                assertEquals("", config.cloudflareTunnelExtraArgs)
-            }
-
-        @Test
-        fun `persists extra args`() =
-            testScope.runTest {
-                repository.updateCloudflareTunnelExtraArgs("--edge region1.v2.argotunnel.com:7844")
-                val config = repository.getServerConfig()
-
-                assertEquals("--edge region1.v2.argotunnel.com:7844", config.cloudflareTunnelExtraArgs)
             }
     }
 

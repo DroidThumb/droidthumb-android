@@ -31,7 +31,7 @@ class ServerLogSegmentedStoreTest {
             val store = store()
             store.append(100L, ServerLogEntry.Type.SERVER, "started", null, null)
             store.append(200L, ServerLogEntry.Type.TOOL_CALL, "", "tap", 42L)
-            store.append(300L, ServerLogEntry.Type.TUNNEL, "connected", null, null)
+            store.append(300L, ServerLogEntry.Type.OAUTH, "connected", null, null)
 
             val index = store.readIndex()
             assertEquals(3, index.size)

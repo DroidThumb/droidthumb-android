@@ -10,7 +10,6 @@ class ServerLogEntryTypeTest {
     @Test
     fun `type ids are pinned to their on-disk values`() {
         assertEquals(0.toByte(), ServerLogEntry.Type.TOOL_CALL.id)
-        assertEquals(1.toByte(), ServerLogEntry.Type.TUNNEL.id)
         assertEquals(2.toByte(), ServerLogEntry.Type.SERVER.id)
         assertEquals(3.toByte(), ServerLogEntry.Type.OAUTH.id)
         assertEquals(4.toByte(), ServerLogEntry.Type.AUTH.id)
@@ -24,5 +23,10 @@ class ServerLogEntryTypeTest {
             assertEquals(type, ServerLogEntry.Type.fromId(type.id))
         }
         assertNull(ServerLogEntry.Type.fromId(99.toByte()))
+    }
+
+    @Test
+    fun `fromId returns null for the retired TUNNEL id`() {
+        assertNull(ServerLogEntry.Type.fromId(1.toByte()))
     }
 }
