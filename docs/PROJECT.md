@@ -586,9 +586,9 @@ debug builds get a per-flavor suffix so both can be installed side by side.
 
 | Variant | Application ID | Debuggable | Minify | Logging |
 |---------|---------------|-----------|--------|---------|
-| gmsDebug | `com.danielealbano.androidremotecontrolmcp.gms.debug` | true | false | Verbose |
-| fossDebug | `com.danielealbano.androidremotecontrolmcp.foss.debug` | true | false | Verbose |
-| gmsRelease / fossRelease | `com.danielealbano.androidremotecontrolmcp` | false | false (open source) | Info+ |
+| gmsDebug | `uk.co.drhconsulting.droidthumb.gms.debug` | true | false | Verbose |
+| fossDebug | `uk.co.drhconsulting.droidthumb.foss.debug` | true | false | Verbose |
+| gmsRelease / fossRelease | `uk.co.drhconsulting.droidthumb` | false | false (open source) | Info+ |
 
 ### Versioning
 

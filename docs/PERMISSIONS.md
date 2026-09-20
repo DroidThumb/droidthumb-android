@@ -8,8 +8,8 @@ The commands below require a device or emulator reachable over `adb` where the a
 
 Replace `<app-id>` with the application ID for your build:
 
-- **Debug**: `com.danielealbano.androidremotecontrolmcp.debug`
-- **Release**: `com.danielealbano.androidremotecontrolmcp`
+- **Debug**: `uk.co.drhconsulting.droidthumb.<flavor>.debug` (e.g. `uk.co.drhconsulting.droidthumb.gms.debug`, `uk.co.drhconsulting.droidthumb.foss.debug`)
+- **Release**: `uk.co.drhconsulting.droidthumb` (identical across flavours)
 
 > **Note**: the debug build adds the `.debug` suffix to the **application ID**, but the **class names do not change**. The Accessibility and Notification Listener component names below always use the unsuffixed class package (`com.danielealbano.androidremotecontrolmcp.services.*`), regardless of build type.
 
@@ -81,8 +81,8 @@ The following script grants every runtime permission and enables both special-ac
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Set to com.danielealbano.androidremotecontrolmcp for a release build
-APP_ID="com.danielealbano.androidremotecontrolmcp.debug"
+# Set to uk.co.drhconsulting.droidthumb for a release build
+APP_ID="uk.co.drhconsulting.droidthumb.gms.debug"
 
 ACCESSIBILITY_SERVICE="$APP_ID/com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService"
 NOTIFICATION_LISTENER="$APP_ID/com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService"

@@ -381,8 +381,8 @@ Enable the tunnel in the app's "Remote Access" section. The public URL is displa
 The app can be fully configured and controlled from the command line without opening the UI. This is useful for automated setups, CI pipelines, or headless devices.
 
 Replace `<app-id>` with the application ID for your build:
-- **Debug**: `com.danielealbano.androidremotecontrolmcp.debug`
-- **Release**: `com.danielealbano.androidremotecontrolmcp`
+- **Debug**: `uk.co.drhconsulting.droidthumb.<flavor>.debug` (e.g. `uk.co.drhconsulting.droidthumb.gms.debug`, `uk.co.drhconsulting.droidthumb.foss.debug`)
+- **Release**: `uk.co.drhconsulting.droidthumb` (identical across flavours)
 
 #### Grant Permissions
 

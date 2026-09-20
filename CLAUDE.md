@@ -616,12 +616,12 @@ Local development requires Android SDK, emulator/device, and standard Android de
 
 ### APK building
 - **Debug APK**: Build with `make build` or `./gradlew assembleDebug`.
-  - Application ID: `com.danielealbano.androidremotecontrolmcp.debug`.
+  - Application ID: `uk.co.drhconsulting.droidthumb.<flavor>.debug` (e.g. `uk.co.drhconsulting.droidthumb.gms.debug`, `uk.co.drhconsulting.droidthumb.foss.debug`).
   - Debuggable: true.
   - Minify: false.
   - Signed with debug keystore.
 - **Release APK**: Build with `make build-release` or `./gradlew assembleRelease`.
-  - Application ID: `com.danielealbano.androidremotecontrolmcp`.
+  - Application ID: `uk.co.drhconsulting.droidthumb` (identical across flavours).
   - Debuggable: false.
   - Minify: false (open source with MIT license, no ProGuard/R8).
   - Signed with release keystore (if configured in `keystore.properties`).
