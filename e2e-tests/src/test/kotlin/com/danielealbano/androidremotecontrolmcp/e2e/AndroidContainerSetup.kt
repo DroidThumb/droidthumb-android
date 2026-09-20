@@ -29,7 +29,7 @@ object AndroidContainerSetup {
     private const val MEMORY_BYTES = 8L * 1024 * 1024 * 1024 // 8 GB
     private const val PIDS_LIMIT = 16_384L
 
-    private const val APP_PACKAGE = "com.danielealbano.androidremotecontrolmcp.gms.debug"
+    private const val APP_PACKAGE = "uk.co.drhconsulting.droidthumb.gms.debug"
 
     // The E2E/OAuth broadcast ACTIONS are hardcoded in E2EConfigReceiver/OAuthApprovalTestReceiver using
     // their source package (com.danielealbano.androidremotecontrolmcp.debug) — NOT the applicationId. They
