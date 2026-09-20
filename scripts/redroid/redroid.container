@@ -1,0 +1,76 @@
+# Podman Quadlet unit for a persistent redroid debug device.
+#
+# Install (as root, from a checkout of this repo):
+#   sudo cp scripts/redroid/redroid.container /etc/containers/systemd/redroid.container
+#   sudo systemctl daemon-reload
+#
+# The generator turns this into redroid.service; [Install] WantedBy= below makes it
+# start automatically on every boot once daemon-reload has run, no `systemctl enable`
+# needed (that's a Quadlet difference from a hand-written unit — see debug-device.md).
+#
+# See docs/debug-device.md for the full setup story, what each option replicates from
+# e2e-tests' AndroidContainerSetup.kt, and how to reach/rebuild/verify the device.
+
+[Unit]
+Description=Persistent redroid debug device for droidthumb-android
+# binder_linux + /dev/binderfs must be ready before the container can get binder
+# access. dev-binderfs.mount is the systemd unit systemd's fstab generator derives
+# from the /etc/fstab entry for /dev/binderfs.
+After=dev-binderfs.mount
+Requires=dev-binderfs.mount
+
+[Container]
+Image=redroid/redroid:14.0.0-latest
+ContainerName=redroid
+
+# Fixed host ports so the device's address never changes.
+#   adb: localhost:5555
+#   MCP server (once started on-device): localhost:8080
+PublishPort=5555:5555
+PublishPort=8080:8080
+
+# Anonymous volume for /sys/fs/cgroup, matching AndroidContainerSetup.kt's
+# withVolumes(Volume("/sys/fs/cgroup")) — required by redroid's own cgroup handling.
+Volume=/sys/fs/cgroup
+
+# Matches AndroidContainerSetup.kt's explicit device list.
+AddDevice=/dev/fuse
+AddDevice=/dev/dma_heap/system
+AddDevice=/dev/hwrng:/dev/hw_random
+
+# Matches withCapAdd(*Capability.values()) — every capability.
+AddCapability=ALL
+
+# Matches withSecurityOpts("seccomp=unconfined", "apparmor=unconfined").
+SeccompProfile=unconfined
+
+# Matches withPidsLimit(PIDS_LIMIT) in AndroidContainerSetup.kt.
+PidsLimit=16384
+
+# Memory cap, apparmor=unconfined (no native Quadlet directive for either), and a
+# wildcard char-device cgroup rule passed through as raw podman flags.
+#
+# The wildcard replaces AndroidContainerSetup.kt's dynamically-detected
+# "c $binderMajor:* rwm" / "c $fuseMajorMinor rwm" rules. Those numbers are detected
+# at container-creation time in the Kotlin harness precisely because they can vary
+# between boots (binder/fuse register via the misc chardev framework with a
+# dynamically-assigned minor); a static Quadlet file can't run that detection at
+# start time the way the harness does per-run. A wildcard sidesteps the staleness
+# risk entirely. This does not meaningfully widen the container's privilege beyond
+# AddCapability=ALL + SeccompProfile=unconfined + apparmor=unconfined above — those
+# three already make it about as unconfined as a container can be, which redroid
+# genuinely needs to emulate a phone.
+PodmanArgs=--memory=8g --memory-swap=8g --security-opt apparmor=unconfined --device-cgroup-rule="c *:* rwm"
+
+# Matches withCommand(...) — redroid boot properties.
+Exec=androidboot.redroid_width=1080 androidboot.redroid_height=2400 androidboot.redroid_gpu_mode=guest androidboot.redroid_dpi=420 androidboot.use_memfd=true ro.product.model=Pixel_6 ro.product.brand=google ro.product.manufacturer=Google ro.debuggable=1 ro.secure=0
+
+[Service]
+Restart=always
+# redroid's first boot (Android system_server + zygote + HALs) can take longer than
+# systemd's default 90s start timeout; matches DEFAULT_EMULATOR_BOOT_TIMEOUT_MS's
+# spirit in AndroidContainerSetup.kt without being that aggressive-short.
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
