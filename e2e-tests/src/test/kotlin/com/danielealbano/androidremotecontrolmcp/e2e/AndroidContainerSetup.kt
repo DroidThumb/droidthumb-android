@@ -36,8 +36,18 @@ object AndroidContainerSetup {
     // must be sent verbatim, independent of the flavor's applicationId suffix (…gms.debug).
     private const val E2E_ACTION_BASE = "com.danielealbano.androidremotecontrolmcp.debug"
     private const val CALCULATOR_PACKAGE = "com.simplemobiletools.calculator"
-    private const val COMPOSE_TEST_PACKAGE = "com.danielealbano.composetestapp"
     private const val CALCULATOR_APK_RESOURCE = "/simple-calculator.apk"
+
+    // compose-test-app's applicationId (uk.co.drhconsulting.droidthumb.composetestapp) and its
+    // namespace/source package (com.danielealbano.composetestapp) deliberately diverge, same as the
+    // main app. COMPOSE_TEST_APPLICATION_ID identifies the installed package (force-stop, and the
+    // package half of a -n component); the *_CLASS constants are fully-qualified so `am start -n`
+    // resolves them correctly regardless of applicationId — do NOT recombine these into a single
+    // "pkg/.RelativeClass" constant, that resolves the class against applicationId and breaks.
+    private const val COMPOSE_TEST_APPLICATION_ID = "uk.co.drhconsulting.droidthumb.composetestapp"
+    private const val COMPOSE_TEST_MAIN_ACTIVITY_CLASS = "com.danielealbano.composetestapp.MainActivity"
+    private const val COMPOSE_TEST_WEBVIEW_ACTIVITY_CLASS =
+        "com.danielealbano.composetestapp.WebViewActivity"
     private const val E2E_CONFIG_RECEIVER_CLASS =
         "com.danielealbano.androidremotecontrolmcp.debug.E2EConfigReceiver"
     private const val OAUTH_APPROVAL_RECEIVER_CLASS =
@@ -424,7 +434,7 @@ object AndroidContainerSetup {
     fun launchComposeTestApp() {
         val result = execAdb(
             "shell", "am", "start", "-W",
-            "-n", "$COMPOSE_TEST_PACKAGE/.MainActivity",
+            "-n", "$COMPOSE_TEST_APPLICATION_ID/$COMPOSE_TEST_MAIN_ACTIVITY_CLASS",
         )
         println("[E2E Setup] launchComposeTestApp result: $result")
         Thread.sleep(2_000)
@@ -439,7 +449,7 @@ object AndroidContainerSetup {
         val result = execAdb(
             "shell", "am", "start",
             "--activity-single-top",
-            "-n", "$COMPOSE_TEST_PACKAGE/.MainActivity",
+            "-n", "$COMPOSE_TEST_APPLICATION_ID/$COMPOSE_TEST_MAIN_ACTIVITY_CLASS",
             "--ei", "number", number.toString(),
         )
         println("[E2E Setup] sendComposeTestNumber($number) result: $result")
@@ -452,7 +462,7 @@ object AndroidContainerSetup {
      * a11y nodes stuck for later simple-page tests.
      */
     fun forceStopComposeTestApp() {
-        execAdb("shell", "am", "force-stop", COMPOSE_TEST_PACKAGE)
+        execAdb("shell", "am", "force-stop", COMPOSE_TEST_APPLICATION_ID)
     }
 
     /**
@@ -461,7 +471,7 @@ object AndroidContainerSetup {
     fun launchWebViewTestApp() {
         val result = execAdb(
             "shell", "am", "start", "-W",
-            "-n", "$COMPOSE_TEST_PACKAGE/.WebViewActivity",
+            "-n", "$COMPOSE_TEST_APPLICATION_ID/$COMPOSE_TEST_WEBVIEW_ACTIVITY_CLASS",
         )
         println("[E2E Setup] launchWebViewTestApp result: $result")
         Thread.sleep(3_000)
@@ -475,7 +485,7 @@ object AndroidContainerSetup {
         val result = execAdb(
             "shell", "am", "start", "-W",
             "--es", "content", "heavy",
-            "-n", "$COMPOSE_TEST_PACKAGE/.WebViewActivity",
+            "-n", "$COMPOSE_TEST_APPLICATION_ID/$COMPOSE_TEST_WEBVIEW_ACTIVITY_CLASS",
         )
         println("[E2E Setup] launchHeavyWebViewTestApp result: $result")
         Thread.sleep(3_000)
@@ -539,7 +549,7 @@ object AndroidContainerSetup {
         val result = execAdb(
             "shell", "am", "start",
             "--activity-single-top",
-            "-n", "$COMPOSE_TEST_PACKAGE/.WebViewActivity",
+            "-n", "$COMPOSE_TEST_APPLICATION_ID/$COMPOSE_TEST_WEBVIEW_ACTIVITY_CLASS",
             "--ei", "number", number.toString(),
         )
         println("[E2E Setup] sendWebViewTestNumber($number) result: $result")

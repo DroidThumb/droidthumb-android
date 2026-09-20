@@ -37,7 +37,6 @@ class E2EComposeRefreshTest {
 
     companion object {
         private const val TOOL_PREFIX = AndroidContainerSetup.TOOL_NAME_PREFIX
-        private const val COMPOSE_TEST_PACKAGE = "com.danielealbano.composetestapp"
         private const val APP_LAUNCH_TIMEOUT_MS = 30_000L
 
         /**
