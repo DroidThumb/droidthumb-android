@@ -666,7 +666,7 @@ object AndroidContainerSetup {
      * Kernel module loading is a host-OS operation required by redroid.
      */
     private fun ensureKernelModules() {
-        if (isModuleLoaded("binder_linux") && isModuleLoaded("fuse")) {
+        if (isBinderSatisfied() && isFuseSatisfied()) {
             println("[E2E Setup] Kernel modules already loaded")
             return
         }
@@ -713,6 +713,28 @@ object AndroidContainerSetup {
         } catch (_: Exception) {
             false
         }
+
+    /**
+     * binder_linux may be loaded as a module (visible in /proc/modules) or, on some
+     * kernels, the binder devices may already be usable via a pre-mounted binderfs
+     * without the module ever appearing there. Either is sufficient.
+     */
+    private fun isBinderSatisfied(): Boolean =
+        isModuleLoaded("binder_linux") ||
+            try {
+                runProcess("mountpoint", "-q", "/dev/binderfs")
+                true
+            } catch (_: Exception) {
+                false
+            }
+
+    /**
+     * fuse is built into some kernels rather than shipped as a loadable module, so it
+     * never appears in /proc/modules even though it's fully available. The device node
+     * existing is sufficient proof of that.
+     */
+    private fun isFuseSatisfied(): Boolean =
+        isModuleLoaded("fuse") || File("/dev/fuse").exists()
 
     private fun detectBinderDevMajor(): String =
         try {
