@@ -8,7 +8,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.danielealbano.composetestapp"
+        applicationId = "uk.co.drhconsulting.droidthumb.composetestapp"
         minSdk = 33
         targetSdk = 34
         versionCode = 1

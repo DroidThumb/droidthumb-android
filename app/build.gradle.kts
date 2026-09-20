@@ -217,7 +217,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.danielealbano.androidremotecontrolmcp"
+        applicationId = "uk.co.drhconsulting.droidthumb"
         minSdk = 33
         targetSdk = 34
         versionCode = versionCodeProp
@@ -252,7 +252,7 @@ android {
     buildTypes {
         debug {
             // Debug applicationId is set per-flavor via the variant API (androidComponents below) so it becomes
-            // `…mcp.<flavor>.debug`, keeping the release applicationId identical across flavors.
+            // `…droidthumb.<flavor>.debug`, keeping the release applicationId identical across flavors.
             isDebuggable = true
             isMinifyEnabled = false
         }
@@ -474,11 +474,11 @@ val generateLocationDb =
     }
 
 androidComponents {
-    // Per-flavor debug applicationId (`…mcp.gms.debug` / `…mcp.foss.debug`) so both debug builds coexist, while
-    // the release applicationId stays identical across flavors (`com.danielealbano.androidremotecontrolmcp`).
+    // Per-flavor debug applicationId (`…droidthumb.gms.debug` / `…droidthumb.foss.debug`) so both debug builds
+    // coexist, while the release applicationId stays identical across flavors (`uk.co.drhconsulting.droidthumb`).
     onVariants(selector().withBuildType("debug")) { variant ->
         variant.applicationId.set(
-            "com.danielealbano.androidremotecontrolmcp.${variant.flavorName}.debug",
+            "uk.co.drhconsulting.droidthumb.${variant.flavorName}.debug",
         )
     }
     onVariants { variant ->
