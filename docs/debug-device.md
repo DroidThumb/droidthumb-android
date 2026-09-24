@@ -10,20 +10,22 @@ multi-minute boot cost every time you want to poke at the app.
 were verified; anything still `UNVERIFIED` carries the exact command that would confirm it. Don't
 treat an unverified claim as true; run the check first.
 
-## This host, as of the last verification (2026-09-24)
+## This host, as of the last verification (2026-09-25)
 
 | Item | Value |
 |---|---|
 | OS | Ubuntu 26.04.1 LTS, kernel `7.0.0-34-generic` |
-| User | `dan` (uid 1000, primary group `dan`). **Was `danny-harris` before the 2026-09-22 reinstall** — any path or group name containing `danny-harris` (here, in `docs/build-notes.md`, or in a stale `local.properties`) is dead. |
+| User | `dan` (uid 1000, primary group `dan`). **Was `danny-harris` before the 2026-09-22 reinstall** — any path or group name containing `danny-harris` (e.g. in a stale `local.properties`) is dead. |
 | Repo checkout | `/run/media/dan/Shared/Projects/DroidThumb/droidthumb-android` (NTFS partition — see "Git on the NTFS partition" below) |
-| Podman | 5.7.0 (apt, installed by the owner). `docs/build-notes.md` records 4.9.3 from the previous install — that number is historical. |
+| Podman | 5.7.0 (apt, installed by the owner). The previous install ran 4.9.3. |
 | git | 2.53.0 (apt) |
+| gh | installed (apt) |
+| make | **not installed** — needs `sudo apt install make`. Every `make` target fails until then; the `./gradlew` commands they wrap work without it. `act` and `mmdc` (node) are also absent. |
 | JDK | Temurin 17.0.20.1+1 at `/home/dan/toolchain/jdk-17.0.20.1+1` (user-local, no sudo) |
 | Android SDK | `/home/dan/toolchain/android-sdk` (user-local, no sudo) — cmdline-tools build 15859902, `platform-tools` (adb 37.0.1), `platforms;android-34`, `platforms;android-37.2`, `build-tools;34.0.0`, `build-tools;37.0.0` |
 | adb | `/home/dan/toolchain/android-sdk/platform-tools/adb` — not on `PATH` by default |
 
-The emulator and AVD system image listed in `docs/build-notes.md` were **not** reinstalled — this
+The emulator and AVD system image were **not** reinstalled — this
 redroid container replaces the AVD for manual debugging. Install them only if you actually need
 an AVD (`sdkmanager emulator "system-images;android-34;google_apis;x86_64"`).
 
@@ -77,11 +79,15 @@ Consequences:
 If `adb connect` fails, check the container is actually running first:
 
 ```bash
-sudo podman ps --filter name=redroid
+CONTAINER_HOST=unix:///run/podman/podman.sock podman ps --filter name=redroid   # as dan, via the socket
+sudo podman ps --filter name=redroid                                          # or directly as root
 ```
 
-(`DOCKER_HOST=unix:///run/podman/podman.sock podman ps` does **not** currently work as `dan` —
-see "Podman socket permissions" below.)
+Use `CONTAINER_HOST` (or `podman --remote --url unix:///run/podman/podman.sock`), **not**
+`DOCKER_HOST` — the `podman` CLI ignores `DOCKER_HOST` and silently lists your *rootless*
+storage instead, which is empty, so it looks as if the container isn't running. Checked
+2026-09-25: `DOCKER_HOST=... podman ps` → nothing; `CONTAINER_HOST=... podman ps` → `redroid`.
+(`DOCKER_HOST` is right for Testcontainers/docker-java in `e2e-tests`, which speak the Docker API.)
 
 ## Build, install, launch the debug APK
 
@@ -148,14 +154,22 @@ e2e suite's container are independent.
 DOCKER_HOST=unix:///run/podman/podman.sock TESTCONTAINERS_RYUK_DISABLED=true ./gradlew :e2e-tests:test
 ```
 
-**Currently blocked on this host**: Testcontainers talks to the rootful podman socket, which `dan`
-cannot reach after the reinstall — see "Podman socket permissions" below. Not attempted since the
-reinstall.
+Put `adb` on `PATH` first (the harness shells out to a bare `adb`). `make test-e2e` wraps the
+same command, but `make` isn't installed on this host yet.
 
-`UNVERIFIED`: running `e2e-tests` while this persistent container is also up hasn't been tried.
-Two redroid containers (8GB cap each) should fit this machine's 30GB RAM, but CPU contention and
-podman/network port allocation with both running simultaneously is untested. If you hit problems,
-stop this container first (`sudo systemctl stop redroid.service`) and retry.
+**Verified 2026-09-25**, as `dan` with no sudo, **with this persistent container running the
+whole time**: `BUILD SUCCESSFUL in 4m 58s`, **92 tests, 78 passed, 0 failed, 14 skipped** —
+identical, class by class, to the pre-reinstall baseline in `docs/build-notes.md` (the 14 skips
+are `E2ECameraTest`, by design). Testcontainers reached the rootful socket, logged
+`Kernel modules already loaded` (so its `sudo modprobe` fallback never ran), and created its own
+redroid container beside this one on random host ports (`34049->5555`, `37509->8080` that run)
+plus a `testcontainers/sshd` helper — no clash with the fixed 5555/8080 here. Both were gone
+afterwards. This container stayed up throughout and still reported `sys.boot_completed` = `1`
+afterwards. No CPU or memory trouble was seen at 30GB RAM, so there's no need to stop this device
+before running the suite.
+
+That verification used socket permissions applied by hand for the current boot — see the
+`UNVERIFIED` note under "Podman socket permissions" for what still has to survive a reboot.
 
 ## Limits — what this device cannot tell you
 
@@ -182,10 +196,10 @@ Ubuntu replaces that filesystem wholesale. What survives is only what is on the 
 `Shared` partition: this repo (including `scripts/redroid/redroid.container` and this doc) and
 its `build/` outputs. What is lost, every time:
 
-- apt packages: `git`, `podman` (and any container images pulled into rootful storage)
+- apt packages: `git`, `podman`, `make` (and any container images pulled into rootful storage)
 - `/etc/modules-load.d/binder.conf`, `/etc/modprobe.d/binder.conf`
 - the binderfs line in `/etc/fstab` (the installer writes a fresh fstab)
-- `/etc/systemd/system/podman.socket.d/override.conf`
+- `/etc/systemd/system/podman.socket.d/override.conf` and `/etc/tmpfiles.d/podman.conf`
 - `/etc/containers/systemd/redroid.container`
 - everything under `/home/dan`: the JDK, the Android SDK, `~/.gradle` (≈1GB of dependency
   cache — the first build afterwards is a cold one and takes well over 10 minutes), `~/.gitconfig`
@@ -198,26 +212,31 @@ reinstall they had all gone. The quickest audit:
 
 ```bash
 grep binder /etc/fstab; ls /etc/modules-load.d/binder.conf /etc/modprobe.d/binder.conf \
-  /etc/containers/systemd/redroid.container /etc/systemd/system/podman.socket.d/override.conf
-command -v git podman; ls ~/toolchain
+  /etc/containers/systemd/redroid.container /etc/systemd/system/podman.socket.d/override.conf \
+  /etc/tmpfiles.d/podman.conf
+command -v git podman make; ls ~/toolchain
 ```
 
 Recovery, in order. Steps 1–5 need sudo; 6–9 don't.
 
-1. `sudo apt install git podman`
+1. `sudo apt install git podman make`
 2. Recreate the two binder module files (contents under "Kernel module persistence").
 3. Append the binderfs line to `/etc/fstab` (under "binderfs mount") — the **fixed** one with
    `x-systemd.after=`, not the original.
 4. Recreate the podman socket override (under "Podman socket permissions"), with the **current**
    username as the group, plus the tmpfiles override described there.
-5. Pull the image fully qualified, install the quadlet, reload:
+5. Pull the image, install the quadlet, reload:
    ```bash
    sudo podman pull docker.io/redroid/redroid:14.0.0-latest
    sudo mkdir -p /etc/containers/systemd
    sudo cp scripts/redroid/redroid.container /etc/containers/systemd/redroid.container
    sudo systemctl daemon-reload
    ```
-   The explicit pull matters — see "Registry prefix" below.
+   With the fully qualified `Image=` now in the quadlet (see "Registry prefix" below), the
+   service should pull on its own at first start, so the explicit pull is belt-and-braces: it
+   keeps an ≈828MB download out of the unit's 300s start timeout. `UNVERIFIED`: a first start
+   with **no** local image has not been exercised — the image was already present when the
+   qualified name went in.
 6. Reboot. This is the real test: after it, `ls /dev/binderfs` must show `binder-control` et al.
    and `systemctl status redroid.service` must be active with nothing started by hand.
 7. Toolchain, user-local (see "Toolchain" below).
@@ -335,8 +354,8 @@ SocketMode=0660
 The group must be the **current** username's group — the pre-reinstall version said
 `danny-harris`, which no longer exists.
 
-**Not working on this host as of 2026-09-24.** The socket itself is group-accessible, but its
-parent directory is not:
+On its own, that override is **not enough** on this host. The socket is group-accessible, but
+its parent directory is not — as found on 2026-09-24:
 
 ```
 $ ls -ld /run/podman
@@ -347,20 +366,39 @@ ls: cannot open file '/run/podman/podman.sock': Permission denied
 
 Root cause: podman's own packaged `/usr/lib/tmpfiles.d/podman.conf` contains
 `D! /run/podman 0700 root root`, which systemd-tmpfiles applies at boot. No `SocketGroup=` on the
-socket can get past a 0700 root-owned directory. (The pre-reinstall doc recorded this override as
-sufficient on podman 4.9.3; on 5.7.0 as packaged by Ubuntu 26.04 it is not.)
+socket can get past a 0700 root-owned directory. (The pre-reinstall doc recorded the socket
+override as sufficient on podman 4.9.3; on 5.7.0 as packaged by Ubuntu 26.04 it is not.)
 
-Proposed fix — `UNVERIFIED`, needs sudo, not yet applied. Override the packaged tmpfiles file by
-creating one with the same name in `/etc/tmpfiles.d/` (a same-named file there replaces the
-`/usr/lib` one entirely, so copy it and change only the `/run/podman` line):
+The fix: override the packaged tmpfiles file with a same-named one in `/etc/tmpfiles.d/` (which
+replaces the `/usr/lib` one entirely, so copy it and change only the `/run/podman` line):
 
 ```bash
 sudo cp /usr/lib/tmpfiles.d/podman.conf /etc/tmpfiles.d/podman.conf
 sudo sed -i 's|^D! /run/podman 0700 root root$|D! /run/podman 0750 root dan|' /etc/tmpfiles.d/podman.conf
 ```
 
-Then reboot, and confirm as `dan` with no sudo:
-`curl -s --unix-socket /run/podman/podman.sock http://d/v4.0.0/libpod/_ping` → `OK`.
+Applied by the owner on 2026-09-24; `diff /usr/lib/tmpfiles.d/podman.conf /etc/tmpfiles.d/podman.conf`
+shows that single line changed. **The `!` means boot-only**: `systemd-tmpfiles --create` without
+`--boot` skips `D!` lines, so it did nothing until the next boot. For the current boot the owner
+applied the same result by hand (`chgrp dan /run/podman && chmod 0750 /run/podman`).
+
+**Verified 2026-09-25, current boot (hand-applied permissions)**, as `dan` with no sudo:
+
+```
+$ ls -ld /run/podman; ls -l /run/podman/podman.sock
+drwxr-x--- 2 root dan 100 Sep 24 18:57 /run/podman
+srw-rw---- 1 root dan 0 Sep 24 18:57 /run/podman/podman.sock
+$ curl -s --unix-socket /run/podman/podman.sock http://d/v4.0.0/libpod/_ping
+OK
+$ podman --remote --url unix:///run/podman/podman.sock ps
+CONTAINER ID  IMAGE                                    ...  PORTS                                           NAMES
+7171edb251f9  docker.io/redroid/redroid:14.0.0-latest  ...  0.0.0.0:5555->5555/tcp, 0.0.0.0:8080->8080/tcp  redroid
+```
+
+`UNVERIFIED`: that the `/etc/tmpfiles.d/podman.conf` line produces the same result **by itself
+at boot**, with nothing applied by hand. Confirm after the next reboot with the same `ls -ld` and
+`_ping` commands above. If `/run/podman` is back to `drwx------ root root`, the tmpfiles override
+didn't take — check `systemd-tmpfiles --cat-config | grep run/podman` to see which line won.
 
 This only matters for tools that talk to the Docker-compatible REST API over the socket (e.g.
 `e2e-tests`' Testcontainers usage via `DOCKER_HOST=unix:///run/podman/podman.sock`). The quadlet
@@ -370,8 +408,9 @@ unit below does **not** go through the socket — Quadlet-generated services inv
 
 ### Registry prefix: why the image must be pulled fully qualified
 
-`scripts/redroid/redroid.container` says `Image=redroid/redroid:14.0.0-latest` — a **short
-name**, no registry. On this host that works only by accident of what's already in local storage:
+`scripts/redroid/redroid.container` now says `Image=docker.io/redroid/redroid:14.0.0-latest`.
+Until 2026-09-25 it said `Image=redroid/redroid:14.0.0-latest` — a **short name**, no registry —
+and on this host that worked only by accident of what was already in local storage:
 
 - Ubuntu 26.04's `/etc/containers/registries.conf` defines **no** `unqualified-search-registries`,
   and `/etc/containers/registries.conf.d/shortnames.conf` has **no** alias for `redroid/*`.
@@ -387,13 +426,14 @@ name**, no registry. On this host that works only by accident of what's already 
   running container's image as `docker.io/redroid/redroid:14.0.0-latest` even though the quadlet
   doesn't say `docker.io/`.
 
-Consequence: on a fresh host, installing the quadlet **without** first running
-`sudo podman pull docker.io/redroid/redroid:14.0.0-latest` leaves `redroid.service` failing at
-start with the error above. Hence the explicit pull in the recovery sequence.
+Consequence: on a fresh host, the short-name quadlet would have left `redroid.service` failing
+at start with the error above unless the image had been pulled by its full name first. Hence the
+fully qualified `Image=`, which removes that dependency. The running container is unaffected —
+same image, same image ID.
 
-Proposed, not applied (it's a change to the checked-in unit, and changing the installed copy needs
-sudo): make the quadlet say `Image=docker.io/redroid/redroid:14.0.0-latest`, which removes the
-dependency on a pre-pull entirely. The running container would be unaffected — same image ID.
+Don't shorten it again. `e2e-tests` still asks for `redroid/redroid:14.0.0-latest` by short name
+(`AndroidContainerSetup.kt`), but that goes through the Docker-compatible API, which always
+resolves bare names against `docker.io` like Docker does, so it's not affected by the above.
 
 ### The quadlet unit
 

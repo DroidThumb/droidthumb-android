@@ -2,40 +2,41 @@
 
 **Status:** this repo had never been compiled before this pass. This documents what a from-scratch build actually required, what broke, what I fixed vs. what I flagged instead of fixing, how `e2e-tests` was gotten to a green baseline once Podman was available, and what's usable as a regression baseline before more D-19 work starts. Read `droidthumb-android/docs/module-map.md` first for the architecture context.
 
-**For a persistent, always-on debug device** (rather than the ephemeral, per-run containers `e2e-tests` manages itself), see `docs/debug-device.md` — it covers the redroid quadlet unit, the host-level kernel-module/binderfs/podman-socket persistence this doc used to describe as manual per-boot steps, and how to reach/rebuild/verify the device. The host-setup detail below is kept for its historical diagnosis value (the redroid image pull cost, the applicationId-propagation bugs); the "do this every time you boot" framing it used to carry is obsolete — `docs/debug-device.md` is now the source of truth for host setup.
+**Host and toolchain setup live in `docs/debug-device.md`, not here.** That doc is the single source of truth for: the host as it currently is (user, OS, podman version), installing the JDK and Android SDK user-local, the kernel-module/binderfs/podman-socket persistence, the persistent redroid debug device, and the recovery sequence after an OS reinstall (which wipes all of it — this has happened twice). This doc covers what building and testing the code needs and has found: toolchain versions, build gotchas, the D-19 tunnel removal, applicationId verification, the e2e harness fixes, and the test baselines. If the two ever disagree about the host, `debug-device.md` wins and this one is the bug.
 
-## Toolchain versions (confirmed working)
+## Toolchain versions
+
+Current host as of 2026-09-24/25 (Ubuntu 26.04.1, user `dan`, reinstalled 2026-09-22 — the previous install was user `danny-harris`; any path containing that name is dead). Paths are under `/home/dan/toolchain/`.
 
 | Component | Version | Source |
 |---|---|---|
-| JDK | Temurin 17.0.20.1+1 | `api.adoptium.net` binary API, installed user-local (no sudo) |
+| JDK | Temurin 17.0.20.1+1 | `api.adoptium.net` binary API, installed user-local (no sudo) at `~/toolchain/jdk-17.0.20.1+1` |
 | Android SDK cmdline-tools | build 15859902 | resolved from `developer.android.com/studio` at install time — this number changes over time, don't hardcode it |
 | Android platform (compileSdk) | `platforms;android-37.2` | **not** `platforms;android-37` — see gotcha #1 below |
 | Android platform (targetSdk/minSdk) | `platforms;android-34` | |
 | Build-tools | `34.0.0` and `37.0.0` | both installed; AGP picks per-variant |
+| platform-tools (adb) | 37.0.1 | `~/toolchain/android-sdk/platform-tools/adb` — not on `PATH` by default; `e2e-tests` shells out to a bare `adb`, so it must be on `PATH` for that suite |
 | NDK | not installed, not needed | only used to have been required by the now-removed tunnel native libs |
-| Emulator | 37.1.11 (from sdkmanager) | |
-| System image | `system-images;android-34;google_apis;x86_64` | matches `EMULATOR_IMAGE` in the Makefile |
+| Emulator + system image | **not installed on the current host** | the redroid debug device (`docs/debug-device.md`) replaced the AVD after the reinstall. Previous install had emulator 37.1.11 and `system-images;android-34;google_apis;x86_64` (matches `EMULATOR_IMAGE` in the Makefile) — reinstall with sdkmanager only if you need an AVD |
 | Gradle | 9.7.1 | via `./gradlew`, wrapper-managed, no local Gradle install needed |
 | AGP | 9.3.2 | pinned in `gradle/libs.versions.toml`, untouched |
 | Kotlin | 2.4.10 | pinned in `gradle/libs.versions.toml`, untouched |
 | KSP | 2.3.11 | pinned, untouched |
 | Hilt | 2.60.1 | pinned, untouched |
-| Podman | 4.9.3 | rootful socket at `/run/podman/podman.sock`, installed and configured by the owner (root required) — needed only for `:e2e-tests` |
+| Podman | 5.7.0 | apt, installed by the owner; rootful socket at `/run/podman/podman.sock` — needed for `:e2e-tests` and the debug device. The previous install ran 4.9.3. |
+| make | **not installed on the current host** | apt (needs sudo). Every `make` target in this repo fails until it is; the underlying `./gradlew` commands work without it |
+| act, mmdc (node) | **not installed on the current host** | `docs/TOOLS.md` uses `act` for local CI; `CLAUDE.md` requires `mmdc` to validate Mermaid diagrams |
 
 **No pinned version in the repo (Gradle, AGP, JDK target, SDK versions) needed to change.** Everything in the existing config built cleanly once the SDK was populated correctly. I did not touch `gradle/libs.versions.toml`, `gradle/wrapper/gradle-wrapper.properties`, `compileSdk`/`minSdk`/`targetSdk`, or `sourceCompatibility`/`jvmTarget` — none of the environmental failures required it, so nothing here was a "stop and ask" case.
 
-## Environment: what this machine actually had, and what I had to set up
+## Setting up the build environment
 
-Contrary to the initial assumption that JDK/SDK/emulator were already installed, this session's environment had **only** `adb` (`android-tools-adb` via apt) and nothing else — no JDK anywhere, no `sdkmanager`, no `platforms`, no `build-tools`, no NDK, no emulator binary, no AVD. `sudo` requires a password I don't have, so everything below was installed **user-local, no root**:
+The JDK and Android SDK are installed **user-local, no root**, under `~/toolchain/`. The exact commands are in `docs/debug-device.md` → "Host setup" → "Toolchain", and were last re-run from there on 2026-09-24. Two build-specific points on top of that:
 
-1. **JDK 17**: downloaded the Temurin tarball directly (`api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse`) into `~/toolchain/jdk-17.0.20.1+1`, no package manager involved.
-2. **Android SDK**: downloaded `commandlinetools-linux-<build>_latest.zip` from `dl.google.com` (URL resolved from the current Android Studio download page, not hardcoded) into `~/toolchain/android-sdk/cmdline-tools/latest`.
-3. Accepted all SDK licenses (`yes | sdkmanager --licenses`) — required before `sdkmanager` will install anything.
-4. Installed via `sdkmanager`: `platform-tools`, `platforms;android-34`, `platforms;android-37.2`, `build-tools;34.0.0`, `build-tools;37.0.0`, `emulator`, `system-images;android-34;google_apis;x86_64`.
-5. Created `local.properties` at the repo root with `sdk.dir=<the above path>` — this file is gitignored and does not exist by default; a fresh checkout needs it created (or `ANDROID_HOME` exported) before Gradle can find the SDK at all.
-6. Created the AVD: `avdmanager create avd -n mcp_test_emulator -k "system-images;android-34;google_apis;x86_64" --device "pixel_6" --force` — matches the `EMULATOR_NAME`/`EMULATOR_DEVICE`/`EMULATOR_IMAGE` already defined in the Makefile, so `make setup-emulator` would produce the same AVD.
-7. Started it headless: `emulator -avd mcp_test_emulator -no-snapshot -no-window -no-audio -no-metrics` (exactly what `make start-emulator` runs).
+- `local.properties` at the repo root needs `sdk.dir=/home/dan/toolchain/android-sdk` (or `ANDROID_HOME` exported) before Gradle can find the SDK at all. It is gitignored, so it doesn't exist in a fresh checkout — and on this host's NTFS checkout it **survives** an OS reinstall with a now-dead path in it, which is worse than it being missing.
+- The first build after an empty `~/.gradle` is cold: `assembleGmsDebug` took 16m 48s on 2026-09-24, nearly all of it downloading the Gradle distribution and dependencies.
+
+Only if you need an AVD (the redroid debug device usually replaces it): `sdkmanager emulator "system-images;android-34;google_apis;x86_64"`, then `avdmanager create avd -n mcp_test_emulator -k "system-images;android-34;google_apis;x86_64" --device "pixel_6" --force` (matches `EMULATOR_NAME`/`EMULATOR_DEVICE`/`EMULATOR_IMAGE` in the Makefile, so `make setup-emulator` produces the same AVD), and start it headless with `emulator -avd mcp_test_emulator -no-snapshot -no-window -no-audio -no-metrics` (what `make start-emulator` runs).
 
 ### Gotcha #1 — `compileSdk = 37` does not mean `platforms;android-37`
 
@@ -43,11 +44,11 @@ Contrary to the initial assumption that JDK/SDK/emulator were already installed,
 
 ### Gotcha #2 — KVM access here is a personal ACL grant, not group membership
 
-`groups` for this user does **not** list `kvm`, and `getent group kvm` shows no members — a naive check (`groups | grep kvm`) says "no access." But `/dev/kvm` carries an explicit POSIX ACL (`getfacl /dev/kvm` shows `user:danny-harris:rw-`) that grants this specific user read/write outside the normal group mechanism, and the emulator used it successfully (fast boot, no software-rendering fallback warnings in the log). **A second person on a different machine should not assume this ACL exists.** Check with `ls -l /dev/kvm` (should show `crw-rw----+`, note the `+`) and `getfacl /dev/kvm`; if there's no ACL and the user isn't in the `kvm` group, they need `sudo usermod -aG kvm $USER` (then log out/in) or an equivalent ACL grant — a command I cannot run myself.
+Only matters for an AVD — redroid doesn't use KVM. `groups` for this user does **not** list `kvm`, and `getent group kvm` shows no members — a naive check (`groups | grep kvm`) says "no access." But `/dev/kvm` carries an explicit POSIX ACL that grants the logged-in desktop user read/write outside the normal group mechanism. On the current host `getfacl /dev/kvm` shows `user:dan:rw-` (checked 2026-09-25; on the previous install it was `user:danny-harris:rw-` and the emulator used it successfully). It follows whoever is logged in at the seat, so it is not something to configure — but **a second person on a different machine should not assume it exists.** Check with `ls -l /dev/kvm` (should show `crw-rw----+`, note the `+`) and `getfacl /dev/kvm`; if there's no ACL and the user isn't in the `kvm` group, they need `sudo usermod -aG kvm $USER` (then log out/in) or an equivalent ACL grant.
 
-### Gotcha #3 — Podman was not installed initially; since resolved, see "e2e-tests" below
+### Gotcha #3 — Podman and the binder kernel setup are host config, and a reinstall removes them
 
-At the time this pass first ran, `podman` was not on this machine at all, there was no rootful podman socket, and the `binder_linux` kernel module redroid needs wasn't loaded. None of that was a consequence of anything removed under D-19 — it was a pure infrastructure gap. The owner has since installed Podman and set up the rootful socket themselves (root access I don't have); `e2e-tests` now runs on this machine. See "e2e-tests — working setup" below for the full story, including a real bug the setup process surfaced, and `docs/debug-device.md` for how the podman-socket permissions and kernel-module/binderfs setup were later made to survive a reboot instead of being reapplied by hand.
+Podman, its rootful socket permissions, and the `binder_linux`/binderfs setup redroid needs are all root-owned host config, installed by the owner, and all of it was wiped by the 2026-09-22 OS reinstall (and had to be rebuilt once before that). None of it is a consequence of anything in this repo. What it is, how to check it, and how to rebuild it: `docs/debug-device.md` → "Host setup" and "A full OS reinstall wipes all of this".
 
 ## What broke, and what I did about it
 
@@ -114,7 +115,7 @@ Once the owner installed Podman and set up the rootful socket, getting `e2e-test
 DOCKER_HOST=unix:///run/podman/podman.sock TESTCONTAINERS_RYUK_DISABLED=true ./gradlew :e2e-tests:test
 ```
 
-No `sudo` is required for a normal run on this machine — see "the sudo-free path" below. Kill any stray Gradle/Kotlin daemons first (`./gradlew --stop`) if a previous run didn't exit cleanly; a leftover daemon can hold the podman socket or stale compiled test classes.
+`make test-e2e` wraps the same command (plus `:e2e-tests:cleanTest` and sourcing `.env`), but `make` is not installed on the current host. `adb` must be on `PATH` (`export PATH=$HOME/toolchain/android-sdk/platform-tools:$PATH`) because the harness shells out to a bare `adb`. No `sudo` is required for a normal run on this machine — see "the sudo-free path" below. Kill any stray Gradle/Kotlin daemons first (`./gradlew --stop`) if a previous run didn't exit cleanly; a leftover daemon can hold the podman socket or stale compiled test classes.
 
 ### Kernel-module detection fix (fuse is built into this kernel)
 
@@ -129,11 +130,11 @@ This is inherited upstream test infrastructure, not project-specific logic — w
 
 ### The sudo-free path
 
-With the fix above, `ensureKernelModules()` logs `Kernel modules already loaded` and returns immediately whenever `binder_linux` is loaded and `/dev/binderfs` is mounted — `sudo` is never invoked in that case. At the time this was written, that state was reached manually each boot (a `modprobe`/`mkdir`/`mount` sequence run by hand). That's since been replaced with real boot-time persistence — `/etc/modules-load.d/`, `/etc/modprobe.d/`, and an `/etc/fstab` entry for `/dev/binderfs` — documented in full, including a real boot-ordering bug the first version of that persistence hit, in `docs/debug-device.md`'s "Host setup" section. Once that's confirmed working across a reboot, `sudo` should play no role in a normal `e2e-tests` run on this machine at all, not even a one-time manual step.
+With the fix above, `ensureKernelModules()` logs `Kernel modules already loaded` and returns immediately whenever `binder_linux` is loaded and `/dev/binderfs` is mounted — `sudo` is never invoked in that case. Both are now set up at boot by the host persistence in `docs/debug-device.md` ("Kernel module persistence", "binderfs mount"), verified across a reboot on 2026-09-24. So a normal `e2e-tests` run needs no `sudo` at all — provided `dan` can reach the podman socket (see "Podman socket permissions" in that doc).
 
 ### Redroid image pull
 
-`redroid/redroid:14.0.0-latest` is 828MB, pulled once via the rootful Podman socket (~28s at ~29MB/s on this connection) and cached by Podman thereafter — every run after the first skips straight to container creation. Boot itself (container start → ADB-reachable) is fast once the image is local: consistently 8-9 seconds across four separate runs.
+`redroid/redroid:14.0.0-latest` (asked for by short name; the Docker-compatible API resolves it to `docker.io/redroid/redroid:14.0.0-latest` — confirmed 2026-09-25 from the running container's image) is 828MB, pulled once via the rootful Podman socket (~28s at ~29MB/s on this connection) and cached by Podman thereafter — every run after the first skips straight to container creation. Boot itself (container start → ADB-reachable) is fast once the image is local: consistently 8-9 seconds across four separate runs.
 
 ### Two applicationId-propagation bugs found and fixed
 
@@ -147,6 +148,8 @@ Worth checking for the same applicationId/namespace-divergence trap anywhere els
 ### Pass/fail/skip baseline (post-fix, current `main`)
 
 **92 tests, 78 passed, 0 failed, 14 skipped — this is green.**
+
+**Re-verified 2026-09-25 on the reinstalled host** (Ubuntu 26.04.1, podman 5.7.0, user `dan`, no sudo, with the persistent debug device from `docs/debug-device.md` running alongside): same 92/78/0/14, identical per class, `BUILD SUCCESSFUL in 4m 58s` including the APK build.
 
 | Test class | Tests | Skipped |
 |---|---|---|

@@ -20,7 +20,10 @@ After=dev-binderfs.mount
 Requires=dev-binderfs.mount
 
 [Container]
-Image=redroid/redroid:14.0.0-latest
+# Fully qualified on purpose: Ubuntu 26.04's podman has no unqualified-search registries
+# and no short-name alias for redroid/*, so a bare "redroid/redroid:..." only resolves if
+# the image is already in local storage. See debug-device.md, "Registry prefix".
+Image=docker.io/redroid/redroid:14.0.0-latest
 ContainerName=redroid
 
 # Fixed host ports so the device's address never changes.
