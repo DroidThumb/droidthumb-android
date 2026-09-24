@@ -58,8 +58,9 @@ that forgets its state on restart can't show whether the app restores its own st
 (e.g. `autoStartOnBoot`). Clean-slate testing is `e2e-tests`' job — its containers are ephemeral
 by design.
 
-**Verified 2026-09-25 on a throwaway container** (same flags as the unit, host port 15555,
-volume `redroid-persist-test-data`), not yet on `redroid.service` itself: installed the APK, set
+**Verified 2026-09-25**, first on a throwaway container (same flags as the unit, host port
+15555, volume `redroid-persist-test-data`, since deleted), then on the real unit (below). The
+throwaway run: installed the APK, set
 `settings put global droidthumb_persist_test 42`, wrote `/data/local/tmp/persist-marker`; then
 `podman rm -v -f` (exactly the unit's `ExecStop`), confirmed the container was gone and the named
 volume was not, and started a new container on the same volume. After boot: the package was
@@ -67,10 +68,10 @@ still installed with the same `firstInstallTime`, the setting read `42`, the mar
 and the app launched (`Status: ok`). Inside the container, `/data` is the host's ext4
 (`/dev/mapper/ubuntu--vg-ubuntu--lv on /data type ext4`).
 
-`UNVERIFIED` on the real unit until the updated quadlet is installed and the service restarted —
-confirm with: install the APK, `sudo systemctl restart redroid.service`, wait for
-`sys.boot_completed` = `1`, then
-`adb -s localhost:5555 shell pm list packages | grep droidthumb` must still list it.
+**Verified 2026-09-25 on `redroid.service` itself** (by the owner, after installing the updated
+quadlet): installed the APK, `sudo systemctl restart redroid.service`, and after boot
+`adb -s localhost:5555 shell pm list packages | grep droidthumb` still listed
+`uk.co.drhconsulting.droidthumb.gms.debug`.
 
 ### Resetting to a factory-fresh device
 
