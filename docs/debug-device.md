@@ -40,6 +40,64 @@ fully inside it (zygote, system_server, launcher, adbd all running).
 
 If it isn't running (`systemctl status redroid.service`), `sudo systemctl start redroid.service`.
 
+## What persists across restarts and reboots
+
+Android's `/data` is a **named podman volume, `redroid-data`** (`Volume=redroid-data:/data` in
+the quadlet). Everything that lives there survives `systemctl restart`, a host reboot, and the
+container being deleted and recreated: installed APKs, granted permissions (including the
+accessibility-service enablement the app needs), battery-optimisation exemptions, the app's
+DataStore settings, `settings` values, and files under `/data/local/tmp`. Build → `adb install
+-r` once, and the device keeps it — you reinstall only when you have a new build.
+
+Why it's needed: the Quadlet-generated unit runs the container with `--rm` and stops it with
+`podman rm -v -f`, so the container object is thrown away on **every** stop. Before the volume
+(until 2026-09-25) `/data` lived in that container layer and a reboot returned a factory-fresh
+Android — no APK, no permissions, no app settings. That's also why this, and not "reinstall the
+APK as part of bring-up", is the fix: the APK is the smallest part of what was lost, and a device
+that forgets its state on restart can't show whether the app restores its own state after one
+(e.g. `autoStartOnBoot`). Clean-slate testing is `e2e-tests`' job — its containers are ephemeral
+by design.
+
+**Verified 2026-09-25 on a throwaway container** (same flags as the unit, host port 15555,
+volume `redroid-persist-test-data`), not yet on `redroid.service` itself: installed the APK, set
+`settings put global droidthumb_persist_test 42`, wrote `/data/local/tmp/persist-marker`; then
+`podman rm -v -f` (exactly the unit's `ExecStop`), confirmed the container was gone and the named
+volume was not, and started a new container on the same volume. After boot: the package was
+still installed with the same `firstInstallTime`, the setting read `42`, the marker was intact,
+and the app launched (`Status: ok`). Inside the container, `/data` is the host's ext4
+(`/dev/mapper/ubuntu--vg-ubuntu--lv on /data type ext4`).
+
+`UNVERIFIED` on the real unit until the updated quadlet is installed and the service restarted —
+confirm with: install the APK, `sudo systemctl restart redroid.service`, wait for
+`sys.boot_completed` = `1`, then
+`adb -s localhost:5555 shell pm list packages | grep droidthumb` must still list it.
+
+### Resetting to a factory-fresh device
+
+Deliberately destructive — wipes every app, permission and setting on the device:
+
+```bash
+sudo systemctl stop redroid.service
+sudo podman volume rm redroid-data
+sudo systemctl start redroid.service     # podman recreates the volume empty; Android does a first boot
+```
+
+Do this if the device gets into a bad state, **and after pulling a newer
+`redroid/redroid:14.0.0-latest`**: the tag is mutable, and a `/data` written by one Android
+build isn't guaranteed to boot cleanly under another. (The unit never pulls a newer image on its
+own — podman only pulls when the image is missing — so this only arises when someone pulls
+deliberately.)
+
+### Known noise: the simulated Bluetooth HAL aborts at boot
+
+Every boot logs 4 `Fatal signal 6 (SIGABRT)` entries in `adb logcat -b crash`, all Bluetooth:
+`android.hardware.bluetooth@1.1-service.sim` aborting with `Invalid address: 3C:5A:B4:01:02:03`,
+and `com.android.bluetooth`'s `bt_stack_manage` with it. The service is then restarted and stays
+`running` (`getprop init.svc.vendor.bluetooth-1-1`). This is the stock redroid 14 image, **not**
+the `/data` volume: checked 2026-09-25 by booting a fresh container with no volume beside one
+with a persisted volume — both logged the same 4 aborts. Filter them out before concluding the
+app crashed; the app's own crashes carry its package name.
+
 ## The adb address, and how to confirm it's up
 
 Fixed port, chosen so the address never changes between container recreations:
@@ -66,7 +124,10 @@ localhost:5555  device product:redroid_x86_64 model:Pixel_6 ...
 
 These are **one device**, not two. The adb server scans local ports 5555–5585 for emulators and
 registers anything answering on 5555 as `emulator-5554`, independent of the explicit
-`adb connect`. Confirmed by both serials returning the same `/proc/sys/kernel/random/boot_id`.
+`adb connect`. Confirmed 2026-09-25 by writing a unique marker file via `localhost:5555` and
+reading it back via `emulator-5554` (and not from a different container). Don't use
+`/proc/sys/kernel/random/boot_id` to tell containers apart — it's the **host's** boot ID, the
+same in every container on this kernel (an earlier version of this doc made that mistake).
 Consequences:
 
 - Always pass `-s localhost:5555` (or set `ANDROID_SERIAL=localhost:5555`); a bare `adb shell`
@@ -122,6 +183,9 @@ adb -s localhost:5555 shell am start -W -n uk.co.drhconsulting.droidthumb.gms.de
 `MainActivity` as `topResumedActivity`; the process was still alive afterwards with the crash
 buffer (`adb logcat -d -b crash`) empty. The screenshot showed the Server screen as expected on a
 fresh install: "Accessibility permission required", MCP Server and Event Channel both "Stopped".
+
+Install once per new build — the APK and anything you grant it persist across restarts and
+reboots (see "What persists across restarts and reboots").
 
 ## Logcat filtered to the app's package
 
@@ -201,6 +265,8 @@ its `build/` outputs. What is lost, every time:
 - the binderfs line in `/etc/fstab` (the installer writes a fresh fstab)
 - `/etc/systemd/system/podman.socket.d/override.conf` and `/etc/tmpfiles.d/podman.conf`
 - `/etc/containers/systemd/redroid.container`
+- the `redroid-data` volume, i.e. everything installed or configured on the debug device
+  (it lives under `/var/lib/containers`)
 - everything under `/home/dan`: the JDK, the Android SDK, `~/.gradle` (≈1GB of dependency
   cache — the first build afterwards is a cold one and takes well over 10 minutes), `~/.gitconfig`
   (git identity), and any GitHub credentials

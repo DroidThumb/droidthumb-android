@@ -36,6 +36,16 @@ PublishPort=8080:8080
 # withVolumes(Volume("/sys/fs/cgroup")) — required by redroid's own cgroup handling.
 Volume=/sys/fs/cgroup
 
+# Android's /data (installed apps, granted permissions incl. accessibility, app data,
+# settings) in a NAMED volume so the device keeps its state across restarts and reboots.
+# Without it /data lives in the container layer, and the generated unit runs the
+# container with --rm and stops it with `podman rm -v`, so every stop wiped it. `rm -v`
+# only removes anonymous volumes; a named one survives. Named volume rather than a bind
+# mount: it lives on the host's ext4 root (/var/lib/containers/storage/volumes), which
+# carries the Unix ownership/modes/xattrs Android's /data needs. Do NOT bind-mount it
+# onto the NTFS Shared partition. Reset to a factory-fresh device: see debug-device.md.
+Volume=redroid-data:/data
+
 # Matches AndroidContainerSetup.kt's explicit device list.
 AddDevice=/dev/fuse
 AddDevice=/dev/dma_heap/system
