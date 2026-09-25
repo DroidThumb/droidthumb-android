@@ -159,52 +159,77 @@ storage instead, which is empty, so it looks as if the container isn't running. 
 
 ## Build, install, launch the debug APK
 
-Variant: **`gmsDebug`** (see `build.gradle.kts` for the `gms`/`foss` flavour split).
+**Since 2026-09-25 the app is single-flavour** (the `gms`/`foss` split was merged into one build
+using the `foss` battery-optimization behaviour — Play restricts the `gms` one-tap dialog anyway).
+Gradle tasks and output paths below have no `gms`/`foss` component any more; the applicationId
+changes from `uk.co.drhconsulting.droidthumb.gms.debug` to `uk.co.drhconsulting.droidthumb.debug`.
+The two "Verified 2026-09-24/25" blocks below predate that merge and describe the old, two-flavour
+paths accurately for their date — left as history, not to be copy-pasted today.
+
+**One command** (recommended): `scripts/install-debug.sh -s localhost:5555` builds, installs,
+re-enables the accessibility service and the other special-access/runtime permissions (a plain
+reinstall clears `enabled_accessibility_services` for the app), and launches. See the script's
+`--help` and `docs/PERMISSIONS.md` for what it grants and why. From the repo root:
 
 ```bash
 export JAVA_HOME=$HOME/toolchain/jdk-17.0.20.1+1
-./gradlew assembleGmsDebug
+scripts/install-debug.sh -s localhost:5555
 ```
 
-**Verified 2026-09-24** on this host: `BUILD SUCCESSFUL in 16m 48s` — a cold build (empty
-`~/.gradle` after the reinstall, so the Gradle 9.7.1 distribution and every dependency were
-downloaded). Expect a warm rebuild to be far quicker. Real resolved values, read from the built
-APK with `aapt dump badging` (not asserted from the Gradle config):
+Or step by step:
 
-- **Variant**: `gmsDebug` (Gradle task `assembleGmsDebug`)
-- **Artifact**: `app/build/outputs/apk/gms/debug/app-gms-debug.apk` (≈273MB)
-- **applicationId**: `uk.co.drhconsulting.droidthumb.gms.debug`
+```bash
+export JAVA_HOME=$HOME/toolchain/jdk-17.0.20.1+1
+./gradlew assembleDebug
+```
+
+**Verified 2026-09-24** on this host (pre-merge, `gms` flavour): `BUILD SUCCESSFUL in 16m 48s` — a
+cold build (empty `~/.gradle` after the reinstall, so the Gradle 9.7.1 distribution and every
+dependency were downloaded). Expect a warm rebuild to be far quicker. Real resolved values, read
+from the built APK with `aapt dump badging` (not asserted from the Gradle config), as of that date:
+
+- **Variant** (pre-merge): `gmsDebug` (Gradle task `assembleGmsDebug`); now just `assembleDebug`.
+- **Artifact**: `app/build/outputs/apk/debug/app-debug.apk` (pre-merge: `apk/gms/debug/app-gms-debug.apk`, ≈273MB)
+- **applicationId**: `uk.co.drhconsulting.droidthumb.debug` (pre-merge: `…droidthumb.gms.debug`)
 - **versionName**: `1.12.0-dev.55+ab45f12` (git-derived, so it changes per commit)
 - **Main activity**: `com.danielealbano.androidremotecontrolmcp.ui.MainActivity` (namespace
   unchanged from the applicationId — see `docs/module-map.md` and `docs/build-notes.md` for why
   those two deliberately diverge)
 
 ```bash
-adb -s localhost:5555 install -r app/build/outputs/apk/gms/debug/app-gms-debug.apk
-adb -s localhost:5555 shell am start -W -n uk.co.drhconsulting.droidthumb.gms.debug/com.danielealbano.androidremotecontrolmcp.ui.MainActivity
+adb -s localhost:5555 install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s localhost:5555 shell am start -W -n uk.co.drhconsulting.droidthumb.debug/com.danielealbano.androidremotecontrolmcp.ui.MainActivity
 ```
 
-**Verified 2026-09-24** against this container: install → `Success`; launch →
+**Verified 2026-09-24** against this container (pre-merge): install → `Success`; launch →
 `Status: ok`, `LaunchState: COLD`, `TotalTime: 1002` ms; `dumpsys activity activities` shows
 `MainActivity` as `topResumedActivity`; the process was still alive afterwards with the crash
 buffer (`adb logcat -d -b crash`) empty. The screenshot showed the Server screen as expected on a
 fresh install: "Accessibility permission required", MCP Server and Event Channel both "Stopped".
 
-**Re-verified 2026-09-25 after the demolition pass**: the previous install was removed with
-`adb uninstall` (its stored settings no longer match the app), the new `gmsDebug` APK installed and
-launched cold with an empty crash buffer. Enabling the accessibility service with
+**Re-verified 2026-09-25 after the demolition pass** (pre-merge, still `gmsDebug`): the previous
+install was removed with `adb uninstall` (its stored settings no longer match the app), the new
+APK installed and launched cold with an empty crash buffer. Enabling the accessibility service with
 `settings put secure enabled_accessibility_services …` bound it (`dumpsys accessibility`: bound and
 enabled; logcat: `Accessibility service connected`), and after the activity resumed the home screen
-dropped the accessibility callout and enabled the Event Channel's Start button; Settings →
-Permissions shows Accessibility Service as Enabled.
+dropped the accessibility callout; Settings → Permissions shows Accessibility Service as Enabled.
 
 Install once per new build — the APK and anything you grant it persist across restarts and
 reboots (see "What persists across restarts and reboots").
 
+**Verified 2026-09-25 after the flavour merge**, via `scripts/install-debug.sh -s localhost:5555`:
+build → install (`Success`) → grant accessibility, notification listener and
+`POST_NOTIFICATIONS` → launch (`Status: ok`, `LaunchState: WARM`). `dumpsys accessibility` showed
+`McpAccessibilityService` bound and enabled under the new `uk.co.drhconsulting.droidthumb.debug`
+id, with the foreground window titled "DroidThumb" (confirms the `app_name` rename reached the
+device). `settings get secure enabled_notification_listeners` included the notification listener
+component. The stale pre-merge `uk.co.drhconsulting.droidthumb.gms.debug` install left on this
+container from the 09-24 runs above was then removed with `adb uninstall`.
+
 ## Logcat filtered to the app's package
 
 ```bash
-adb -s localhost:5555 logcat --pid=$(adb -s localhost:5555 shell pidof -s uk.co.drhconsulting.droidthumb.gms.debug)
+adb -s localhost:5555 logcat --pid=$(adb -s localhost:5555 shell pidof -s uk.co.drhconsulting.droidthumb.debug)
 ```
 
 If the app isn't running yet, `pidof` returns nothing and this will just hang waiting for a PID —

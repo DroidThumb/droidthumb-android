@@ -1,7 +1,7 @@
 .PHONY: help check-deps check-deps-updates update-deps build build-release clean \
         test-unit test coverage \
         lint lint-fix \
-        install install-release uninstall grant-permissions launch-app \
+        install install-release uninstall grant-permissions launch-app redeploy \
         setup-emulator start-emulator stop-emulator \
         logs logs-clear \
         build-release-bundle \
@@ -168,6 +168,9 @@ APP_ID_TARGET ?= $(APP_ID_DEBUG)
 
 launch-app: ## Launch MainActivity on device (debug build by default)
 	$(ADB) shell am start -n $(APP_ID_TARGET)/$(PKG).ui.MainActivity
+
+redeploy: ## Build, install, re-enable accessibility, and launch the debug build (see scripts/install-debug.sh)
+	scripts/install-debug.sh $(if $(SERIAL),-s $(SERIAL),)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Emulator Management
