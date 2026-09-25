@@ -80,25 +80,11 @@ class ChannelEventFactoryTest {
     }
 
     @Nested
-    @DisplayName("wifi events")
-    inner class WifiEvents {
-        @Test
-        fun `wifi event has correct type and data`() {
-            val event = ChannelEventFactory.wifi("MyNetwork", "connected", "00:11:22:33:44:55")
-            assertEquals("wifi", event.type)
-            val data = event.data.jsonObject
-            assertEquals("MyNetwork", data["ssid"]?.jsonPrimitive?.content)
-            assertEquals("connected", data["eventType"]?.jsonPrimitive?.content)
-            assertEquals("00:11:22:33:44:55", data["bssid"]?.jsonPrimitive?.content)
-        }
-    }
-
-    @Nested
     @DisplayName("timestamp")
     inner class Timestamp {
         @Test
         fun `timestamp is ISO 8601 format`() {
-            val event = ChannelEventFactory.wifi("test", "discovered", null)
+            val event = ChannelEventFactory.notification(sampleNotification, "posted")
             // Should not throw — valid ISO 8601
             val parsed = Instant.parse(event.timestamp)
             assertTrue(parsed.isBefore(Instant.now().plusSeconds(1)))

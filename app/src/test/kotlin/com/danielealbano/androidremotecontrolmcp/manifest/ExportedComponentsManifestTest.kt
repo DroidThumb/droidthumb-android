@@ -9,15 +9,15 @@ import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * Guards the exported-component surface declared in the source manifests.
+ * Guards the exported-component surface declared in the main manifest.
  *
  * An exported component with no `android:permission` is reachable by every app installed on the
- * device, with no permission of its own. For the ADB-facing configuration surface that is a
- * privilege escalation: a permissionless app could disable authentication, repoint the tunnel at
- * an attacker endpoint and enable boot persistence (GHSA-v82h-m32h-3j39).
+ * device, with no permission of its own. Upstream's ADB-facing configuration surface was exactly
+ * this class of problem (GHSA-v82h-m32h-3j39); the app now has no on-device server and no
+ * exported component that can reconfigure it (design doc SEC-19).
  *
- * These tests parse the checked-in manifests directly — no Robolectric, no device — so a component
- * added without a permission fails the build rather than shipping.
+ * These tests parse the checked-in manifest directly — no Robolectric, no device — so a component
+ * exported by mistake fails the build rather than shipping.
  */
 @DisplayName("Exported components")
 class ExportedComponentsManifestTest {
@@ -37,60 +37,14 @@ class ExportedComponentsManifestTest {
     }
 
     @Test
-    fun `every exported component in the debug manifest is gated`() {
-        val offenders =
-            componentsIn(DEBUG_MANIFEST)
-                .filter { it.exported && it.permission == null }
-                .map { it.name }
+    fun `the launcher activity is the only exported component`() {
+        val exported = componentsIn(MAIN_MANIFEST).filter { it.exported }.map { it.name }
 
-        assertTrue(offenders.isEmpty()) {
-            "Exported components in $DEBUG_MANIFEST without android:permission: $offenders. " +
-                "Debug APKs are published as release assets, so the debug source set is not a " +
-                "security boundary."
+        assertEquals(listOf(".ui.MainActivity"), exported) {
+            "Only the launcher MainActivity may be exported (SEC-19: no exported components that " +
+                "change app behaviour). Found: $exported"
         }
     }
-
-    @Test
-    fun `adb-facing components in the main manifest require DUMP`() {
-        val byName = componentsIn(MAIN_MANIFEST).associateBy { it.name }
-
-        listOf(
-            ".services.mcp.AdbConfigReceiver",
-            ".services.mcp.AdbServiceTrampolineActivity",
-        ).forEach { name ->
-            val component = byName[name] ?: error("$name is not declared in $MAIN_MANIFEST")
-            assertEquals(DUMP, component.permission, "$name must be gated on DUMP")
-        }
-    }
-
-    @Test
-    fun `test-only receivers in the debug manifest require DUMP`() {
-        val byName = componentsIn(DEBUG_MANIFEST).associateBy { it.name }
-
-        listOf(
-            ".debug.E2EConfigReceiver",
-            ".debug.OAuthApprovalTestReceiver",
-        ).forEach { name ->
-            val component = byName[name] ?: error("$name is not declared in $DEBUG_MANIFEST")
-            assertEquals(DUMP, component.permission, "$name must be gated on DUMP")
-        }
-    }
-
-    @Test
-    fun `E2EConfigReceiver is confined to the debug manifest`() {
-        val declaredInMain = componentsIn(MAIN_MANIFEST).any { it.name == ".debug.E2EConfigReceiver" }
-
-        assertTrue(!declaredInMain) {
-            "E2EConfigReceiver must not be declared in $MAIN_MANIFEST — it is test-only and its " +
-                "KDoc states it is absent from release builds."
-        }
-    }
-
-    private data class Component(
-        val name: String,
-        val exported: Boolean,
-        val permission: String?,
-    )
 
     private fun componentsIn(relativePath: String): List<Component> {
         val document =
@@ -118,22 +72,18 @@ class ExportedComponentsManifestTest {
         listOf(File(relativePath), File("app", relativePath)).firstOrNull { it.isFile }
             ?: error("Manifest not found: $relativePath (cwd=${File(".").absolutePath})")
 
+    private data class Component(
+        val name: String,
+        val exported: Boolean,
+        val permission: String?,
+    )
+
     private companion object {
         const val MAIN_MANIFEST = "src/main/AndroidManifest.xml"
-        const val DEBUG_MANIFEST = "src/debug/AndroidManifest.xml"
-        const val DUMP = "android.permission.DUMP"
 
         val COMPONENT_TAGS = listOf("activity", "activity-alias", "service", "receiver", "provider")
 
-        /**
-         * Components that must stay reachable by any caller:
-         * - `MainActivity` is the LAUNCHER entry point.
-         * - `ShareReceiverActivity` is a share-sheet target, invoked by arbitrary sending apps.
-         */
-        val INTENTIONALLY_PUBLIC =
-            setOf(
-                ".ui.MainActivity",
-                ".ui.ShareReceiverActivity",
-            )
+        /** Components that must stay reachable by any caller: `MainActivity` is the LAUNCHER entry point. */
+        val INTENTIONALLY_PUBLIC = setOf(".ui.MainActivity")
     }
 }

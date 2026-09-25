@@ -15,15 +15,12 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionEx
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.TypeInputController
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
-import com.danielealbano.androidremotecontrolmcp.testutil.PrivacyToolTestDoubles
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.unmockkAll
 import io.mockk.verify
 import io.mockk.verifyOrder
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -72,9 +69,9 @@ class TextInputToolsTest {
             ),
         )
 
-    private fun extractTextContent(result: CallToolResult): String {
+    private fun extractTextContent(result: ToolResult): String {
         assertEquals(1, result.content.size)
-        val textContent = result.content[0] as TextContent
+        val textContent = result.content[0] as ToolContent.Text
         return textContent.text
     }
 
@@ -684,8 +681,6 @@ class TextInputToolsTest {
                 mockAccessibilityServiceProvider,
                 mockTypeInputController,
                 mockNodeCache,
-                PrivacyToolTestDoubles.passthroughGate(),
-                PrivacyToolTestDoubles.identitySubstitutor(),
             )
 
         private fun setupDefaultMocks(existingText: String = "existing") {
@@ -931,8 +926,6 @@ class TextInputToolsTest {
                 mockAccessibilityServiceProvider,
                 mockTypeInputController,
                 mockNodeCache,
-                PrivacyToolTestDoubles.passthroughGate(),
-                PrivacyToolTestDoubles.identitySubstitutor(),
             )
 
         private fun setupDefaultMocks(existingText: String = "Hello") {
@@ -1147,8 +1140,6 @@ class TextInputToolsTest {
                 mockAccessibilityServiceProvider,
                 mockTypeInputController,
                 mockNodeCache,
-                PrivacyToolTestDoubles.passthroughGate(),
-                PrivacyToolTestDoubles.identitySubstitutor(),
             )
 
         private fun setupDefaultMocks(existingText: String = "Hello World") {
@@ -1447,7 +1438,6 @@ class TextInputToolsTest {
                 mockAccessibilityServiceProvider,
                 mockTypeInputController,
                 mockNodeCache,
-                PrivacyToolTestDoubles.passthroughGate(),
             )
 
         @Test

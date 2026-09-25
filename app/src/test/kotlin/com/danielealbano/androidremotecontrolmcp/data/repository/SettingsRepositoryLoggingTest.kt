@@ -5,7 +5,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerLogEntry
-import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
 import com.danielealbano.androidremotecontrolmcp.testutil.RecordingServerLogRepository
 import io.mockk.every
 import io.mockk.mockkStatic
@@ -58,8 +57,6 @@ class SettingsRepositoryLoggingTest {
         val changeLogger = SettingsChangeLogger(serverLog, testDispatcher, WINDOW)
         repository =
             SettingsRepositoryImpl(
-                dataStore,
-                changeLogger,
                 EventChannelSettingsImpl(dataStore, changeLogger),
             )
     }
@@ -72,58 +69,13 @@ class SettingsRepositoryLoggingTest {
     private fun settingsMessages() = serverLog.ofType(ServerLogEntry.Type.SETTINGS).map { it.message }
 
     @Test
-    fun `updatePort logs old to new`() =
-        testScope.runTest {
-            repository.updatePort(9090)
-            advanceUntilIdle()
-            assertEquals("Port changed 8080 → 9090", settingsMessages().single())
-        }
-
-    @Test
-    fun `updateBearerToken logs without value`() =
-        testScope.runTest {
-            repository.updateBearerToken("super-secret-token-value")
-            advanceUntilIdle()
-            val message = settingsMessages().single()
-            assertEquals("Bearer token changed", message)
-            assertFalse(message.contains("super-secret"))
-        }
-
-    @Test
-    fun `updateToolEnabled logs tool disabled`() =
-        testScope.runTest {
-            repository.updateToolEnabled("tap", false)
-            advanceUntilIdle()
-            assertEquals("Tool 'tap' disabled", settingsMessages().single())
-        }
-
-    @Test
-    fun `updateParamEnabled logs param disabled`() =
-        testScope.runTest {
-            repository.updateParamEnabled("save_camera_video", "audio", false)
-            advanceUntilIdle()
-            assertEquals("Parameter 'audio' of tool 'save_camera_video' disabled", settingsMessages().single())
-        }
-
-    @Test
-    fun `bulk updateToolPermissionsConfig logs diff only`() =
-        testScope.runTest {
-            repository.updateToolPermissionsConfig(ToolPermissionsConfig(disabledTools = setOf("tap", "swipe")))
-            advanceUntilIdle()
-            val messages = settingsMessages()
-            assertEquals(2, messages.size)
-            assertTrue(messages.contains("Tool 'tap' disabled"))
-            assertTrue(messages.contains("Tool 'swipe' disabled"))
-        }
-
-    @Test
     fun `no-op write logs nothing`() =
         testScope.runTest {
-            repository.updatePort(9090)
+            repository.updateEventChannelEndpointUrl("http://same:1")
             advanceUntilIdle()
             serverLog.clear()
 
-            repository.updatePort(9090)
+            repository.updateEventChannelEndpointUrl("http://same:1")
             advanceUntilIdle()
             assertTrue(settingsMessages().isEmpty())
         }

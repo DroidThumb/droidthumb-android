@@ -18,7 +18,6 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.WebViewN
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotAnnotator
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotEncoder
-import com.danielealbano.androidremotecontrolmcp.testutil.PrivacyToolTestDoubles
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -26,8 +25,6 @@ import io.mockk.mockk
 import io.mockk.unmockkAll
 import io.mockk.verify
 import io.mockk.verifyOrder
-import io.modelcontextprotocol.kotlin.sdk.types.ImageContent
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -168,8 +165,6 @@ class ScreenIntrospectionToolsTest {
                     mockNodeCache,
                     ScreenStateSnapshotCacheImpl(),
                     WebViewNodeMerger(),
-                    PrivacyToolTestDoubles.passthroughGate(),
-                    PrivacyToolTestDoubles.screenshotRedactor(),
                 )
         }
 
@@ -182,7 +177,7 @@ class ScreenIntrospectionToolsTest {
                 val result = handler.execute(null)
 
                 assertEquals(1, result.content.size)
-                val textContent = result.content[0] as TextContent
+                val textContent = result.content[0] as ToolContent.Text
                 assertEquals(sampleCompactOutput, stripUntrustedWarning(textContent.text))
             }
 
@@ -241,9 +236,9 @@ class ScreenIntrospectionToolsTest {
                 val result = handler.execute(params)
 
                 assertEquals(2, result.content.size)
-                val textContent = result.content[0] as TextContent
+                val textContent = result.content[0] as ToolContent.Text
                 assertEquals(sampleCompactOutput, stripUntrustedWarning(textContent.text))
-                val imageContent = result.content[1] as ImageContent
+                val imageContent = result.content[1] as ToolContent.Image
                 assertEquals("base64data", imageContent.data)
                 assertEquals("image/jpeg", imageContent.mimeType)
             }
@@ -286,7 +281,7 @@ class ScreenIntrospectionToolsTest {
                 val result = handler.execute(null)
 
                 assertEquals(1, result.content.size)
-                assertTrue(result.content[0] is TextContent)
+                assertTrue(result.content[0] is ToolContent.Text)
                 coVerify(exactly = 0) {
                     mockScreenCaptureProvider.captureScreenshotBitmap(any(), any())
                 }
@@ -302,7 +297,7 @@ class ScreenIntrospectionToolsTest {
                 val result = handler.execute(params)
 
                 assertEquals(1, result.content.size)
-                assertTrue(result.content[0] is TextContent)
+                assertTrue(result.content[0] is ToolContent.Text)
                 coVerify(exactly = 0) {
                     mockScreenCaptureProvider.captureScreenshotBitmap(any(), any())
                 }
@@ -409,7 +404,7 @@ class ScreenIntrospectionToolsTest {
                 val result = handler.execute(null)
 
                 assertEquals(1, result.content.size)
-                val textContent = result.content[0] as TextContent
+                val textContent = result.content[0] as ToolContent.Text
                 assertEquals(degradedOutput, stripUntrustedWarning(textContent.text))
 
                 @Suppress("DEPRECATION")
@@ -477,8 +472,6 @@ class ScreenIntrospectionToolsTest {
                     mockNodeCache,
                     realCache,
                     WebViewNodeMerger(),
-                    PrivacyToolTestDoubles.passthroughGate(),
-                    PrivacyToolTestDoubles.screenshotRedactor(),
                 )
         }
 
@@ -506,11 +499,11 @@ class ScreenIntrospectionToolsTest {
             every { mockTreeParser.parseTree(mockRootNode, "root_w0", any()) } returns tree
         }
 
-        private suspend fun freshText(): String = (handler.execute(null).content[0] as TextContent).text
+        private suspend fun freshText(): String = (handler.execute(null).content[0] as ToolContent.Text).text
 
         private suspend fun pagedText(cursor: String): String {
             val params = buildJsonObject { put("cursor", cursor) }
-            return (handler.execute(params).content[0] as TextContent).text
+            return (handler.execute(params).content[0] as ToolContent.Text).text
         }
 
         private fun snapshotId(text: String): String = Regex("snapshot:(\\S+)").find(text)!!.groupValues[1]
@@ -570,7 +563,7 @@ class ScreenIntrospectionToolsTest {
                 val params = buildJsonObject { putJsonObject("cursor") { put("nested", "x") } }
                 val result = handler.execute(params)
                 assertEquals(1, result.content.size)
-                assertTrue((result.content[0] as TextContent).text.contains("invalid cursor"))
+                assertTrue((result.content[0] as ToolContent.Text).text.contains("invalid cursor"))
             }
 
         @Test
@@ -614,8 +607,8 @@ class ScreenIntrospectionToolsTest {
                 val result = handler.execute(params)
 
                 assertEquals(2, result.content.size)
-                assertTrue(result.content[1] is ImageContent)
-                assertTrue((result.content[0] as TextContent).text.contains("page:1/2"))
+                assertTrue(result.content[1] is ToolContent.Image)
+                assertTrue((result.content[0] as ToolContent.Text).text.contains("page:1/2"))
             }
 
         @Test
@@ -633,7 +626,7 @@ class ScreenIntrospectionToolsTest {
                 val result = handler.execute(params)
 
                 assertEquals(1, result.content.size)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("page:2/2"))
                 assertTrue(text.contains("screenshot can only be requested on page 1"))
             }
@@ -650,7 +643,7 @@ class ScreenIntrospectionToolsTest {
                 val result = handler.execute(params)
 
                 assertEquals(1, result.content.size)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("invalid cursor"))
                 assertTrue(text.contains("screenshot can only be requested on page 1"))
             }

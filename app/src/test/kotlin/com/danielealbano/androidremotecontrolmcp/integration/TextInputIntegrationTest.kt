@@ -2,6 +2,7 @@
 
 package com.danielealbano.androidremotecontrolmcp.integration
 
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import android.view.inputmethod.SurroundingText
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData
@@ -11,7 +12,6 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -67,19 +67,19 @@ class TextInputIntegrationTest {
 
     @BeforeEach
     fun setUp() {
-        McpIntegrationTestHelper.mockAndroidLog()
+        HandlerTestHarness.mockAndroidLog()
     }
 
     @AfterEach
     fun tearDown() {
-        McpIntegrationTestHelper.unmockAndroidLog()
+        HandlerTestHarness.unmockAndroidLog()
     }
 
     @Test
     fun `type_append_text with node_id returns success with field content`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
-            McpIntegrationTestHelper.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
+            val deps = HandlerTestHarness.createMockDependencies()
+            HandlerTestHarness.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
             coEvery {
                 deps.actionExecutor.clickNode("node_edit", any<List<WindowData>>())
             } returns Result.success(Unit)
@@ -107,14 +107,14 @@ class TextInputIntegrationTest {
                 createMockSurroundingText(lastCommittedText)
             }
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_type_append_text",
                         arguments = mapOf("node_id" to "node_edit", "text" to "Hello"),
                     )
                 assertNotEquals(true, result.isError)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("Typed 5 characters"))
                 assertTrue(text.contains("Field content:"))
             }
@@ -126,14 +126,14 @@ class TextInputIntegrationTest {
     @Test
     fun `type_append_text with missing text returns error`() =
         runTest {
-            McpIntegrationTestHelper.withTestApplication { client, _ ->
+            HandlerTestHarness.withTools { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_type_append_text",
                         arguments = emptyMap(),
                     )
                 assertEquals(true, result.isError)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.isNotEmpty())
             }
         }
@@ -141,8 +141,8 @@ class TextInputIntegrationTest {
     @Test
     fun `type_insert_text with valid offset returns success with field content`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
-            McpIntegrationTestHelper.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
+            val deps = HandlerTestHarness.createMockDependencies()
+            HandlerTestHarness.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
             coEvery {
                 deps.actionExecutor.clickNode("node_edit", any<List<WindowData>>())
             } returns Result.success(Unit)
@@ -169,7 +169,7 @@ class TextInputIntegrationTest {
                 createMockSurroundingText(lastCommittedText)
             }
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_type_insert_text",
@@ -181,7 +181,7 @@ class TextInputIntegrationTest {
                             ),
                     )
                 assertNotEquals(true, result.isError)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("Field content:"))
             }
 
@@ -192,8 +192,8 @@ class TextInputIntegrationTest {
     @Test
     fun `type_replace_text with found search text returns success with field content`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
-            McpIntegrationTestHelper.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
+            val deps = HandlerTestHarness.createMockDependencies()
+            HandlerTestHarness.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
             coEvery {
                 deps.actionExecutor.clickNode("node_edit", any<List<WindowData>>())
             } returns Result.success(Unit)
@@ -221,7 +221,7 @@ class TextInputIntegrationTest {
                 createMockSurroundingText(lastCommittedText)
             }
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_type_replace_text",
@@ -233,7 +233,7 @@ class TextInputIntegrationTest {
                             ),
                     )
                 assertNotEquals(true, result.isError)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("Field content:"))
             }
 
@@ -244,8 +244,8 @@ class TextInputIntegrationTest {
     @Test
     fun `type_replace_text with missing search text returns error`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
-            McpIntegrationTestHelper.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
+            val deps = HandlerTestHarness.createMockDependencies()
+            HandlerTestHarness.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
             coEvery {
                 deps.actionExecutor.clickNode("node_edit", any<List<WindowData>>())
             } returns Result.success(Unit)
@@ -256,7 +256,7 @@ class TextInputIntegrationTest {
                 deps.typeInputController.getSurroundingText(any(), any(), any())
             } returns beforeText
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_type_replace_text",
@@ -274,8 +274,8 @@ class TextInputIntegrationTest {
     @Test
     fun `type_clear_text returns success with field content`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
-            McpIntegrationTestHelper.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
+            val deps = HandlerTestHarness.createMockDependencies()
+            HandlerTestHarness.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
             coEvery {
                 deps.actionExecutor.clickNode("node_edit", any<List<WindowData>>())
             } returns Result.success(Unit)
@@ -290,14 +290,14 @@ class TextInputIntegrationTest {
                 deps.typeInputController.getSurroundingText(any(), any(), any())
             } returnsMany listOf(beforeText, afterText)
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_type_clear_text",
                         arguments = mapOf("node_id" to "node_edit"),
                     )
                 assertNotEquals(true, result.isError)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("Field content:"))
             }
 
@@ -308,39 +308,19 @@ class TextInputIntegrationTest {
     @Test
     fun `press_key still works after tool changes`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             coEvery { deps.actionExecutor.pressBack() } returns Result.success(Unit)
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_press_key",
                         arguments = mapOf("key" to "BACK"),
                     )
                 assertNotEquals(true, result.isError)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("BACK"))
             }
         }
 
-    @Test
-    fun `listTools verifies correct tool set`() =
-        runTest {
-            McpIntegrationTestHelper.withTestApplication { client, _ ->
-                val result = client.listTools()
-                val toolNames = result.tools.map { it.name }.toSet()
-
-                // New tools must be present
-                assertTrue(toolNames.contains("android_type_append_text"))
-                assertTrue(toolNames.contains("android_type_insert_text"))
-                assertTrue(toolNames.contains("android_type_replace_text"))
-                assertTrue(toolNames.contains("android_type_clear_text"))
-                assertTrue(toolNames.contains("android_press_key"))
-
-                // Old tools must NOT be present
-                assertFalse(toolNames.contains("android_input_text"))
-                assertFalse(toolNames.contains("android_clear_text"))
-                assertFalse(toolNames.contains("android_set_text"))
-            }
-        }
 }

@@ -1,5 +1,6 @@
 package com.danielealbano.androidremotecontrolmcp.integration
 
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -15,7 +16,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -80,18 +80,18 @@ class UtilityIntegrationTest {
 
     @BeforeEach
     fun setUp() {
-        McpIntegrationTestHelper.mockAndroidLog()
+        HandlerTestHarness.mockAndroidLog()
     }
 
     @AfterEach
     fun tearDown() {
-        McpIntegrationTestHelper.unmockAndroidLog()
+        HandlerTestHarness.unmockAndroidLog()
     }
 
     @Test
     fun `get_clipboard returns clipboard content from mocked service`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             val mockContext = mockk<Context>()
             val mockClipboardManager = mockk<ClipboardManager>()
             val mockClipData = mockk<ClipData>()
@@ -106,7 +106,7 @@ class UtilityIntegrationTest {
             every { mockClipData.getItemAt(0) } returns mockItem
             every { mockItem.text } returns "clipboard text"
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_get_clipboard",
@@ -115,7 +115,7 @@ class UtilityIntegrationTest {
                 assertNotEquals(true, result.isError)
                 assertTrue(result.content.isNotEmpty())
 
-                val textContent = (result.content[0] as TextContent).text
+                val textContent = (result.content[0] as ToolContent.Text).text
                 val parsed = Json.parseToJsonElement(stripUntrustedWarning(textContent)).jsonObject
                 assertEquals(
                     "clipboard text",
@@ -127,7 +127,7 @@ class UtilityIntegrationTest {
     @Test
     fun `set_clipboard sets content and returns success`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             val mockContext = mockk<Context>()
             val mockClipboardManager = mockk<ClipboardManager>(relaxed = true)
 
@@ -136,7 +136,7 @@ class UtilityIntegrationTest {
                 mockContext.getSystemService(ClipboardManager::class.java)
             } returns mockClipboardManager
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_set_clipboard",
@@ -148,46 +148,15 @@ class UtilityIntegrationTest {
         }
 
     @Test
-    fun `get_node_details returns TSV with node_id header and correct values`() =
-        runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
-            McpIntegrationTestHelper.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
-
-            every {
-                deps.elementFinder.findNodeById(any<List<WindowData>>(), "node_a")
-            } returns sampleTree.children[0]
-
-            every {
-                deps.elementFinder.findNodeById(any<List<WindowData>>(), "node_b")
-            } returns sampleTree.children[1]
-
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
-                val result =
-                    client.callTool(
-                        name = "android_get_node_details",
-                        arguments = mapOf("node_ids" to listOf("node_a", "node_b")),
-                    )
-                assertNotEquals(true, result.isError)
-                assertTrue(result.content.isNotEmpty())
-
-                val textContent = (result.content[0] as TextContent).text
-                val lines = stripUntrustedWarning(textContent).split("\n")
-                assertEquals("node_id\ttext\tdesc", lines[0])
-                assertEquals("node_a\tHello World\tA button", lines[1])
-                assertEquals("node_b\t-\t-", lines[2])
-            }
-        }
-
-    @Test
     fun `wait_for_node success returns node_id in response`() =
         runTest {
             mockkStatic(SystemClock::class)
             try {
                 every { SystemClock.elapsedRealtime() } returns 0L
 
-                val deps = McpIntegrationTestHelper.createMockDependencies()
+                val deps = HandlerTestHarness.createMockDependencies()
                 val mockRootNode =
-                    McpIntegrationTestHelper.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
+                    HandlerTestHarness.setupMultiWindowMock(deps, sampleTree, sampleScreenInfo)
                 // Stub raw node text so rawNodeExists() finds the match
                 every { mockRootNode.text } returns "Hello World"
 
@@ -200,7 +169,7 @@ class UtilityIntegrationTest {
                     )
                 } returns listOf(sampleElementInfoA)
 
-                McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+                HandlerTestHarness.withTools(deps) { client, _ ->
                     val result =
                         client.callTool(
                             name = "android_wait_for_node",
@@ -214,7 +183,7 @@ class UtilityIntegrationTest {
                     assertNotEquals(true, result.isError)
                     assertTrue(result.content.isNotEmpty())
 
-                    val textContent = (result.content[0] as TextContent).text
+                    val textContent = (result.content[0] as ToolContent.Text).text
                     val parsed = Json.parseToJsonElement(stripUntrustedWarning(textContent)).jsonObject
                     assertEquals(
                         true,

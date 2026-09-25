@@ -356,6 +356,8 @@ dependencies {
     testRuntimeOnly(libs.junit.jupiter.engine)
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.ktor.client.mock)
+    // Host-side fake endpoint for EventDispatcherImplTest. Test classpath only — the app has no server.
+    testImplementation(libs.ktor.server.netty)
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)

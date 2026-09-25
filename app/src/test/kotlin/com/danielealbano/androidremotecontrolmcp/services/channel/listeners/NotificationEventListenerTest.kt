@@ -6,8 +6,6 @@ import com.danielealbano.androidremotecontrolmcp.data.model.NotificationChangeEv
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationChangeType
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
-import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
-import com.danielealbano.androidremotecontrolmcp.privacy.PrivacyToolGate
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService
 import com.danielealbano.androidremotecontrolmcp.services.notifications.NotificationData
@@ -136,16 +134,14 @@ class NotificationEventListenerTest {
     }
 
     @Nested
-    @DisplayName("privacy redaction")
-    inner class PrivacyRedaction {
+    @DisplayName("dispatch")
+    inner class Dispatch {
         @Test
-        fun `dispatched event carries redacted fields`() =
+        fun `dispatched event carries the notification fields unchanged`() =
             runTest(UnconfinedTestDispatcher()) {
                 val dispatcher = createMockDispatcher()
-                val gate = mockk<PrivacyToolGate>()
-                coEvery { gate.texts(any()) } returns listOf("Example", "EMAIL#abcde", "body", null, null)
 
-                val listener = NotificationEventListener(dispatcher, backgroundScope, gate)
+                val listener = NotificationEventListener(dispatcher, backgroundScope)
                 listener.start(NotificationChannelConfig(enabled = true, filterMode = NotificationFilterMode.ALL))
 
                 emitChangeEvent(
@@ -159,32 +155,7 @@ class NotificationEventListenerTest {
                 val slot = slot<ChannelEvent>()
                 coVerify { dispatcher.dispatch(capture(slot)) }
                 val data = slot.captured.data.jsonObject
-                assertEquals("EMAIL#abcde", data["title"]?.jsonPrimitive?.content)
-                assertEquals("body", data["text"]?.jsonPrimitive?.content)
-
-                listener.stop()
-            }
-
-        @Test
-        fun `event dropped and not dispatched when gate fails closed`() =
-            runTest(UnconfinedTestDispatcher()) {
-                val dispatcher = createMockDispatcher()
-                val gate = mockk<PrivacyToolGate>()
-                coEvery { gate.texts(any()) } throws
-                    McpToolException.PrivacyModeUnavailable("model unavailable")
-
-                val listener = NotificationEventListener(dispatcher, backgroundScope, gate)
-                listener.start(NotificationChannelConfig(enabled = true, filterMode = NotificationFilterMode.ALL))
-
-                emitChangeEvent(
-                    NotificationChangeEvent(
-                        NotificationChangeType.POSTED,
-                        sampleNotification(title = "Contact john@example.com"),
-                    ),
-                )
-                advanceUntilIdle()
-
-                coVerify(exactly = 0) { dispatcher.dispatch(any()) }
+                assertEquals("Contact john@example.com", data["title"]?.jsonPrimitive?.content)
 
                 listener.stop()
             }
@@ -196,7 +167,7 @@ class NotificationEventListenerTest {
         @Test
         fun `stop is safe to call without start`() {
             val dispatcher = createMockDispatcher()
-            val listener = NotificationEventListener(dispatcher, mockk(relaxed = true), mockk(relaxed = true))
+            val listener = NotificationEventListener(dispatcher, mockk(relaxed = true))
             // Calling stop before start should not throw
             listener.stop()
             // Calling stop again should also be safe (idempotent)

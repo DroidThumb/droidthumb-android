@@ -162,38 +162,6 @@ class ChannelViewModelTest {
     }
 
     @Nested
-    @DisplayName("wifi settings")
-    inner class WifiSettings {
-        @Test
-        fun `addWifiSsid adds to set`() =
-            runTest {
-                configFlow.value = EventChannelConfig()
-
-                viewModel.addWifiSsid("MyNetwork")
-                advanceUntilIdle()
-
-                coVerify { settingsRepository.updateWifiSsids(setOf("MyNetwork")) }
-            }
-
-        @Test
-        fun `removeWifiSsid removes from set`() =
-            runTest {
-                configFlow.value =
-                    EventChannelConfig(
-                        wifi =
-                            com.danielealbano.androidremotecontrolmcp.data.model.WifiChannelConfig(
-                                ssids = setOf("Network1", "Network2"),
-                            ),
-                    )
-
-                viewModel.removeWifiSsid("Network1")
-                advanceUntilIdle()
-
-                coVerify { settingsRepository.updateWifiSsids(setOf("Network2")) }
-            }
-    }
-
-    @Nested
     @DisplayName("installed apps")
     inner class InstalledApps {
         @Test

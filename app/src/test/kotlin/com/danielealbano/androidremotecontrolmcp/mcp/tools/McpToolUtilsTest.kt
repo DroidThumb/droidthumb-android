@@ -1,8 +1,6 @@
 package com.danielealbano.androidremotecontrolmcp.mcp.tools
 
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
-import io.modelcontextprotocol.kotlin.sdk.types.ImageContent
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -442,7 +440,7 @@ class McpToolUtilsTest {
         fun returnsTextContentOnSuccess() {
             val result = McpToolUtils.handleActionResult(Result.success(Unit), "Action done")
             assertEquals(1, result.content.size)
-            val textContent = result.content[0] as TextContent
+            val textContent = result.content[0] as ToolContent.Text
             assertEquals("Action done", textContent.text)
         }
 
@@ -477,20 +475,20 @@ class McpToolUtilsTest {
     @DisplayName("textResult")
     inner class TextResultTests {
         @Test
-        @DisplayName("returns CallToolResult with TextContent")
+        @DisplayName("returns ToolResult with ToolContent.Text")
         fun returnsCallToolResultWithTextContent() {
             val result = McpToolUtils.textResult("Hello world")
             assertEquals(1, result.content.size)
-            val textContent = result.content[0] as TextContent
+            val textContent = result.content[0] as ToolContent.Text
             assertEquals("Hello world", textContent.text)
         }
 
         @Test
-        @DisplayName("returns CallToolResult with empty text")
+        @DisplayName("returns ToolResult with empty text")
         fun returnsCallToolResultWithEmptyText() {
             val result = McpToolUtils.textResult("")
             assertEquals(1, result.content.size)
-            val textContent = result.content[0] as TextContent
+            val textContent = result.content[0] as ToolContent.Text
             assertEquals("", textContent.text)
         }
     }
@@ -503,11 +501,11 @@ class McpToolUtilsTest {
     @DisplayName("imageResult")
     inner class ImageResultTests {
         @Test
-        @DisplayName("returns CallToolResult with ImageContent")
+        @DisplayName("returns ToolResult with ToolContent.Image")
         fun returnsCallToolResultWithImageContent() {
             val result = McpToolUtils.imageResult(data = "base64data", mimeType = "image/jpeg")
             assertEquals(1, result.content.size)
-            val imageContent = result.content[0] as ImageContent
+            val imageContent = result.content[0] as ToolContent.Image
             assertEquals("base64data", imageContent.data)
             assertEquals("image/jpeg", imageContent.mimeType)
         }
@@ -521,12 +519,12 @@ class McpToolUtilsTest {
     @DisplayName("textAndImageResult")
     inner class TextAndImageResultTests {
         @Test
-        @DisplayName("returns CallToolResult with TextContent and ImageContent")
+        @DisplayName("returns ToolResult with ToolContent.Text and ToolContent.Image")
         fun returnsCallToolResultWithTextAndImageContent() {
             val result = McpToolUtils.textAndImageResult("hello", "base64data", "image/jpeg")
             assertEquals(2, result.content.size)
-            val text = result.content[0] as TextContent
-            val image = result.content[1] as ImageContent
+            val text = result.content[0] as ToolContent.Text
+            val image = result.content[1] as ToolContent.Image
             assertEquals("hello", text.text)
             assertEquals("base64data", image.data)
             assertEquals("image/jpeg", image.mimeType)
@@ -571,7 +569,7 @@ class McpToolUtilsTest {
         fun prependsWarningBeforeContent() {
             val result = McpToolUtils.untrustedTextResult("some content")
             assertEquals(1, result.content.size)
-            val text = (result.content[0] as TextContent).text
+            val text = (result.content[0] as ToolContent.Text).text
             assertTrue(text.startsWith(McpToolUtils.UNTRUSTED_CONTENT_WARNING))
             assertTrue(text.endsWith("some content"))
         }
@@ -580,7 +578,7 @@ class McpToolUtilsTest {
         @DisplayName("text starts with warning then newline")
         fun textStartsWithWarningThenNewline() {
             val result = McpToolUtils.untrustedTextResult("data")
-            val text = (result.content[0] as TextContent).text
+            val text = (result.content[0] as ToolContent.Text).text
             assertEquals("${McpToolUtils.UNTRUSTED_CONTENT_WARNING}\ndata", text)
         }
     }
@@ -597,8 +595,8 @@ class McpToolUtilsTest {
         fun prependsWarningToTextAndIncludesImage() {
             val result = McpToolUtils.untrustedTextAndImageResult("info", "imgdata", "image/png")
             assertEquals(2, result.content.size)
-            val text = result.content[0] as TextContent
-            val image = result.content[1] as ImageContent
+            val text = result.content[0] as ToolContent.Text
+            val image = result.content[1] as ToolContent.Image
             assertTrue(text.text.startsWith(McpToolUtils.UNTRUSTED_CONTENT_WARNING))
             assertTrue(text.text.endsWith("info"))
             assertEquals("imgdata", image.data)
@@ -618,8 +616,8 @@ class McpToolUtilsTest {
         fun addsWarningAsSeparateTextBeforeImage() {
             val result = McpToolUtils.untrustedImageResult("imgdata", "image/jpeg")
             assertEquals(2, result.content.size)
-            val text = result.content[0] as TextContent
-            val image = result.content[1] as ImageContent
+            val text = result.content[0] as ToolContent.Text
+            val image = result.content[1] as ToolContent.Image
             assertEquals(McpToolUtils.UNTRUSTED_CONTENT_WARNING, text.text)
             assertEquals("imgdata", image.data)
             assertEquals("image/jpeg", image.mimeType)
@@ -636,14 +634,14 @@ class McpToolUtilsTest {
         @Test
         @DisplayName("prepends warning as first content block, preserving the rest in order")
         fun prependsWarningFirst() {
-            val first = TextContent("first")
-            val image = ImageContent(data = "imgdata", mimeType = "image/png")
+            val first = ToolContent.Text("first")
+            val image = ToolContent.Image(data = "imgdata", mimeType = "image/png")
             val result = McpToolUtils.untrustedResult(listOf(first, image))
 
             assertEquals(3, result.content.size)
-            assertEquals(McpToolUtils.UNTRUSTED_CONTENT_WARNING, (result.content[0] as TextContent).text)
-            assertEquals("first", (result.content[1] as TextContent).text)
-            val resultImage = result.content[2] as ImageContent
+            assertEquals(McpToolUtils.UNTRUSTED_CONTENT_WARNING, (result.content[0] as ToolContent.Text).text)
+            assertEquals("first", (result.content[1] as ToolContent.Text).text)
+            val resultImage = result.content[2] as ToolContent.Image
             assertEquals("imgdata", resultImage.data)
             assertEquals("image/png", resultImage.mimeType)
         }

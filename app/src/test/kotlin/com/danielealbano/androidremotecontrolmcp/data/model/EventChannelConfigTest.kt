@@ -36,11 +36,6 @@ class EventChannelConfigTest {
             assertEquals(NotificationFilterMode.ALL, config.notifications.filterMode)
         }
 
-        @Test
-        fun `default wifi config has empty ssids`() {
-            val config = EventChannelConfig()
-            assertTrue(config.wifi.ssids.isEmpty())
-        }
     }
 
     @Nested
@@ -59,20 +54,20 @@ class EventChannelConfigTest {
                             filterMode = NotificationFilterMode.WHITELIST,
                             filterApps = setOf("com.example.app"),
                         ),
-                    wifi =
-                        WifiChannelConfig(
-                            enabled = true,
-                            ssids = setOf("MyWiFi"),
-                            notifyOnDiscovered = true,
-                            notifyOnLost = false,
-                            notifyOnConnected = true,
-                            notifyOnDisconnected = false,
-                        ),
                 )
 
             val json = config.toJson()
             val deserialized = EventChannelConfig.fromJson(json)
             assertEquals(config, deserialized)
+        }
+
+        @Test
+        fun `fromJson ignores the removed wifi section of previously stored configs`() {
+            val json =
+                """{"enabled":true,"endpointUrl":"http://localhost:9090","wifi":{"enabled":true,"ssids":["MyWiFi"]}}"""
+            val config = EventChannelConfig.fromJson(json)
+            assertTrue(config.enabled)
+            assertEquals("http://localhost:9090", config.endpointUrl)
         }
 
         @Test

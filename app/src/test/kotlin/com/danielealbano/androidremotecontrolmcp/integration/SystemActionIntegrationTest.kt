@@ -1,8 +1,8 @@
 package com.danielealbano.androidremotecontrolmcp.integration
 
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import io.mockk.coEvery
 import io.mockk.every
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -15,22 +15,22 @@ import org.junit.jupiter.api.Test
 class SystemActionIntegrationTest {
     @BeforeEach
     fun setUp() {
-        McpIntegrationTestHelper.mockAndroidLog()
+        HandlerTestHarness.mockAndroidLog()
     }
 
     @AfterEach
     fun tearDown() {
-        McpIntegrationTestHelper.unmockAndroidLog()
+        HandlerTestHarness.unmockAndroidLog()
     }
 
     @Test
     fun `press_home calls actionExecutor and returns success`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             every { deps.accessibilityServiceProvider.isReady() } returns true
             coEvery { deps.actionExecutor.pressHome() } returns Result.success(Unit)
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result = client.callTool(name = "android_press_home", arguments = emptyMap())
                 assertNotEquals(true, result.isError)
                 assertTrue(result.content.isNotEmpty())
@@ -40,15 +40,15 @@ class SystemActionIntegrationTest {
     @Test
     fun `press_back calls actionExecutor and returns success`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             every { deps.accessibilityServiceProvider.isReady() } returns true
             coEvery { deps.actionExecutor.pressBack() } returns Result.success(Unit)
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result = client.callTool(name = "android_press_back", arguments = emptyMap())
                 assertNotEquals(true, result.isError)
                 assertTrue(result.content.isNotEmpty())
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("executed successfully"))
             }
         }
@@ -56,14 +56,14 @@ class SystemActionIntegrationTest {
     @Test
     fun `dismiss_keyboard reports dismissal when a keyboard was open`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             every { deps.accessibilityServiceProvider.isReady() } returns true
             coEvery { deps.actionExecutor.dismissKeyboard() } returns Result.success(true)
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result = client.callTool(name = "android_dismiss_keyboard", arguments = emptyMap())
                 assertNotEquals(true, result.isError)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("Keyboard dismissed"))
             }
         }
@@ -71,14 +71,14 @@ class SystemActionIntegrationTest {
     @Test
     fun `dismiss_keyboard reports no-op when no keyboard was open`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             every { deps.accessibilityServiceProvider.isReady() } returns true
             coEvery { deps.actionExecutor.dismissKeyboard() } returns Result.success(false)
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result = client.callTool(name = "android_dismiss_keyboard", arguments = emptyMap())
                 assertNotEquals(true, result.isError)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("No keyboard was open"))
             }
         }

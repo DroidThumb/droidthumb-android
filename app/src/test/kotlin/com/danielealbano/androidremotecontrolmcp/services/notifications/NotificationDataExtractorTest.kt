@@ -18,41 +18,41 @@ class NotificationDataExtractorTest {
     inner class HashFunctions {
         @Test
         fun `computeNotificationHash produces 8-char hex`() {
-            val hash = NotificationProviderImpl.computeNotificationHash("test_key")
-            assertEquals(NotificationProviderImpl.HASH_HEX_LENGTH, hash.length)
+            val hash = NotificationDataExtractor.computeNotificationHash("test_key")
+            assertEquals(8, hash.length)
         }
 
         @Test
         fun `computeNotificationHash is deterministic`() {
-            val hash1 = NotificationProviderImpl.computeNotificationHash("same_key")
-            val hash2 = NotificationProviderImpl.computeNotificationHash("same_key")
+            val hash1 = NotificationDataExtractor.computeNotificationHash("same_key")
+            val hash2 = NotificationDataExtractor.computeNotificationHash("same_key")
             assertEquals(hash1, hash2)
         }
 
         @Test
         fun `computeNotificationHash produces different hashes for different keys`() {
-            val hash1 = NotificationProviderImpl.computeNotificationHash("key_a")
-            val hash2 = NotificationProviderImpl.computeNotificationHash("key_b")
+            val hash1 = NotificationDataExtractor.computeNotificationHash("key_a")
+            val hash2 = NotificationDataExtractor.computeNotificationHash("key_b")
             assertNotEquals(hash1, hash2)
         }
 
         @Test
         fun `computeActionHash produces 8-char hex`() {
-            val hash = NotificationProviderImpl.computeActionHash("test_key", 0)
-            assertEquals(NotificationProviderImpl.HASH_HEX_LENGTH, hash.length)
+            val hash = NotificationDataExtractor.computeActionHash("test_key", 0)
+            assertEquals(8, hash.length)
         }
 
         @Test
         fun `computeActionHash is deterministic`() {
-            val hash1 = NotificationProviderImpl.computeActionHash("key", 1)
-            val hash2 = NotificationProviderImpl.computeActionHash("key", 1)
+            val hash1 = NotificationDataExtractor.computeActionHash("key", 1)
+            val hash2 = NotificationDataExtractor.computeActionHash("key", 1)
             assertEquals(hash1, hash2)
         }
 
         @Test
         fun `computeActionHash differs by action index`() {
-            val hash0 = NotificationProviderImpl.computeActionHash("key", 0)
-            val hash1 = NotificationProviderImpl.computeActionHash("key", 1)
+            val hash0 = NotificationDataExtractor.computeActionHash("key", 0)
+            val hash1 = NotificationDataExtractor.computeActionHash("key", 1)
             assertNotEquals(hash0, hash1)
         }
     }

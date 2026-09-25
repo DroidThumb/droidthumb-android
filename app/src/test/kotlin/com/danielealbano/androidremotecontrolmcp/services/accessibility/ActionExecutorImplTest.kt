@@ -810,44 +810,6 @@ class ActionExecutorImplTest {
             }
     }
 
-    @Nested
-    @DisplayName("Custom gesture validation")
-    inner class CustomGestureValidation {
-        @Test
-        @DisplayName("customGesture returns failure for empty paths")
-        fun customGestureReturnsFailureForEmptyPaths() =
-            runTest {
-                // Arrange
-                setServiceInstance(mockService)
-
-                // Act
-                val result = executor.customGesture(emptyList())
-
-                // Assert
-                assertTrue(result.isFailure)
-                assertTrue(result.exceptionOrNull() is IllegalArgumentException)
-            }
-
-        @Test
-        @DisplayName("customGesture returns failure for path with less than 2 points")
-        fun customGestureReturnsFailureForShortPath() =
-            runTest {
-                // Arrange
-                setServiceInstance(mockService)
-                val singlePointPath =
-                    listOf(
-                        listOf(GesturePoint(100f, 100f, 0L)),
-                    )
-
-                // Act
-                val result = executor.customGesture(singlePointPath)
-
-                // Assert
-                assertTrue(result.isFailure)
-                assertTrue(result.exceptionOrNull() is IllegalArgumentException)
-            }
-    }
-
     private fun mockCacheHitWithIdentity(
         cachedNode: CachedNode,
         expectedNodeId: String,

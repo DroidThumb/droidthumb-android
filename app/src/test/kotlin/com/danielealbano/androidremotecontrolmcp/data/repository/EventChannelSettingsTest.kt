@@ -28,7 +28,6 @@ class EventChannelSettingsTest {
             assertEquals("", config.endpointUrl)
             assertEquals("", config.authToken)
             assertFalse(config.notifications.enabled)
-            assertFalse(config.wifi.enabled)
         }
     }
 
@@ -80,20 +79,6 @@ class EventChannelSettingsTest {
             assertEquals(apps, restored.notifications.filterApps)
         }
 
-        @Test
-        fun `updateWifiSsids persists`() {
-            val ssids = setOf("Net1", "Net2")
-            val config =
-                EventChannelConfig(
-                    wifi =
-                        com.danielealbano.androidremotecontrolmcp.data.model.WifiChannelConfig(
-                            ssids = ssids,
-                        ),
-                )
-            val json = config.toJson()
-            val restored = EventChannelConfig.fromJson(json)
-            assertEquals(ssids, restored.wifi.ssids)
-        }
     }
 
     @Nested
@@ -101,8 +86,6 @@ class EventChannelSettingsTest {
     inner class UrlValidation {
         private val repo =
             SettingsRepositoryImpl(
-                mockk(relaxed = true),
-                SettingsChangeLogger(RecordingServerLogRepository(), Dispatchers.Unconfined, 0L),
                 EventChannelSettingsImpl(
                     mockk(relaxed = true),
                     SettingsChangeLogger(RecordingServerLogRepository(), Dispatchers.Unconfined, 0L),

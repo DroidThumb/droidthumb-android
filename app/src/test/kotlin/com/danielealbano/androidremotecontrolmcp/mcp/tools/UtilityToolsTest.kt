@@ -19,7 +19,6 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementF
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementInfo
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.FindBy
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
-import com.danielealbano.androidremotecontrolmcp.testutil.PrivacyToolTestDoubles
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -28,8 +27,6 @@ import io.mockk.unmockkAll
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import io.mockk.verifyOrder
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -92,9 +89,9 @@ class UtilityToolsTest {
             visible = true,
         )
 
-    private fun extractTextContent(result: CallToolResult): String {
+    private fun extractTextContent(result: ToolResult): String {
         assertEquals(1, result.content.size)
-        val textContent = result.content[0] as TextContent
+        val textContent = result.content[0] as ToolContent.Text
         return textContent.text
     }
 
@@ -137,7 +134,7 @@ class UtilityToolsTest {
     @Nested
     @DisplayName("GetClipboardTool")
     inner class GetClipboardToolTests {
-        private val tool = GetClipboardTool(mockAccessibilityServiceProvider, PrivacyToolTestDoubles.passthroughGate())
+        private val tool = GetClipboardTool(mockAccessibilityServiceProvider)
 
         @Test
         fun `returns clipboard text`() =
@@ -174,7 +171,7 @@ class UtilityToolsTest {
     @DisplayName("SetClipboardTool")
     inner class SetClipboardToolTests {
         private val tool =
-            SetClipboardTool(mockAccessibilityServiceProvider, PrivacyToolTestDoubles.identitySubstitutor())
+            SetClipboardTool(mockAccessibilityServiceProvider)
 
         @Test
         fun `sets clipboard text`() =
@@ -206,8 +203,6 @@ class UtilityToolsTest {
                 mockElementFinder,
                 mockAccessibilityServiceProvider,
                 mockNodeCache,
-                PrivacyToolTestDoubles.passthroughGate(),
-                PrivacyToolTestDoubles.identitySubstitutor(),
             )
 
         @Test

@@ -7,7 +7,6 @@ package com.danielealbano.androidremotecontrolmcp.services.channel
 import com.danielealbano.androidremotecontrolmcp.data.model.ChannelConnectionStatus
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.NotificationChannelConfig
-import com.danielealbano.androidremotecontrolmcp.data.model.WifiChannelConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -92,7 +91,6 @@ class EventChannelServiceTest {
                     notifications = NotificationChannelConfig(enabled = true),
                 )
             assertTrue(config.notifications.enabled)
-            assertFalse(config.wifi.enabled)
         }
 
         @Test
@@ -104,21 +102,6 @@ class EventChannelServiceTest {
                     authToken = "token",
                 )
             assertFalse(config.notifications.enabled)
-            assertFalse(config.wifi.enabled)
-        }
-
-        @Test
-        fun `config with notifications and wifi enabled means two active sources`() {
-            val config =
-                EventChannelConfig(
-                    enabled = true,
-                    endpointUrl = "http://localhost:9090",
-                    authToken = "token",
-                    notifications = NotificationChannelConfig(enabled = true),
-                    wifi = WifiChannelConfig(enabled = true),
-                )
-            assertTrue(config.notifications.enabled)
-            assertTrue(config.wifi.enabled)
         }
 
         @Test
@@ -147,12 +130,5 @@ class EventChannelServiceTest {
             )
         }
 
-        @Test
-        fun `ACTION_GEOFENCE_EVENT is correctly defined`() {
-            assertEquals(
-                "com.danielealbano.androidremotecontrolmcp.channel.GEOFENCE_EVENT",
-                EventChannelService.ACTION_GEOFENCE_EVENT,
-            )
-        }
     }
 }

@@ -9,7 +9,6 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.pm.PackageInfoCompat
-import com.danielealbano.androidremotecontrolmcp.data.model.AppFilter
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
@@ -123,97 +122,6 @@ class AppManagerTest {
     // ─────────────────────────────────────────────────────────────────────
     // listInstalledApps
     // ─────────────────────────────────────────────────────────────────────
-
-    @Nested
-    @DisplayName("listInstalledApps")
-    inner class ListInstalledApps {
-        @Test
-        fun `listInstalledApps returns all apps when filter is ALL`() =
-            runTest {
-                // Arrange
-                setupThreeInstalledApps()
-
-                // Act
-                val result = appManager.listInstalledApps(AppFilter.ALL)
-
-                // Assert
-                assertEquals(3, result.size)
-            }
-
-        @Test
-        fun `listInstalledApps returns only user apps when filter is USER`() =
-            runTest {
-                // Arrange
-                setupThreeInstalledApps()
-
-                // Act
-                val result = appManager.listInstalledApps(AppFilter.USER)
-
-                // Assert
-                assertEquals(2, result.size)
-                assertTrue(result.all { !it.isSystemApp })
-                assertTrue(result.any { it.name == "Alpha App" })
-                assertTrue(result.any { it.name == "Beta App" })
-            }
-
-        @Test
-        fun `listInstalledApps returns only system apps when filter is SYSTEM`() =
-            runTest {
-                // Arrange
-                setupThreeInstalledApps()
-
-                // Act
-                val result = appManager.listInstalledApps(AppFilter.SYSTEM)
-
-                // Assert
-                assertEquals(1, result.size)
-                assertTrue(result.all { it.isSystemApp })
-                assertEquals("System App", result[0].name)
-                assertEquals("com.system.core", result[0].packageId)
-            }
-
-        @Test
-        fun `listInstalledApps filters by name query case-insensitive`() =
-            runTest {
-                // Arrange
-                setupThreeInstalledApps()
-
-                // Act — "alpha" matches "Alpha App" case-insensitively
-                val result = appManager.listInstalledApps(AppFilter.ALL, "alpha")
-
-                // Assert
-                assertEquals(1, result.size)
-                assertEquals("Alpha App", result[0].name)
-            }
-
-        @Test
-        fun `listInstalledApps returns empty list when no matches`() =
-            runTest {
-                // Arrange
-                setupThreeInstalledApps()
-
-                // Act
-                val result = appManager.listInstalledApps(AppFilter.ALL, "nonexistent")
-
-                // Assert
-                assertTrue(result.isEmpty())
-            }
-
-        @Test
-        fun `listInstalledApps results are sorted by name`() =
-            runTest {
-                // Arrange
-                setupThreeInstalledApps()
-
-                // Act
-                val result = appManager.listInstalledApps(AppFilter.ALL)
-
-                // Assert — alphabetical by name (case-insensitive)
-                assertEquals("Alpha App", result[0].name)
-                assertEquals("Beta App", result[1].name)
-                assertEquals("System App", result[2].name)
-            }
-    }
 
     // ─────────────────────────────────────────────────────────────────────
     // openApp

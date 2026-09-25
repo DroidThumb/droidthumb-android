@@ -7,8 +7,6 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollDi
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -30,11 +28,11 @@ class TouchActionToolsTest {
     }
 
     /**
-     * Extracts the text content from a CallToolResult.
+     * Extracts the text content from a ToolResult.
      */
-    private fun extractTextContent(result: CallToolResult): String {
+    private fun extractTextContent(result: ToolResult): String {
         assertEquals(1, result.content.size)
-        val textContent = result.content[0] as TextContent
+        val textContent = result.content[0] as ToolContent.Text
         return textContent.text
     }
 

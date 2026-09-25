@@ -16,14 +16,14 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementI
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.FindBy
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenInfo
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
-import com.danielealbano.androidremotecontrolmcp.testutil.PrivacyToolTestDoubles
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.unmockkAll
 import io.mockk.verifyOrder
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -39,9 +39,6 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import java.util.concurrent.CyclicBarrier
-import java.util.concurrent.atomic.AtomicInteger
-import kotlin.concurrent.thread
 
 @DisplayName("NodeActionTools")
 class NodeActionToolsTest {
@@ -100,9 +97,9 @@ class NodeActionToolsTest {
             visible = true,
         )
 
-    private fun extractTextContent(result: CallToolResult): String {
+    private fun extractTextContent(result: ToolResult): String {
         assertEquals(1, result.content.size)
-        val textContent = result.content[0] as TextContent
+        val textContent = result.content[0] as ToolContent.Text
         return textContent.text
     }
 
@@ -190,8 +187,6 @@ class NodeActionToolsTest {
                 mockElementFinder,
                 mockAccessibilityServiceProvider,
                 mockNodeCache,
-                PrivacyToolTestDoubles.passthroughGate(),
-                PrivacyToolTestDoubles.identitySubstitutor(),
             )
 
         @Test

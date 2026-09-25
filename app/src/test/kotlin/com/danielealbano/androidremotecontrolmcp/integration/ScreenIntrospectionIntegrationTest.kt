@@ -2,6 +2,7 @@
 
 package com.danielealbano.androidremotecontrolmcp.integration
 
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import android.graphics.Bitmap
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -16,8 +17,6 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import io.modelcontextprotocol.kotlin.sdk.types.ImageContent
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -62,16 +61,16 @@ class ScreenIntrospectionIntegrationTest {
 
     @BeforeEach
     fun setUp() {
-        McpIntegrationTestHelper.mockAndroidLog()
+        HandlerTestHarness.mockAndroidLog()
     }
 
     @AfterEach
     fun tearDown() {
-        McpIntegrationTestHelper.unmockAndroidLog()
+        HandlerTestHarness.unmockAndroidLog()
     }
 
-    private fun MockDependencies.setupReadyService() {
-        McpIntegrationTestHelper.setupMultiWindowMock(
+    private fun HandlerTestHarness.MockDependencies.setupReadyService() {
+        HandlerTestHarness.setupMultiWindowMock(
             deps = this,
             tree = sampleTree,
             screenInfo = sampleScreenInfo,
@@ -83,10 +82,10 @@ class ScreenIntrospectionIntegrationTest {
     @Test
     fun `get_screen_state returns compact flat TSV with metadata`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             deps.setupReadyService()
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_get_screen_state",
@@ -95,7 +94,7 @@ class ScreenIntrospectionIntegrationTest {
                 assertNotEquals(true, result.isError)
                 assertEquals(1, result.content.size)
 
-                val textContent = (result.content[0] as TextContent).text
+                val textContent = (result.content[0] as ToolContent.Text).text
                 assertTrue(textContent.contains("note:structural-only nodes are omitted from the tree"))
                 assertTrue(textContent.contains("note:certain elements are custom and will not be properly reported"))
                 assertTrue(textContent.contains("note:flags: on=onscreen off=offscreen"))
@@ -120,7 +119,7 @@ class ScreenIntrospectionIntegrationTest {
     @Test
     fun `get_screen_state with include_screenshot returns text and image`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             deps.setupReadyService()
             every { deps.screenCaptureProvider.isScreenCaptureAvailable() } returns true
 
@@ -141,7 +140,7 @@ class ScreenIntrospectionIntegrationTest {
                 deps.screenshotEncoder.bitmapToScreenshotData(any(), any())
             } returns ScreenshotData(data = "dGVzdA==", width = 700, height = 500)
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_get_screen_state",
@@ -150,13 +149,13 @@ class ScreenIntrospectionIntegrationTest {
                 assertNotEquals(true, result.isError)
                 assertEquals(2, result.content.size)
 
-                val textContent = (result.content[0] as TextContent).text
+                val textContent = (result.content[0] as ToolContent.Text).text
                 assertTrue(textContent.contains("note:"))
                 assertTrue(textContent.contains("note:flags:"))
                 assertTrue(textContent.contains("note:offscreen items"))
                 assertTrue(textContent.contains("--- window:0 type:APPLICATION"))
 
-                val imageContent = result.content[1] as ImageContent
+                val imageContent = result.content[1] as ToolContent.Image
                 assertEquals("image/jpeg", imageContent.mimeType)
                 assertEquals("dGVzdA==", imageContent.data)
             }
@@ -182,10 +181,10 @@ class ScreenIntrospectionIntegrationTest {
     @Test
     fun `get_screen_state without screenshot does not call captureScreenshot`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             deps.setupReadyService()
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_get_screen_state",
@@ -193,7 +192,7 @@ class ScreenIntrospectionIntegrationTest {
                     )
                 assertNotEquals(true, result.isError)
                 assertEquals(1, result.content.size)
-                assertTrue(result.content[0] is TextContent)
+                assertTrue(result.content[0] is ToolContent.Text)
 
                 coVerify(exactly = 0) {
                     deps.screenCaptureProvider.captureScreenshotBitmap(any(), any())
@@ -204,17 +203,17 @@ class ScreenIntrospectionIntegrationTest {
     @Test
     fun `get_screen_state when permission denied returns error`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             every { deps.accessibilityServiceProvider.isReady() } returns false
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_get_screen_state",
                         arguments = emptyMap(),
                     )
                 assertEquals(true, result.isError)
-                val text = (result.content[0] as TextContent).text
+                val text = (result.content[0] as ToolContent.Text).text
                 assertTrue(text.contains("Accessibility service not enabled"))
             }
         }
@@ -222,7 +221,7 @@ class ScreenIntrospectionIntegrationTest {
     @Test
     fun `get_screen_state with screenshot annotation failure returns error`() =
         runTest {
-            val deps = McpIntegrationTestHelper.createMockDependencies()
+            val deps = HandlerTestHarness.createMockDependencies()
             deps.setupReadyService()
             every { deps.screenCaptureProvider.isScreenCaptureAvailable() } returns true
 
@@ -236,7 +235,7 @@ class ScreenIntrospectionIntegrationTest {
                 deps.screenshotAnnotator.annotate(any(), any(), any(), any())
             } throws RuntimeException("Canvas error")
 
-            McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+            HandlerTestHarness.withTools(deps) { client, _ ->
                 val result =
                     client.callTool(
                         name = "android_get_screen_state",
@@ -245,7 +244,7 @@ class ScreenIntrospectionIntegrationTest {
                 // The tool should return an error
                 assertEquals(true, result.isError)
                 // Verify the error message is generic (does not leak internal "Canvas error" details)
-                val errorText = (result.content[0] as TextContent).text
+                val errorText = (result.content[0] as ToolContent.Text).text
                 assertTrue(errorText.contains("Screenshot annotation failed"))
                 assertFalse(errorText.contains("Canvas error"))
             }
@@ -300,7 +299,7 @@ class ScreenIntrospectionIntegrationTest {
                     ),
             )
 
-        private fun MockDependencies.setupTwoWindowMock() {
+        private fun HandlerTestHarness.MockDependencies.setupTwoWindowMock() {
             val mockRootApp = mockk<AccessibilityNodeInfo>()
             val mockRootDialog = mockk<AccessibilityNodeInfo>()
             val mockWindowApp = mockk<AccessibilityWindowInfo>(relaxed = true)
@@ -339,17 +338,17 @@ class ScreenIntrospectionIntegrationTest {
         @Test
         fun `get_screen_state with two windows returns both window sections`() =
             runTest {
-                val deps = McpIntegrationTestHelper.createMockDependencies()
+                val deps = HandlerTestHarness.createMockDependencies()
                 deps.setupTwoWindowMock()
 
-                McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+                HandlerTestHarness.withTools(deps) { client, _ ->
                     val result =
                         client.callTool(
                             name = "android_get_screen_state",
                             arguments = emptyMap(),
                         )
                     assertNotEquals(true, result.isError)
-                    val text = (result.content[0] as TextContent).text
+                    val text = (result.content[0] as ToolContent.Text).text
 
                     // Both window headers must be present
                     assertTrue(text.contains("--- window:42 type:APPLICATION"))
@@ -369,7 +368,7 @@ class ScreenIntrospectionIntegrationTest {
         @Test
         fun `get_screen_state in degraded mode includes degradation note`() =
             runTest {
-                val deps = McpIntegrationTestHelper.createMockDependencies()
+                val deps = HandlerTestHarness.createMockDependencies()
                 val mockRootNode = mockk<AccessibilityNodeInfo>()
 
                 every { deps.accessibilityServiceProvider.isReady() } returns true
@@ -386,14 +385,14 @@ class ScreenIntrospectionIntegrationTest {
                 every { deps.accessibilityServiceProvider.getCurrentActivityName() } returns ".MainActivity"
                 every { deps.accessibilityServiceProvider.getScreenInfo() } returns sampleScreenInfo
 
-                McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+                HandlerTestHarness.withTools(deps) { client, _ ->
                     val result =
                         client.callTool(
                             name = "android_get_screen_state",
                             arguments = emptyMap(),
                         )
                     assertNotEquals(true, result.isError)
-                    val text = (result.content[0] as TextContent).text
+                    val text = (result.content[0] as ToolContent.Text).text
 
                     // Degraded mode note must be present
                     assertTrue(text.contains("DEGRADED"))
@@ -408,8 +407,8 @@ class ScreenIntrospectionIntegrationTest {
     @Nested
     @DisplayName("Pagination")
     inner class Pagination {
-        private fun MockDependencies.setupTree(tree: AccessibilityNodeData) {
-            McpIntegrationTestHelper.setupMultiWindowMock(
+        private fun HandlerTestHarness.MockDependencies.setupTree(tree: AccessibilityNodeData) {
+            HandlerTestHarness.setupMultiWindowMock(
                 deps = this,
                 tree = tree,
                 screenInfo = sampleScreenInfo,
@@ -423,13 +422,13 @@ class ScreenIntrospectionIntegrationTest {
         @Test
         fun `get_screen_state paginates over streamable http`() =
             runTest {
-                val deps = McpIntegrationTestHelper.createMockDependencies()
+                val deps = HandlerTestHarness.createMockDependencies()
                 // 252 kept nodes -> 2 pages
                 deps.setupTree(PaginationTestTrees.keptNodeWindow(250).tree)
 
-                McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+                HandlerTestHarness.withTools(deps) { client, _ ->
                     val page1Result = client.callTool(name = "android_get_screen_state", arguments = emptyMap())
-                    val page1 = (page1Result.content[0] as TextContent).text
+                    val page1 = (page1Result.content[0] as ToolContent.Text).text
                     assertTrue(page1.contains("page:1/2"))
                     val id = snapshotId(page1)
 
@@ -438,27 +437,27 @@ class ScreenIntrospectionIntegrationTest {
                             name = "android_get_screen_state",
                             arguments = mapOf("cursor" to "$id.2"),
                         )
-                    assertTrue((page2Result.content[0] as TextContent).text.contains("page:2/2"))
+                    assertTrue((page2Result.content[0] as ToolContent.Text).text.contains("page:2/2"))
 
                     val badResult =
                         client.callTool(
                             name = "android_get_screen_state",
                             arguments = mapOf("cursor" to "$id.999"),
                         )
-                    assertTrue((badResult.content[0] as TextContent).text.contains("does not exist"))
+                    assertTrue((badResult.content[0] as ToolContent.Text).text.contains("does not exist"))
                 }
             }
 
         @Test
         fun `get_screen_state small screen returns no cursor`() =
             runTest {
-                val deps = McpIntegrationTestHelper.createMockDependencies()
+                val deps = HandlerTestHarness.createMockDependencies()
                 // 12 kept nodes -> single page, no pagination metadata
                 deps.setupTree(PaginationTestTrees.keptNodeWindow(10).tree)
 
-                McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
+                HandlerTestHarness.withTools(deps) { client, _ ->
                     val result = client.callTool(name = "android_get_screen_state", arguments = emptyMap())
-                    val text = (result.content[0] as TextContent).text
+                    val text = (result.content[0] as ToolContent.Text).text
                     assertFalse(text.contains("page:"))
                 }
             }

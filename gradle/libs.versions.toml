@@ -73,6 +73,9 @@ ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serializatio
 slf4j-android = { group = "org.slf4j", name = "slf4j-android", version.ref = "slf4j-android" }
 
 # Ktor Client
+# Ktor server engine: TEST ONLY (EventDispatcherImplTest runs a host-side fake endpoint). Never an app dependency.
+ktor-server-netty = { group = "io.ktor", name = "ktor-server-netty", version.ref = "ktor" }
+
 ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
 ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
 ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }

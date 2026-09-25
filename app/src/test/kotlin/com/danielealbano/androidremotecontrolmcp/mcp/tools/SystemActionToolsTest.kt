@@ -8,8 +8,6 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.unmockkAll
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -42,11 +40,11 @@ class SystemActionToolsTest {
      * Verifies the standard text content response format.
      */
     private fun assertTextContentResponse(
-        result: CallToolResult,
+        result: ToolResult,
         containsText: String,
     ) {
         assertEquals(1, result.content.size)
-        val textContent = result.content[0] as TextContent
+        val textContent = result.content[0] as ToolContent.Text
         assertNotNull(textContent.text)
         assertTrue(
             textContent.text.contains(containsText),
@@ -207,89 +205,9 @@ class SystemActionToolsTest {
     // open_notifications
     // ─────────────────────────────────────────────────────────────────────
 
-    @Nested
-    @DisplayName("OpenNotificationsHandler")
-    inner class OpenNotificationsTests {
-        private lateinit var handler: OpenNotificationsHandler
-
-        @BeforeEach
-        fun setUp() {
-            handler = OpenNotificationsHandler(mockActionExecutor, mockAccessibilityServiceProvider)
-        }
-
-        @Test
-        @DisplayName("calls ActionExecutor.openNotifications and returns confirmation")
-        fun callsOpenNotificationsAndReturnsConfirmation() =
-            runTest {
-                coEvery { mockActionExecutor.openNotifications() } returns Result.success(Unit)
-                val result = handler.execute(null)
-                coVerify(exactly = 1) { mockActionExecutor.openNotifications() }
-                assertTextContentResponse(result, "executed successfully")
-            }
-
-        @Test
-        @DisplayName("throws PermissionDenied when service not available")
-        fun throwsErrorWhenServiceNotAvailable() =
-            runTest {
-                every { mockAccessibilityServiceProvider.isReady() } returns false
-                assertThrows<McpToolException.PermissionDenied> { handler.execute(null) }
-            }
-
-        @Test
-        @DisplayName("throws ActionFailed when action fails")
-        fun throwsErrorWhenActionFails() =
-            runTest {
-                coEvery { mockActionExecutor.openNotifications() } returns
-                    Result.failure(
-                        RuntimeException("Action failed"),
-                    )
-                assertThrows<McpToolException.ActionFailed> { handler.execute(null) }
-            }
-    }
-
     // ─────────────────────────────────────────────────────────────────────
     // open_quick_settings
     // ─────────────────────────────────────────────────────────────────────
-
-    @Nested
-    @DisplayName("OpenQuickSettingsHandler")
-    inner class OpenQuickSettingsTests {
-        private lateinit var handler: OpenQuickSettingsHandler
-
-        @BeforeEach
-        fun setUp() {
-            handler = OpenQuickSettingsHandler(mockActionExecutor, mockAccessibilityServiceProvider)
-        }
-
-        @Test
-        @DisplayName("calls ActionExecutor.openQuickSettings and returns confirmation")
-        fun callsOpenQuickSettingsAndReturnsConfirmation() =
-            runTest {
-                coEvery { mockActionExecutor.openQuickSettings() } returns Result.success(Unit)
-                val result = handler.execute(null)
-                coVerify(exactly = 1) { mockActionExecutor.openQuickSettings() }
-                assertTextContentResponse(result, "executed successfully")
-            }
-
-        @Test
-        @DisplayName("throws PermissionDenied when service not available")
-        fun throwsErrorWhenServiceNotAvailable() =
-            runTest {
-                every { mockAccessibilityServiceProvider.isReady() } returns false
-                assertThrows<McpToolException.PermissionDenied> { handler.execute(null) }
-            }
-
-        @Test
-        @DisplayName("throws ActionFailed when action fails")
-        fun throwsErrorWhenActionFails() =
-            runTest {
-                coEvery { mockActionExecutor.openQuickSettings() } returns
-                    Result.failure(
-                        RuntimeException("Action failed"),
-                    )
-                assertThrows<McpToolException.ActionFailed> { handler.execute(null) }
-            }
-    }
 
     // ─────────────────────────────────────────────────────────────────────
     // dismiss_keyboard
