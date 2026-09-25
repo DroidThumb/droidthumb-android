@@ -1,10 +1,16 @@
 # Persistent debug device (redroid)
 
 A always-on Android device for manual debugging and quick checks, running as a rootful Podman
-container (`docker.io/redroid/redroid:14.0.0-latest`) managed by systemd. Distinct from
-`e2e-tests`, which creates and tears down its own short-lived container per test run via
-Testcontainers — this one is meant to just sit there, reachable over adb, so you don't pay a
-multi-minute boot cost every time you want to poke at the app.
+container (`docker.io/redroid/redroid:14.0.0-latest`) managed by systemd. It is meant to just sit
+there, reachable over adb, so you don't pay a multi-minute boot cost every time you want to poke at
+the app.
+
+> **Since the demolition pass (2026-09-25, `docs/plans/demolition.md`)** the app has no on-device
+> server, so this device can install, launch and inspect the app, and nothing more: there is no
+> remote control until the outbound transport exists. The `e2e-tests` module and port 8080 (the old
+> on-device MCP server) are gone; references to them below are history. The quadlet still publishes
+> 8080; dropping `PublishPort=8080` needs a quadlet reinstall (sudo) and is left for when the
+> transport defines what, if anything, this device should expose.
 
 **Read this whole doc before touching anything here.** Claims are marked with when and how they
 were verified; anything still `UNVERIFIED` carries the exact command that would confirm it. Don't
@@ -153,8 +159,7 @@ storage instead, which is empty, so it looks as if the container isn't running. 
 
 ## Build, install, launch the debug APK
 
-Variant: **`gmsDebug`** (matches what `e2e-tests` builds against; see `build.gradle.kts` for the
-`gms`/`foss` flavour split).
+Variant: **`gmsDebug`** (see `build.gradle.kts` for the `gms`/`foss` flavour split).
 
 ```bash
 export JAVA_HOME=$HOME/toolchain/jdk-17.0.20.1+1
@@ -185,6 +190,14 @@ adb -s localhost:5555 shell am start -W -n uk.co.drhconsulting.droidthumb.gms.de
 buffer (`adb logcat -d -b crash`) empty. The screenshot showed the Server screen as expected on a
 fresh install: "Accessibility permission required", MCP Server and Event Channel both "Stopped".
 
+**Re-verified 2026-09-25 after the demolition pass**: the previous install was removed with
+`adb uninstall` (its stored settings no longer match the app), the new `gmsDebug` APK installed and
+launched cold with an empty crash buffer. Enabling the accessibility service with
+`settings put secure enabled_accessibility_services …` bound it (`dumpsys accessibility`: bound and
+enabled; logcat: `Accessibility service connected`), and after the activity resumed the home screen
+dropped the accessibility callout and enabled the Event Channel's Start button; Settings →
+Permissions shows Accessibility Service as Enabled.
+
 Install once per new build — the APK and anything you grant it persist across restarts and
 reboots (see "What persists across restarts and reboots").
 
@@ -210,31 +223,10 @@ adb -s localhost:5555 pull /sdcard/uidump.xml
 
 ## Running the e2e suite
 
-**Important distinction**: `e2e-tests` does **not** use this persistent container. It creates its
-own separate, short-lived redroid container via Testcontainers every run (see
-`AndroidContainerSetup.kt` and `docs/build-notes.md`) and tears it down after. This device and the
-e2e suite's container are independent.
-
-```bash
-DOCKER_HOST=unix:///run/podman/podman.sock TESTCONTAINERS_RYUK_DISABLED=true ./gradlew :e2e-tests:test
-```
-
-Put `adb` on `PATH` first (the harness shells out to a bare `adb`). `make test-e2e` wraps the
-same command, but `make` isn't installed on this host yet.
-
-**Verified 2026-09-25**, as `dan` with no sudo, **with this persistent container running the
-whole time**: `BUILD SUCCESSFUL in 4m 58s`, **92 tests, 78 passed, 0 failed, 14 skipped** —
-identical, class by class, to the pre-reinstall baseline in `docs/build-notes.md` (the 14 skips
-are `E2ECameraTest`, by design). Testcontainers reached the rootful socket, logged
-`Kernel modules already loaded` (so its `sudo modprobe` fallback never ran), and created its own
-redroid container beside this one on random host ports (`34049->5555`, `37509->8080` that run)
-plus a `testcontainers/sshd` helper — no clash with the fixed 5555/8080 here. Both were gone
-afterwards. This container stayed up throughout and still reported `sys.boot_completed` = `1`
-afterwards. No CPU or memory trouble was seen at 30GB RAM, so there's no need to stop this device
-before running the suite.
-
-That verification used socket permissions applied by hand for the current boot — see the
-`UNVERIFIED` note under "Podman socket permissions" for what still has to survive a reboot.
+There is no e2e suite any more: `e2e-tests` drove the removed on-device MCP server and was deleted in
+the demolition pass. Its replacement, a fake-relay harness, comes with the outbound transport
+(plan 66, US-9). For the record, its last run on this host (2026-09-25, before the demolition) was
+92 tests, 78 passed, 0 failed, 14 skipped, with this persistent container running alongside.
 
 ## Limits — what this device cannot tell you
 
@@ -524,8 +516,8 @@ The installed copy was byte-identical to the repo file on 2026-09-24
 (`diff /etc/containers/systemd/redroid.container scripts/redroid/redroid.container` → no output).
 Re-run that diff after editing either one.
 
-Fixed name: **`redroid`**. Fixed ports: **5555** (adb), **8080** (MCP server, once started
-on-device). `podman ps` on 2026-09-24: `0.0.0.0:5555->5555/tcp, 0.0.0.0:8080->8080/tcp`.
+Fixed name: **`redroid`**. Fixed ports: **5555** (adb) and **8080** (was the on-device MCP server;
+unused since the demolition pass, still published by the quadlet). `podman ps` on 2026-09-24: `0.0.0.0:5555->5555/tcp, 0.0.0.0:8080->8080/tcp`.
 
 ### Design choice: quadlet over `podman generate systemd`
 

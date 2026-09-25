@@ -20,7 +20,7 @@ You MUST ALWAYS read these documents before ANY work:
 - **`docs/TOOLS.md`** — git, GitHub CLI (`gh`), and local CI (`act`) commands and conventions. You MUST follow the branching, commit, and PR conventions defined there.
 
 **Additional Documentation**:
-- **`docs/MCP_TOOLS.md`** — MCP tools specification and usage documentation
+- **`docs/tool-surface.md`** — the kept tool handlers mapped to the flow step vocabulary (the full 57-tool MCP specification, `docs/MCP_TOOLS.md`, was removed in the demolition pass; see the `pre-demolition` tag)
 
 ---
 
@@ -28,14 +28,14 @@ You MUST ALWAYS read these documents before ANY work:
 
 - You are an expert Principal Android Software Engineer.
 - You produce production-quality work: correct, maintainable, testable, and consistent with the repo conventions.
-- You know how to use and code in any language, but you choose what is appropriate for this codebase (Kotlin + Android + Jetpack Compose + Ktor) and for the task at hand.
+- You know how to use and code in any language, but you choose what is appropriate for this codebase (Kotlin + Android + Jetpack Compose) and for the task at hand.
 - You NEVER write partial code expecting future revisions.
 - You NEVER leave TODOs in code.
 - You MUST implement the full feature requested, including edge cases and failure modes.
 - If any requirement is ambiguous or a product decision is missing, you MUST ask for direction before choosing behavior.
 - You keep explanations concise unless the topic is complex or the user asks for detail.
 - You do not create documentation unless explicitly requested.
-- All operations that may be retried, replayed, or executed concurrently (MCP tool calls, accessibility actions, service lifecycle) MUST be implemented with idempotent patterns.
+- All operations that may be retried, replayed, or executed concurrently (tool handler calls, accessibility actions, service lifecycle) MUST be implemented with idempotent patterns.
 - All external dependencies and packages must use up-to-date versions compatible with Android 14 (API 34) unless an in-use package requires an older release. Before adding something, ALWAYS check if it is the latest version.
 - **CRITICAL — NO AI ATTRIBUTION**: Commits, PRs, code comments, and any artifact in this repository MUST NEVER contain references to Claude Code, Claude, Anthropic, or any AI tooling. This includes `Co-Authored-By` trailers, `Generated with` footers, or any similar attribution. You are the sole author. This is NON-NEGOTIABLE.
 
@@ -200,10 +200,9 @@ This project uses specialized subagents (defined in `.claude/agents/`) to enforc
 - All relevant automated tests are written AND passing (unit, integration, e2e as appropriate).
 - No linting warnings/errors (ktlint or detekt for Kotlin).
 - The project builds without errors and without warnings (`./gradlew build` succeeds).
-- All Android Services (AccessibilityService, McpServerService) handle lifecycle correctly (no memory leaks, proper cleanup).
+- All Android Services (AccessibilityService, EventChannelService) handle lifecycle correctly (no memory leaks, proper cleanup).
 - No TODOs, no commented-out dead code, no "temporary hacks".
 - Changes are small, readable, and aligned with existing Kotlin/Android patterns.
-- MCP protocol compliance verified (if MCP tools are modified).
 
 ### Fix broken tests — ABSOLUTE RULE
 - You MUST fix ANY broken test, even if unrelated to your changes. Finish your current change first, then fix the broken test immediately.
@@ -242,15 +241,15 @@ This project uses specialized subagents (defined in `.claude/agents/`) to enforc
 ### Interface-first and testability
 - Default to interfaces for components that:
   - Access Android services (AccessibilityService),
-  - Implement MCP protocol handling,
   - Contain business logic that should be unit tested,
   - Manage configuration/settings (DataStore access).
 
 ### Service-based architecture
 - The application is **service-centric**, not activity-centric.
-- **AccessibilityService**: Extends `android.accessibilityservice.AccessibilityService`, provides UI introspection, action execution, and screenshot capture via `takeScreenshot()` API (Android 11+).
-- **McpServerService**: Foreground service running Ktor HTTP server, orchestrates MCP protocol.
-- **MainActivity**: Lightweight UI for configuration, does NOT contain business logic.
+- **AccessibilityService** (`McpAccessibilityService`): UI introspection, action execution, and screenshot capture via `takeScreenshot()` (Android 11+).
+- **EventChannelService**: foreground service that observes notification events and POSTs them outbound (D-20).
+- **MainActivity**: lightweight UI for permissions and Event Channel configuration; no business logic.
+- *(The outbound transport service is added by the transport plan; there is no on-device server — design doc D-19/SEC-19.)*
 
 ### Service lifecycle rules
 - All foreground services MUST call `startForeground()` within 5 seconds of start.
@@ -289,23 +288,21 @@ You MUST:
 This project uses **DataStore** (not Room database) for persisting settings. There is no complex relational data.
 
 ### DataStore usage
-- All settings (port, binding address, bearer token, auto-start, HTTPS enabled toggle, HTTPS certificate config) MUST be stored in DataStore.
+- All settings MUST be stored in DataStore.
 - Access DataStore only through `SettingsRepository` (never directly).
 - Use Preferences DataStore (key-value) for simple settings.
 - Use Proto DataStore if structured data becomes complex (not needed initially).
-- **HTTPS is optional and disabled by default; HTTP is the primary transport.** The device's IP changes frequently and public CAs cannot issue valid certificates for bare/dynamic IPs, so any HTTPS certificate will be self-signed and clients must allow insecure certificates. Store HTTPS enabled toggle, certificate source (auto-generated vs custom), and hostname for auto-generated certificates. Future plans include ngrok/Tailscale integration for proper HTTPS.
 
 ### Workflow for settings changes:
-1) Update `ServerConfig` data class if new settings are added.
+1) Update the settings model (e.g. `EventChannelConfig`) if new settings are added.
 2) Update `SettingsRepository` interface and implementation.
 3) Update UI (MainActivity) to reflect new settings.
-4) Update services (McpServerService) to read new settings.
+4) Update the services that read the new settings.
 5) Add tests for settings persistence.
 
 ### Data types
-- Use appropriate types: `Int` for port, `BindingAddress` (enum) for binding address, `String` for bearer token, `Boolean` for toggles.
+- Use appropriate types (`Int`, `Boolean`, enums/sealed classes for fixed options).
 - Never use `Float` or `Double` for values that require precision (not applicable for this project, but keep in mind).
-- Use `enum` or sealed classes for settings with fixed options (e.g., binding address could be enum: LOCALHOST, NETWORK).
 
 ### Default values
 - All settings MUST have sensible defaults (defined in `SettingsRepository`).
@@ -313,13 +310,13 @@ This project uses **DataStore** (not Room database) for persisting settings. The
 - Never assume settings exist; always provide fallback to default.
 
 ### Settings validation
-- Validate settings before saving (e.g., port must be 1-65535, binding address must be valid IP).
+- Validate settings before saving (e.g. URLs must parse, numeric ranges enforced).
 - Return validation errors to UI (don't silently fail).
-- Log settings changes for debugging (but don't log bearer token in production).
+- Log settings changes for debugging. Never log secrets (tokens, credentials) at any level.
 
 ---
 
-## 7) Backend Rules (Kotlin + Android + Ktor)
+## 7) Backend Rules (Kotlin + Android)
 
 ### Structure and responsibilities
 - **MainActivity** is thin:
@@ -333,60 +330,36 @@ This project uses **DataStore** (not Room database) for persisting settings. The
   - Handle coroutine scopes (`viewModelScope`),
   - No direct access to Android services.
 - **Services** contain business logic:
-  - `McpServerService`: Orchestrate MCP protocol, HTTP server lifecycle,
   - `AccessibilityService`: Handle accessibility events, execute actions,
   - Screenshot capture is handled via `AccessibilityService.takeScreenshot()` API (Android 11+), abstracted behind `ScreenCaptureProvider` interface.
 - **Repositories** abstract data access:
   - `SettingsRepository`: DataStore access.
-- **MCP Tool Implementations** are isolated:
-  - Each tool category in separate file (e.g., `TouchActionTools.kt`, `NodeActionTools.kt`),
-  - Tools are pure functions or classes, easily unit testable,
-  - Tools receive dependencies via constructor injection (Hilt).
+- **Tool handlers** (`mcp/tools/`) are isolated: pure logic returning `ToolResult`, one category per file, dependencies by constructor injection; no transport code.
 
 ### Validation
-- **MCP request validation**: Validate all incoming MCP tool parameters (type, range, required fields).
+- Validate all incoming tool parameters (type, range, required fields); invalid parameters raise `McpToolException.InvalidParams`.
 - Use Kotlinx Serialization with validation or manual validation before tool execution.
-- Return standard MCP errors for invalid params (error code `-32602`).
-- Keep validation aligned with MCP tool schemas (defined in PROJECT.md).
-
-### Authorization
-- **Bearer token authentication**: Enforced on every MCP request when a token is configured.
-- Implemented as Ktor application plugin (`BearerTokenAuthPlugin`).
-- When `expectedToken` is empty, authentication is skipped entirely (no token required).
-- Return `401 Unauthorized` for missing/invalid token when a token is configured.
-- The health check endpoint (`/health`) is always unauthenticated.
 
 ### Permission handling
 - **Accessibility permission**: Check `isAccessibilityServiceEnabled()` before accessibility operations.
 - **Screen capture**: Check `isScreenCaptureAvailable()` via `ScreenCaptureProvider` before screenshot operations.
-- Return MCP error `-32001` (permission not granted) if permission missing.
+- Raise the permission-denied `McpToolException` if permission missing.
 - Provide clear error messages guiding user to grant permissions.
 
 ### Logging
-- Log important events: MCP server start/stop, tool calls (with sanitized parameters), errors.
+- Log important events: service start/stop, tool calls (with sanitized parameters), errors.
 - Use Android `Log` class with appropriate levels (`Log.d`, `Log.i`, `Log.w`, `Log.e`).
-- Never log bearer token, full accessibility tree (too verbose), or sensitive data.
+- Never log secrets, full accessibility tree (too verbose), or sensitive data.
 - Include enough context: timestamp, tool name, element IDs, error messages.
 - Use consistent log tags (e.g., `MCP:ServerService`, `MCP:AccessibilityService`).
 
 ### Anti-prompt-injection — ABSOLUTE RULE
-- Every MCP tool that returns device-derived content (accessibility tree data, node text/descriptions, file contents, clipboard data, logcat output, notification text, app metadata, camera images, storage metadata) MUST prepend the `UNTRUSTED_CONTENT_WARNING` to its response.
+- Every tool handler that returns device-derived content (accessibility tree data, node text/descriptions, file contents, clipboard data, logcat output, notification text, app metadata, camera images, storage metadata) MUST prepend the `UNTRUSTED_CONTENT_WARNING` to its response.
 - Use `McpToolUtils.untrustedTextResult()`, `McpToolUtils.untrustedTextAndImageResult()`, or `McpToolUtils.untrustedImageResult()` instead of the plain variants.
 - The warning MUST be the first line of the text content. It MUST NOT use a `note:` prefix.
-- Pure action confirmation tools (tap, click, swipe, etc.) that return only server-generated text do NOT need the warning.
-- When adding a new MCP tool, you MUST classify it as device-content or action-only and use the appropriate result helper. If uncertain, use the untrusted variant.
-- **Limitation**: Image content (screenshots, camera photos) cannot carry an inline text warning. The `untrustedImageResult` and `untrustedTextAndImageResult` helpers add the warning as a `TextContent` item before the `ImageContent`, which is the best available mitigation.
-
-### Privacy detection effectiveness table — ABSOLUTE RULE
-- The Privacy Mode settings screen publishes measured per-category detection rates
-  (`MEASURED_DETECTION_RATES` in `app/src/main/kotlin/.../ui/screens/settings/PrivacySettingsScreen.kt`).
-- Whenever ANY privacy detection logic changes — the deterministic detectors (`privacy/.../privacy/detectors/`),
-  `ContextKeywords`, `ContextExtractor`, `RedactionEngine` merge/filter logic, `BioDecoder`, the tokenizer,
-  `WindowPacker`, `OrtPiiModelRunner`, or the pinned model assets (`PrivacyModelAssets`) — you MUST re-run the
-  effectiveness benchmark (`make privacy-benchmark`) and update `MEASURED_DETECTION_RATES` with the new
-  corpus B (`ui-synthetic`) FULL-layer per-category recall values from the generated `report.md`.
-- If effectiveness numbers are also published in the README, they MUST be refreshed in the same change.
-- You MUST NEVER leave stale published numbers after a detection-logic change. There are ZERO exceptions.
+- Pure action confirmation tools (tap, click, swipe, etc.) that return only handler-generated text do NOT need the warning.
+- When adding a new tool handler, you MUST classify it as device-content or action-only and use the appropriate result helper. If uncertain, use the untrusted variant.
+- **Limitation**: Image content (screenshots, camera photos) cannot carry an inline text warning. The `untrustedImageResult` and `untrustedTextAndImageResult` helpers add the warning as a `ToolContent.Text` item before the `ToolContent.Image`, which is the best available mitigation.
 
 ---
 
@@ -432,12 +405,11 @@ This project uses **DataStore** (not Room database) for persisting settings. The
 - **Service status**: Observe from ViewModel via broadcast receiver or Flow.
 
 ### Forms and inputs
-- Use `OutlinedTextField` for text inputs (port, token).
+- Use `OutlinedTextField` for text inputs (e.g. endpoint URL).
 - Validate input on value change (show error below field).
 - Disable submit/save when validation fails.
-- Provide clear error messages (e.g., "Port must be between 1 and 65535").
-- Use `Switch` for toggles (auto-start, HTTPS).
-- Use `RadioButton` or `SegmentedButton` for exclusive choices (binding address: localhost vs network).
+- Provide clear error messages (e.g., "Endpoint must be an http(s) URL").
+- Use `Switch` for toggles (e.g. notification forwarding).
 
 ---
 
@@ -461,12 +433,11 @@ All references to "tests" in this document mean automated tests (unit tests, int
 - Organize tests in `app/src/test/kotlin/` directory.
 
 **What to unit test**:
-- MCP tool logic and SDK integration (tool unit tests per category),
+- Tool handler logic (tool unit tests per category),
 - Accessibility tree parsing logic (`AccessibilityTreeParserTest`),
 - Element finding algorithms (`ElementFinderTest`),
 - Screenshot encoding (`ScreenshotEncoderTest`),
 - Settings repository (`SettingsRepositoryTest`),
-- Network utilities (`NetworkUtilsTest`),
 - ViewModel logic (`MainViewModelTest`).
 
 **Mocking strategy**:
@@ -493,64 +464,18 @@ fun `findByText returns matching nodes`() {
 }
 ```
 
-### Integration testing (JVM-based, Ktor testApplication)
-- Use **Ktor `testApplication`** for in-process HTTP testing (no real sockets, no emulator).
-- Use **JUnit 5** as test framework.
-- Use **MockK** for mocking Android service interfaces (`ActionExecutor`, `AccessibilityServiceProvider`, `ScreenCaptureProvider`, `AccessibilityTreeParser`, `ElementFinder`).
-- Organize tests in `app/src/test/kotlin/.../integration/` directory (runs as part of `./gradlew test`).
+### Handler tests (JVM)
+- Tool handlers are tested by calling `execute()` directly with MockK doubles for Android service interfaces (`ActionExecutor`, `AccessibilityServiceProvider`, `ScreenCaptureProvider`, `AccessibilityTreeParser`, `ElementFinder`).
+- For multi-handler scenarios, `integration/HandlerTestHarness` builds every kept handler with mocked dependencies and dispatches calls by tool name, mapping a thrown exception to an error `ToolResult`.
 
-**What to integration test**:
-- Full HTTP stack: authentication (bearer token), Streamable HTTP transport, SDK protocol handling, tool dispatch,
-- All 7 tool categories (touch, element, gesture, screen, system, text, utility),
-- Error handling (tool exceptions returned as `CallToolResult(isError=true)`).
-
-**Mocking strategy**:
-- Mock Android services via extracted interfaces (not concrete classes).
-- Use real SDK `Server` with `mcpStreamableHttp` routing (real routing, real dispatching).
-- `McpIntegrationTestHelper` configures `testApplication` mirroring production `McpServer` routing.
-
-**Example**:
-```kotlin
-@Test
-fun `tap with valid coordinates calls actionExecutor and returns success`() = runTest {
-    val deps = McpIntegrationTestHelper.createMockDependencies()
-    coEvery { deps.actionExecutor.tap(500f, 800f) } returns Result.success(Unit)
-
-    McpIntegrationTestHelper.withTestApplication(deps) { client, _ ->
-        val result = client.callTool(name = "tap", arguments = mapOf("x" to 500, "y" to 800))
-        assertNotEquals(true, result.isError)
-        val text = (result.content[0] as TextContent).text
-        assertContains(text, "Tap executed")
-    }
-}
-```
-
-### E2E testing (Redroid + Podman + Testcontainers)
-- Use **Testcontainers Kotlin** for container orchestration via rootful podman.
-- Use **redroid/redroid:14.0.0-latest** container image (native Android in container via kernel modules).
-- Use **JUnit 5** for test framework.
-- Use **MCP Kotlin SDK client** with `StreamableHttpClientTransport` for MCP requests.
-- Organize tests in `e2e-tests/src/test/kotlin/` directory (separate Gradle module).
-
-**What to E2E test**:
-- Full MCP client → MCP server → Android → action → verification flow,
-- Calculator app interaction (7 + 3 = 10 test),
-- Screenshot capture and validation,
-- Error handling (permission denied, element not found),
-- Multiple tool calls in sequence.
-
-**Test scenario: Calculator** (7 + 3 = 10, see Plan 10 for detailed E2E test steps).
-
-**Running E2E tests**:
-- `make test-e2e` (starts redroid container via podman, installs APK, runs tests, tears down).
-- E2E tests are slow (container startup, emulator boot); run selectively.
+### E2E testing
+- None at present. The previous redroid/Testcontainers MCP-over-HTTP suite was removed with the on-device server (demolition plan); its replacement is a fake-relay harness built with the transport (plan 66, US-9).
 
 ### Environment variables for tests
-- Some integration tests (e.g., `NgrokTunnelIntegrationTest`) require environment variables.
 - Environment variables are stored in `.env` (gitignored). See `.env.example` for required variables.
-- **When running tests via Makefile** (`make test-unit`, `make test-integration`, `make test`): `.env` is sourced automatically if it exists.
+- **When running tests via Makefile** (`make test-unit`, `make test`): `.env` is sourced automatically if it exists.
 - **When running tests manually** via `./gradlew`: source `.env` first: `set -a && source .env && set +a && ./gradlew :app:test`
-- To run a single integration test: `set -a && source .env && set +a && ./gradlew :app:testDebugUnitTest --tests "com.danielealbano.androidremotecontrolmcp.integration.NgrokTunnelIntegrationTest"`
+- To run a single test class: `set -a && source .env && set +a && ./gradlew :app:testGmsDebugUnitTest --tests "com.danielealbano.androidremotecontrolmcp.integration.TouchActionIntegrationTest"`
 
 ### Fix broken tests rule
 - If you encounter failing tests unrelated to your changes:
@@ -574,10 +499,10 @@ Local development requires Android SDK, emulator/device, and standard Android de
 ### Required tools
 - **Android SDK**: API 34 (Android 14), installed via Android Studio or sdkmanager.
 - **Java JDK**: Version 17 (standard for Android development).
-- **Gradle**: Version 8.x (wrapper included in project, use `./gradlew`).
+- **Gradle**: wrapper-managed (`./gradlew`).
 - **adb**: Android Debug Bridge (part of Android SDK platform-tools).
-- **Podman**: Required for E2E tests (rootful socket for redroid/redroid image). Requires `binder_linux` and `fuse` kernel modules.
-- **Emulator or Device**: For E2E tests and manual testing.
+- **Podman**: required only for the persistent redroid debug device (`docs/debug-device.md`).
+- **Emulator or Device**: For manual testing.
 
 ### Environment setup
 - Set `ANDROID_HOME` environment variable (e.g., `export ANDROID_HOME=~/Android/Sdk`).
@@ -587,7 +512,7 @@ Local development requires Android SDK, emulator/device, and standard Android de
 ### Build workflow
 - **Build APK**: `make build` (debug) or `make build-release` (release).
 - **Install APK**: `make install` (installs debug APK on connected device/emulator).
-- **Run tests**: `make test-unit`, `make test-integration`, `make test-e2e`.
+- **Run tests**: `make test-unit` (or `make test`).
 - **Lint code**: `make lint` (ktlint/detekt).
 - **Clean build**: `make clean`.
 
@@ -601,7 +526,6 @@ Local development requires Android SDK, emulator/device, and standard Android de
 - Connect device via USB or wirelessly (adb connect).
 - Enable Developer Options and USB Debugging on device.
 - Grant permissions via adb: `make grant-permissions` (provides instructions, user must grant manually).
-- Port forwarding: `make forward-port` (forwards device port 8080 to host 8080 for localhost-bound MCP server).
 
 ### Build diagnostics
 - Always use Makefile targets or Gradle tasks (not ad-hoc commands).
@@ -632,18 +556,7 @@ Local development requires Android SDK, emulator/device, and standard Android de
 - `versionCode` is derived from git history by Gradle (`getGitVersionCode`) and is never hardcoded; a full git checkout is required or the build fails at configuration (override with `-PVERSION_CODE=<integer>`).
 - Bump the version name: `make version-bump-patch`, `make version-bump-minor`, `make version-bump-major` (the version code is git-derived, not bumped).
 
-### Health check endpoint (MCP server)
-- Implement `/health` endpoint in Ktor server.
-- Returns JSON: `{"status": "healthy", "version": "1.0.0", "server": "running"}`.
-- Keep health check lightweight (no accessibility/screenshot operations).
-- Return HTTP 200 for healthy, 503 for unhealthy.
-- Health check is **unauthenticated** (no bearer token required).
-
 ### Graceful shutdown (Android Services)
-- **McpServerService**: Handle `onDestroy()`:
-  - Stop Ktor server gracefully (wait for in-flight requests with timeout),
-  - Cancel coroutine scopes,
-  - Log shutdown event.
 - **AccessibilityService**: Handle `onDestroy()`:
   - Recycle cached accessibility nodes,
   - Clear singleton instance,
@@ -661,6 +574,6 @@ Local development requires Android SDK, emulator/device, and standard Android de
 ### CI/CD (GitHub Actions)
 - Workflow defined in `.github/workflows/ci.yml`.
 - Runs on: push to main, pull requests.
-- Jobs: lint → test-unit (includes JVM integration tests) → test-e2e → build-release.
+- Jobs: lint → test-unit → build-release.
 - Upload APK as artifact on successful build.
 - Fail build if any test or lint check fails.

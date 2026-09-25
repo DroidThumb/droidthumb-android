@@ -42,7 +42,7 @@ Review code changes across five dimensions: **QA**, **Architecture Compliance**,
 4. No TODOs, no commented-out dead code, no placeholders, no stubs
 5. Changes are small, readable, aligned with existing Kotlin/Android patterns
 6. All Android Services handle lifecycle correctly (no memory leaks, proper cleanup)
-7. MCP protocol compliance verified (if MCP tools are modified)
+7. Tool parameter validation verified (if tool handlers are modified)
 8. Architecture patterns followed (see Architecture Compliance section)
 
 ### Code Quality Checks
@@ -57,7 +57,7 @@ Review code changes across five dimensions: **QA**, **Architecture Compliance**,
 - You MUST run `./gradlew test 2>&1 | tail -80` to verify tests pass. You MUST flag ANY failure.
 - You MUST verify tests exist for new/changed code: happy path, edge cases, failure modes. Flag missing tests as WARNING.
 - You MUST verify unit tests use JUnit 5 + MockK.
-- You MUST verify integration tests use Ktor `testApplication` with MockK for Android service interfaces.
+- You MUST verify handler tests call `execute()` directly with MockK doubles for Android service interfaces.
 - You MUST verify tests are independent (no execution order dependency) and clean up after themselves.
 - If ANY test is broken (even unrelated to the change): you MUST flag it.
 
@@ -77,11 +77,11 @@ You MUST verify ALL of the following in changed code:
 - **Dependency injection**: Dependencies MUST be passed via Hilt constructor injection. You MUST flag global state, module-level singletons (except AccessibilityService companion), or hardcoded dependencies.
 - **Kotlin coroutines**: ALL async I/O MUST use Kotlin coroutines with structured concurrency. You MUST flag: blocking calls on the main thread, missing `withContext(Dispatchers.IO)` for I/O operations, unstructured coroutine launches.
 - **Service lifecycle**: ALL foreground services MUST call `startForeground()` within 5 seconds. ALL services MUST clean up in `onDestroy()`. Flag violations.
-- **Interface-first**: Components accessing Android services, MCP protocol, business logic, or DataStore MUST use interfaces. Flag missing interfaces for testability.
+- **Interface-first**: Components accessing Android services, business logic, or DataStore MUST use interfaces. Flag missing interfaces for testability.
 - **State hoisting in Compose**: Composables MUST be stateless when possible, receiving state as parameters. Flag composables that directly access ViewModels or repositories.
 - **Thread safety**: Shared resources (AccessibilityService singleton, screenshot buffer) MUST use `@Volatile`, `Mutex`, or `synchronized`. Flag unprotected shared state.
-- **Idempotency**: MCP tool calls and accessibility actions MUST be safe to retry. Flag non-idempotent patterns in tool implementations.
-- **MCP protocol compliance**: Tool parameters MUST be validated. Errors MUST use standard MCP error codes. Flag violations.
+- **Idempotency**: Tool handler calls and accessibility actions MUST be safe to retry. Flag non-idempotent patterns in tool implementations.
+- **Tool parameter validation**: Tool parameters MUST be validated; invalid ones raise `McpToolException.InvalidParams`. Flag violations.
 
 ---
 
@@ -92,7 +92,7 @@ You MUST verify ALL of the following in changed code:
 - Compose: minimal recomposition scope, proper use of `remember`, `derivedStateOf`, `rememberSaveable`.
 - No heavy computation in composable functions.
 - Accessibility nodes properly recycled after use (prevent memory leaks).
-- Ktor server resources properly managed (connection timeouts, request limits).
+- Network client resources (Ktor client, sockets) properly closed; timeouts set.
 - No N+1 patterns in accessibility tree traversal.
 - Screenshot encoding uses appropriate quality/compression settings.
 - Service scopes and coroutines properly cancelled in `onDestroy()`.
@@ -102,17 +102,13 @@ You MUST verify ALL of the following in changed code:
 ## Security Review
 
 - No hardcoded secrets, tokens, or passwords. Flag as CRITICAL.
-- Bearer token stored in DataStore (app-private), not in SharedPreferences or files.
-- Bearer token NEVER logged (not even at debug level). Flag as CRITICAL.
-- Bearer token validation uses constant-time comparison. Flag timing-vulnerable comparisons.
+- Secrets (e.g. Event Channel auth token) stored in DataStore (app-private) and NEVER logged at any level (CRITICAL).
 - No sensitive data in logs (tokens, API keys, full accessibility trees).
-- All MCP tool parameters validated (type, range, required fields).
+- All tool parameters validated (type, range, required fields).
 - No path traversal vulnerabilities in file operations.
 - Accessibility service permissions checked before operations.
-- Network binding defaults to localhost (127.0.0.1). Security warning shown for 0.0.0.0 binding.
-- HTTPS certificate handling is secure (app-private directory, proper key generation).
-- Health check endpoint (`/health`) is unauthenticated — verify no sensitive data is exposed.
-- MCP tools returning device-derived content use `untrustedTextResult()`/`untrustedTextAndImageResult()`/`untrustedImageResult()` — NOT the plain `textResult()`/`imageResult()` variants. Flag as CRITICAL if a device-content tool uses plain variants.
+- **No listening sockets and no exported components that change app behaviour** (SEC-19). Flag any `ServerSocket`, embedded server engine, or newly exported component as CRITICAL.
+- Tool handlers returning device-derived content use `untrustedTextResult()`/`untrustedTextAndImageResult()`/`untrustedImageResult()` — NOT the plain `textResult()`/`imageResult()` variants. Flag as CRITICAL if a device-content tool uses plain variants.
 
 ---
 
@@ -159,7 +155,7 @@ Organize by category:
 - **QA**: code quality, test coverage, edge cases, DoD compliance
 - **Architecture**: service architecture violations, repository pattern violations, DI violations, coroutine misuse, lifecycle issues, interface gaps, idempotency gaps
 - **Performance**: main thread blocking, recomposition issues, resource leaks, node recycling, dispatcher misuse
-- **Security**: secrets exposure, token handling, data protection, input validation, permission checks, network binding
+- **Security**: secrets exposure, token handling, data protection, input validation, permission checks, no inbound network surface
 - **Plan Compliance** (if applicable): deviations, missing implementations, extra changes, file protection
 
 Each finding MUST include: file path, line reference, description, category, rule violated, severity.

@@ -79,8 +79,7 @@ Review the ENTIRE plan across five dimensions: **Structure & Ordering**, **QA Ad
 - Tests MUST use compressed format: name + description table. You MUST flag full test code in plans as WARNING.
 - Shared test infrastructure (e.g., `McpIntegrationTestHelper`, common mock setup utilities) introducing foundational patterns reused across test files MUST be present IN FULL. You MUST flag if missing as WARNING.
 - You MUST verify: unit tests use JUnit 5 + MockK.
-- You MUST verify: integration tests use Ktor `testApplication` with MockK for Android service interfaces.
-- You MUST verify: E2E tests use Testcontainers Kotlin with `redroid/redroid` — NOT pre-running emulators or Docker Compose services.
+- You MUST verify: handler tests call `execute()` directly with MockK doubles for Android service interfaces.
 
 ### Linting Suppression — CRITICAL
 
@@ -98,11 +97,11 @@ You MUST verify ALL of the following for EVERY action's planned code:
 - **Dependency injection**: Dependencies MUST be passed via Hilt constructor injection. You MUST flag global state, module-level singletons (except AccessibilityService companion), or hardcoded dependencies.
 - **Kotlin coroutines**: ALL async I/O MUST use Kotlin coroutines with structured concurrency. You MUST flag: blocking calls on the main thread, missing `withContext(Dispatchers.IO)` for I/O operations, unstructured coroutine launches.
 - **Service lifecycle**: ALL foreground services MUST call `startForeground()` within 5 seconds. ALL services MUST clean up in `onDestroy()`. Flag violations.
-- **Interface-first**: Components accessing Android services, MCP protocol, business logic, or DataStore MUST use interfaces. Flag missing interfaces for testability.
+- **Interface-first**: Components accessing Android services, business logic, or DataStore MUST use interfaces. Flag missing interfaces for testability.
 - **State hoisting in Compose**: Composables MUST be stateless when possible. Flag composables that directly access ViewModels or repositories.
 - **Thread safety**: Shared resources MUST use `@Volatile`, `Mutex`, or `synchronized`. Flag unprotected shared state.
-- **Idempotency**: MCP tool calls and accessibility actions MUST be safe to retry. Flag non-idempotent patterns.
-- **MCP protocol compliance**: Tool parameters MUST be validated. Errors MUST use standard MCP error codes. Flag violations.
+- **Idempotency**: Tool handler calls and accessibility actions MUST be safe to retry. Flag non-idempotent patterns.
+- **Tool parameter validation**: Tool parameters MUST be validated; invalid ones raise `McpToolException.InvalidParams`. Flag violations.
 
 ---
 
@@ -113,7 +112,7 @@ You MUST verify ALL of the following for EVERY action's planned code:
 - Compose: minimal recomposition scope, proper use of `remember`, `derivedStateOf`.
 - No heavy computation in composable functions.
 - Accessibility nodes properly recycled after use.
-- Ktor server resources properly managed.
+- Network client resources (Ktor client, sockets) properly closed; timeouts set.
 - No N+1 patterns in accessibility tree traversal.
 - Screenshot encoding uses appropriate quality/compression.
 - Service scopes and coroutines properly cancelled in `onDestroy()`.
@@ -123,16 +122,13 @@ You MUST verify ALL of the following for EVERY action's planned code:
 ## Security
 
 - No hardcoded secrets, tokens, or passwords in planned code.
-- Bearer token stored in DataStore (app-private), not logged.
-- Bearer token validation uses constant-time comparison.
+- Secrets (e.g. Event Channel auth token) stored in DataStore (app-private) and NEVER logged at any level (CRITICAL).
 - No sensitive data in logs.
-- All MCP tool parameters validated.
+- All tool parameters validated.
 - No path traversal vulnerabilities in file operations.
 - Accessibility service permissions checked before operations.
-- Network binding defaults to localhost. Security warning for 0.0.0.0.
-- HTTPS certificate handling is secure.
-- Health check endpoint does not expose sensitive data.
-- New MCP tools returning device-derived content MUST use `McpToolUtils.untrustedTextResult()`/`untrustedTextAndImageResult()`/`untrustedImageResult()`. Verify the plan uses the correct variant. Flag as CRITICAL if plain `textResult()`/`imageResult()` is used for device-content tools.
+- **No listening sockets and no exported components that change app behaviour** (SEC-19). Flag any `ServerSocket`, embedded server engine, or newly exported component as CRITICAL.
+- New tool handlers returning device-derived content MUST use `McpToolUtils.untrustedTextResult()`/`untrustedTextAndImageResult()`/`untrustedImageResult()`. Verify the plan uses the correct variant. Flag as CRITICAL if plain `textResult()`/`imageResult()` is used for device-content tools.
 
 ---
 
@@ -156,6 +152,6 @@ Organize by category:
 - **QA**: missing test coverage, acceptance criteria without tests, edge cases not covered, failure modes not tested
 - **Architecture**: service architecture violations, repository pattern violations, DI violations, coroutine misuse, lifecycle issues, interface gaps, idempotency gaps
 - **Performance**: main thread blocking, recomposition issues, resource leaks, node recycling, dispatcher misuse
-- **Security**: secrets exposure, token handling, data protection, input validation, permission checks, network binding
+- **Security**: secrets exposure, token handling, data protection, input validation, permission checks, no inbound network surface
 
 Each finding MUST include: plan reference, description, category, rule violated, severity.
