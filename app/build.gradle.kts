@@ -326,6 +326,8 @@ dependencies {
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
+    // M2 device transport (services/transport/DeviceTransportClient)
+    implementation(libs.ktor.client.websockets)
     // Logging binding for the Ktor client (SLF4J); without it Ktor logs through a NOP logger.
     runtimeOnly(libs.slf4j.android)
 
@@ -346,8 +348,10 @@ dependencies {
     testRuntimeOnly(libs.junit.jupiter.engine)
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.ktor.client.mock)
-    // Host-side fake endpoint for EventDispatcherImplTest. Test classpath only — the app has no server.
+    // Host-side fake endpoint for EventDispatcherImplTest/DeviceTransportClientTest. Test classpath
+    // only — the app has no server.
     testImplementation(libs.ktor.server.netty)
+    testImplementation(libs.ktor.server.websockets)
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)

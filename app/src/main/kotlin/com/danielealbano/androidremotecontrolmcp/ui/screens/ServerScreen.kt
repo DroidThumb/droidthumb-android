@@ -32,9 +32,11 @@ import com.danielealbano.androidremotecontrolmcp.ui.components.BatteryOptimizati
 import com.danielealbano.androidremotecontrolmcp.ui.components.CalloutCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.EventChannelStatusCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ServerLogsSection
+import com.danielealbano.androidremotecontrolmcp.ui.components.TransportStatusCard
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.LogsViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +46,7 @@ fun ServerScreen(
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel(),
     channelViewModel: ChannelViewModel = hiltViewModel(),
+    transportViewModel: TransportViewModel = hiltViewModel(),
 ) {
     val logsViewModel: LogsViewModel = hiltViewModel()
 
@@ -54,6 +57,12 @@ fun ServerScreen(
 
     val channelConfig by channelViewModel.eventChannelConfig.collectAsStateWithLifecycle()
     val channelStatus by channelViewModel.channelConnectionStatus.collectAsStateWithLifecycle()
+
+    val transportConfig by transportViewModel.transportConfig.collectAsStateWithLifecycle()
+    val transportStatus by transportViewModel.transportStatus.collectAsStateWithLifecycle()
+    val hostInput by transportViewModel.hostInput.collectAsStateWithLifecycle()
+    val portInput by transportViewModel.portInput.collectAsStateWithLifecycle()
+    val portError by transportViewModel.portError.collectAsStateWithLifecycle()
 
     var showChannelNotConfiguredDialog by remember { mutableStateOf(false) }
 
@@ -93,6 +102,21 @@ fun ServerScreen(
                 },
                 onStopClick = { channelViewModel.stopChannel() },
                 startEnabled = isAccessibilityEnabled,
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            TransportStatusCard(
+                status = transportStatus,
+                enabled = transportConfig.enabled,
+                host = hostInput,
+                port = portInput,
+                portError = portError,
+                onHostChange = transportViewModel::updateHost,
+                onPortChange = transportViewModel::updatePort,
+                onStartClick = { transportViewModel.start() },
+                onStopClick = { transportViewModel.stop() },
+                startEnabled = isAccessibilityEnabled && hostInput.isNotBlank(),
             )
 
             Spacer(Modifier.height(16.dp))

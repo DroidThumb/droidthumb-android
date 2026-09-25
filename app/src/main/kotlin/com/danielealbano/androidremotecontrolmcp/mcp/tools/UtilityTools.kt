@@ -250,7 +250,13 @@ class WaitForNodeTool
             private const val TAG = "MCP:WaitForNodeTool"
             const val TOOL_NAME = "wait_for_node"
             private const val POLL_INTERVAL_MS = 150L
-            private const val MAX_TIMEOUT_MS = 30000L
+
+            // Raised from 30_000L (M2, wireprotocol.StepDispatcher's wait_until op): the server's
+            // own transport timeout for a wait_until step is timeout_ms + STEP_TIMEOUT_MARGIN_MS
+            // (droidthumb-server/docs/mvp-handover.md §4 item 3), which only makes sense if this
+            // device actually honours a timeout_ms above the old 30s cap. 120s bounds worst-case
+            // step latency while covering realistic waits (slow page loads, network-bound screens).
+            internal const val MAX_TIMEOUT_MS = 120000L
         }
     }
 

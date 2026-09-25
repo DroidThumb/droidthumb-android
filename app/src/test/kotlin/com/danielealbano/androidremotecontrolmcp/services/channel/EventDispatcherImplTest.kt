@@ -94,7 +94,7 @@ class EventDispatcherImplTest {
                 val server =
                     embeddedServer(Netty, port = 0) {
                         routing {
-                            post("/event") {
+                            post("/events") {
                                 receivedAuth.set(call.request.header("Authorization"))
                                 receivedContentType.set(call.request.header("Content-Type"))
                                 receivedBody.set(call.receiveText())
@@ -139,7 +139,7 @@ class EventDispatcherImplTest {
                 val server =
                     embeddedServer(Netty, port = 0) {
                         routing {
-                            post("/event") {
+                            post("/events") {
                                 receivedAuth.set(call.request.header("Authorization"))
                                 call.respond(HttpStatusCode.OK, """{"status":"ok"}""")
                             }
@@ -172,7 +172,7 @@ class EventDispatcherImplTest {
                 val server =
                     embeddedServer(Netty, port = 0) {
                         routing {
-                            post("/event") {
+                            post("/events") {
                                 call.respond(HttpStatusCode.OK, """{"status":"ok"}""")
                             }
                         }
@@ -202,7 +202,7 @@ class EventDispatcherImplTest {
                 val server =
                     embeddedServer(Netty, port = 0) {
                         routing {
-                            post("/event") {
+                            post("/events") {
                                 call.respond(HttpStatusCode.InternalServerError, "error")
                             }
                         }
@@ -303,7 +303,7 @@ class EventDispatcherImplTest {
                 val server =
                     embeddedServer(Netty, port = 0) {
                         routing {
-                            post("/event") { call.respond(HttpStatusCode.InternalServerError, "err") }
+                            post("/events") { call.respond(HttpStatusCode.InternalServerError, "err") }
                         }
                     }
                 server.start(wait = false)
@@ -335,7 +335,7 @@ class EventDispatcherImplTest {
                 val server =
                     embeddedServer(Netty, port = 0) {
                         routing {
-                            post("/event") {
+                            post("/events") {
                                 val status =
                                     if (calls.getAndIncrement() == 0) {
                                         HttpStatusCode.InternalServerError
@@ -373,7 +373,7 @@ class EventDispatcherImplTest {
                 val server =
                     embeddedServer(Netty, port = 0) {
                         routing {
-                            post("/event") {
+                            post("/events") {
                                 if (calls.getAndIncrement() == 0) {
                                     call.respond(HttpStatusCode.InternalServerError, "err")
                                 } else {

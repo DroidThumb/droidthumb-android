@@ -83,6 +83,17 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- M2 device transport (WebSocket client to droidthumb-server). specialUse: it holds a
+             single outbound control-channel connection and no location, camera or media access. -->
+        <service
+            android:name=".services.transport.TransportService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Holds an outbound WebSocket connection to a user-configured DroidThumb server" />
+        </service>
     </application>
 
 </manifest>

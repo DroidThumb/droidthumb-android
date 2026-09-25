@@ -57,6 +57,7 @@ class SettingsRepositoryLoggingTest {
         repository =
             SettingsRepositoryImpl(
                 EventChannelSettingsImpl(dataStore, changeLogger),
+                TransportSettingsImpl(dataStore, changeLogger),
             )
     }
 

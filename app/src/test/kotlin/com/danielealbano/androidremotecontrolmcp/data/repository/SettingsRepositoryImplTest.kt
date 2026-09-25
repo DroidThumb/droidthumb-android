@@ -17,7 +17,8 @@ import org.junit.jupiter.api.Test
  */
 class SettingsRepositoryImplTest {
     private val eventChannelSettings = mockk<EventChannelSettings>(relaxed = true)
-    private val repository = SettingsRepositoryImpl(eventChannelSettings)
+    private val transportSettings = mockk<TransportSettings>(relaxed = true)
+    private val repository = SettingsRepositoryImpl(eventChannelSettings, transportSettings)
 
     @Test
     fun `eventChannelConfig is the slice's flow`() =
