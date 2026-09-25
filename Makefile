@@ -1,7 +1,7 @@
 .PHONY: help check-deps check-deps-updates update-deps build build-foss build-release clean \
-        test-unit test-integration test-e2e test coverage privacy-benchmark \
+        test-unit test coverage \
         lint lint-fix \
-        install install-release uninstall grant-permissions start-server forward-port \
+        install install-release uninstall grant-permissions launch-app \
         setup-emulator start-emulator stop-emulator \
         logs logs-clear \
         build-release-bundle \
@@ -22,7 +22,6 @@ EMULATOR_NAME := mcp_test_emulator
 EMULATOR_DEVICE := pixel_6
 EMULATOR_API := 34
 EMULATOR_IMAGE := system-images;android-$(EMULATOR_API);google_apis;x86_64
-DEFAULT_PORT := 8080
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Help
@@ -72,14 +71,6 @@ check-deps: ## Check for required development tools
 		echo "           Install Android SDK platform-tools"; \
 		MISSING=1; \
 	fi; \
-	if command -v podman >/dev/null 2>&1; then \
-		PODMAN_VER=$$(podman --version); \
-		echo "  [OK] $$PODMAN_VER"; \
-	else \
-		echo "  [MISSING] Podman (required for E2E tests)"; \
-		echo "           Install: https://podman.io/getting-started/installation"; \
-		MISSING=1; \
-	fi; \
 	echo ""; \
 	if [ $$MISSING -eq 1 ]; then \
 		echo "Some dependencies are missing. Please install them."; \
@@ -123,19 +114,10 @@ clean: ## Clean build artifacts
 # Testing
 # ─────────────────────────────────────────────────────────────────────────────
 
-test-unit: ## Run unit tests (includes integration tests since both are JVM-based)
-	$(if $(wildcard .env),set -a && . ./.env && set +a &&,) $(GRADLE) :app:test :privacy:test :privacy-benchmark:test
+test-unit: ## Run unit tests (JVM)
+	$(if $(wildcard .env),set -a && . ./.env && set +a &&,) $(GRADLE) :app:test
 
-test-integration: ## Run integration tests (JVM-based, no emulator required)
-	$(if $(wildcard .env),set -a && . ./.env && set +a &&,) $(GRADLE) :app:testGmsDebugUnitTest --tests "com.danielealbano.androidremotecontrolmcp.integration.*"
-
-test-e2e: ## Run E2E tests (requires rootful podman socket)
-	$(if $(wildcard .env),set -a && . ./.env && set +a &&,) DOCKER_HOST=unix:///run/podman/podman.sock TESTCONTAINERS_RYUK_DISABLED=true $(GRADLE) :e2e-tests:cleanTest :e2e-tests:test
-
-privacy-benchmark: ## Run the Privacy Mode effectiveness benchmark (downloads model + dataset to privacy-benchmark/.cache on first run)
-	$(GRADLE) :privacy-benchmark:run $(if $(BENCHMARK_ARGS),--args="$(BENCHMARK_ARGS)",)
-
-test: test-unit test-e2e ## Run all tests
+test: test-unit ## Run all tests
 
 coverage: ## Generate code coverage report (Jacoco)
 	$(GRADLE) jacocoTestReport
@@ -165,7 +147,7 @@ uninstall: ## Uninstall app from connected device/emulator
 	$(ADB) uninstall $(APP_ID) 2>/dev/null || true
 	$(ADB) uninstall $(APP_ID_DEBUG) 2>/dev/null || true
 
-grant-permissions: ## Grant permissions via adb (accessibility + notification listener + notifications + camera + microphone + location + media)
+grant-permissions: ## Grant permissions via adb (accessibility + notification listener + notifications)
 	@echo "=== Granting permissions via adb ==="
 	@echo ""
 	@echo "1. Enabling Accessibility Service..."
@@ -182,49 +164,13 @@ grant-permissions: ## Grant permissions via adb (accessibility + notification li
 	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.POST_NOTIFICATIONS
 	@echo "   Done."
 	@echo ""
-	@echo "4. Granting CAMERA permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.CAMERA
-	@echo "   Done."
-	@echo ""
-	@echo "5. Granting RECORD_AUDIO permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.RECORD_AUDIO
-	@echo "   Done."
-	@echo ""
-	@echo "6. Granting ACCESS_FINE_LOCATION permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.ACCESS_FINE_LOCATION
-	@echo "   Done."
-	@echo ""
-	@echo "7. Granting ACCESS_COARSE_LOCATION permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.ACCESS_COARSE_LOCATION
-	@echo "   Done."
-	@echo ""
-	@echo "8. Granting ACCESS_BACKGROUND_LOCATION permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.ACCESS_BACKGROUND_LOCATION
-	@echo "   Done."
-	@echo ""
-	@echo "9. Granting READ_MEDIA_IMAGES permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.READ_MEDIA_IMAGES
-	@echo "   Done."
-	@echo ""
-	@echo "10. Granting READ_MEDIA_VIDEO permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.READ_MEDIA_VIDEO
-	@echo "   Done."
-	@echo ""
-	@echo "11. Granting READ_MEDIA_AUDIO permission..."
-	$(ADB) shell pm grant $(APP_ID_DEBUG) android.permission.READ_MEDIA_AUDIO
-	@echo "   Done."
-	@echo ""
 
-# Note: start-server defaults to the debug application ID (APP_ID_DEBUG).
-# To launch the release build, use: make start-server APP_ID_TARGET=$(APP_ID)
+# Note: launch-app defaults to the debug application ID (APP_ID_DEBUG).
+# To launch the release build, use: make launch-app APP_ID_TARGET=$(APP_ID)
 APP_ID_TARGET ?= $(APP_ID_DEBUG)
 
-start-server: ## Launch MainActivity on device (debug build by default)
+launch-app: ## Launch MainActivity on device (debug build by default)
 	$(ADB) shell am start -n $(APP_ID_TARGET)/$(PKG).ui.MainActivity
-
-forward-port: ## Set up adb port forwarding (device -> host)
-	$(ADB) forward tcp:$(DEFAULT_PORT) tcp:$(DEFAULT_PORT)
-	@echo "Port forwarding: localhost:$(DEFAULT_PORT) -> device:$(DEFAULT_PORT)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Emulator Management

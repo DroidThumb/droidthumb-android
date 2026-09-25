@@ -48,11 +48,9 @@ tasks.withType<DependencyUpdatesTask> {
 // ship in the APK and never run at app runtime: Android Lint's `androidLintTool` configuration and
 // AGP's Unified Test Platform (UTP) configurations pull vulnerable bouncycastle/httpclient/commons-lang3,
 // and UTP's grpc-netty drags a vulnerable netty 4.1.x. Scoped `constraints {}` cannot reach these
-// AGP-internal tooling configurations, and the forces must apply to :app, :compose-test-app and
-// :e2e-tests alike — so force every affected transitive up to its first patched release across ALL
-// projects and ALL configurations. The shipping runtime is unaffected: Ktor's server engine keeps its
-// netty 4.2.x line (pinned to 4.2.17.Final by :app constraints, which this 4.1.x rule never matches),
-// and the app's direct bouncycastle is already 1.85.
+// AGP-internal tooling configurations — so force every affected transitive up to its first patched
+// release across ALL projects and ALL configurations. The shipping runtime is unaffected: the app
+// itself no longer depends on netty or bouncycastle.
 allprojects {
     configurations.configureEach {
         resolutionStrategy.eachDependency {

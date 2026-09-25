@@ -42,15 +42,11 @@ Thumbs.db
 *.apk
 *.ap_
 *.aab
-# Exception: test fixture APKs needed for E2E tests
-!e2e-tests/src/test/resources/*.apk
 
 # Generated files
 gen/
 out/
 
-# E2E test build artifacts
-e2e-tests/bin/
 
 # Android profiling
 *.hprof
@@ -84,4 +80,3 @@ app/replay_*.log
 # Cached DB-IP source CSV for the geolocation DB generator (the DB itself is generated under build/)
 .dbip-cache/
 
-privacy-benchmark/.cache/

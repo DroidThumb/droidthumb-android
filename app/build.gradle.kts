@@ -1,8 +1,5 @@
-import org.gradle.process.ExecOperations
 import java.io.FileInputStream
-import java.time.YearMonth
 import java.util.Properties
-import javax.inject.Inject
 
 plugins {
     alias(libs.plugins.android.application)
@@ -284,7 +281,7 @@ android {
     }
 
     lint {
-        // QUERY_ALL_PACKAGES is required for app management tools (list/launch/force-stop)
+        // QUERY_ALL_PACKAGES is required to resolve and launch arbitrary apps (open_app/close_app handlers)
         disable += "QueryAllPackagesPermission"
     }
 
@@ -292,7 +289,6 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "/META-INF/INDEX.LIST"
-            excludes += "/META-INF/io.netty.*"
             excludes += "/META-INF/LICENSE.md"
             excludes += "/META-INF/LICENSE-notice.md"
         }
@@ -335,72 +331,13 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
-    // DocumentFile (SAF)
-    implementation(libs.androidx.documentfile)
-
-    // CameraX
-    implementation(libs.camerax.core)
-    implementation(libs.camerax.camera2)
-    implementation(libs.camerax.lifecycle)
-    implementation(libs.camerax.video)
-
-    // Google Play Services (gms flavor only — excluded from the foss/F-Droid build)
-    "gmsImplementation"(libs.play.services.location)
-
-    // OpenStreetMap
-    implementation(libs.osmdroid)
-
-    // Ktor Server
-    implementation(libs.ktor.server.core)
-    implementation(libs.ktor.server.netty)
-    implementation(libs.ktor.server.content.negotiation)
-    implementation(libs.ktor.server.cors)
-    implementation(libs.ktor.network.tls.certificates)
-    implementation(libs.ktor.serialization.kotlinx.json)
-
     // Ktor Client (Event Channel dispatcher — no Logging plugin, it would expose auth token)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
-
-    // Force patched Netty: Ktor's server engine ships netty 4.2.9, which is vulnerable.
-    // Covers the HTTP Request Smuggling / HTTP/2 CONTINUATION-flood CVEs (CVE-2026-33870,
-    // CVE-2026-33871) plus the native-transport advisories that the engine also pulls onto the
-    // release classpath: epoll DoS (GHSA-rwm7-x88c-3g2p) and the epoll/kqueue fd leak
-    // (GHSA-w573-9ffj-6ff9). All netty modules are pinned to the same version to avoid skew.
-    constraints {
-        implementation("io.netty:netty-codec-http:4.2.17.Final")
-        implementation("io.netty:netty-codec-http2:4.2.17.Final")
-        implementation("io.netty:netty-handler:4.2.17.Final")
-        implementation("io.netty:netty-common:4.2.17.Final")
-        implementation("io.netty:netty-buffer:4.2.17.Final")
-        implementation("io.netty:netty-transport:4.2.17.Final")
-        implementation("io.netty:netty-codec-base:4.2.17.Final")
-        implementation("io.netty:netty-codec-compression:4.2.17.Final")
-        implementation("io.netty:netty-resolver:4.2.17.Final")
-        implementation("io.netty:netty-transport-native-unix-common:4.2.17.Final")
-        implementation("io.netty:netty-transport-classes-epoll:4.2.17.Final")
-        implementation("io.netty:netty-transport-native-epoll:4.2.17.Final")
-        implementation("io.netty:netty-transport-classes-kqueue:4.2.17.Final")
-        implementation("io.netty:netty-transport-native-kqueue:4.2.17.Final")
-    }
-
-    // Certificate generation (Bouncy Castle for self-signed cert with SAN support)
-    implementation(libs.bouncy.castle.pkix)
-    implementation(libs.bouncy.castle.prov)
-
-    // MCP SDK
-    implementation(libs.mcp.kotlin.sdk.server)
+    implementation(libs.ktor.serialization.kotlinx.json)
+    // Logging binding for the Ktor client (SLF4J); without it Ktor logs through a NOP logger.
     runtimeOnly(libs.slf4j.android)
 
-    // OAuth (JWT signing/verification)
-    // The Jackson BOM aligns java-jwt's transitive jackson-core/jackson-databind to a patched
-    // release, closing the CVE alerts on the 2.21.3 versions the library would otherwise pull in.
-    implementation(platform(libs.jackson.bom))
-    implementation(libs.java.jwt)
-
-    // OAuth client logos (SSRF-guarded remote image loading)
-    implementation(libs.coil.compose)
-    implementation(libs.coil.network)
 
     // Kotlinx
     implementation(libs.kotlinx.serialization.json)
@@ -412,19 +349,6 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
 
-    // WorkManager + Hilt integration (periodic in-app update check)
-    implementation(libs.androidx.work.runtime.ktx)
-    implementation(libs.androidx.hilt.work)
-    ksp(libs.androidx.hilt.compiler)
-
-    // Accompanist
-    implementation(libs.accompanist.permissions)
-
-    // Privacy Mode (on-device PII detection). The detection core lives in :privacy (pure JVM,
-    // compileOnly onnxruntime); the Android AAR below supplies ai.onnxruntime.* at app runtime.
-    implementation(project(":privacy"))
-    implementation(libs.onnxruntime.android)
-
     // Unit Testing
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter.api)
@@ -435,27 +359,7 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.bouncy.castle.pkix)
-    testImplementation(libs.bouncy.castle.prov)
-    testImplementation(libs.ktor.server.test.host)
-    testImplementation(libs.mcp.kotlin.sdk.client)
-    testImplementation(libs.ktor.client.content.negotiation)
-    testImplementation(libs.ktor.sse)
 }
-
-// Offline IP-geolocation database, generated at build time from the CURRENT month's DB-IP City Lite
-// (CC BY 4.0). The gzipped LDB1 asset is not committed (a generated artifact); it is produced into a
-// generated-assets directory and registered via androidComponents so AGP wires every consumer (asset
-// merge, lint-vital, etc.) to depend on it. Keyed on the year-month, so it naturally refreshes when
-// DB-IP publishes a new monthly DB (up-to-date within the same month). Requires python3 + network at
-// build time; the source CSV is cached under .dbip-cache (gitignored) so CI can cache the monthly download.
-val generateLocationDb =
-    tasks.register<GenerateLocationDbTask>("generateLocationDb") {
-        script.set(rootProject.layout.projectDirectory.file("scripts/location-db/build_location_db.py"))
-        month.set(YearMonth.now().toString())
-        cacheDir.set(rootProject.layout.projectDirectory.dir(".dbip-cache"))
-        outputDir.set(layout.buildDirectory.dir("generated/locationDb"))
-    }
 
 androidComponents {
     // Per-flavor debug applicationId (`…droidthumb.gms.debug` / `…droidthumb.foss.debug`) so both debug builds
@@ -464,11 +368,6 @@ androidComponents {
         variant.applicationId.set(
             "uk.co.drhconsulting.droidthumb.${variant.flavorName}.debug",
         )
-    }
-    onVariants { variant ->
-        // Registered as a generated assets source — the generation runs only for variants that package
-        // assets (assemble/lint-vital), never for the unit-test path, which uses the committed fixture.
-        variant.sources.assets?.addGeneratedSourceDirectory(generateLocationDb, GenerateLocationDbTask::outputDir)
     }
 }
 
@@ -579,46 +478,3 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
     }
 }
 
-/**
- * Generates the compact LDB1 geolocation DB into a generated-assets directory by invoking the Python
- * builder. A proper typed task (vs a bare Exec writing into the source tree) so AGP can wire it as a
- * generated assets source with correct task dependencies. Keyed on [month] so it refreshes monthly.
- */
-@CacheableTask
-abstract class GenerateLocationDbTask : DefaultTask() {
-    // NONE: only the script's content matters for the output, not its path on disk — so the
-    // cache entry stays valid across differently-rooted checkouts (e.g. CI vs local).
-    @get:PathSensitive(PathSensitivity.NONE)
-    @get:InputFile
-    abstract val script: RegularFileProperty
-
-    @get:Input
-    abstract val month: Property<String>
-
-    @get:Internal
-    abstract val cacheDir: DirectoryProperty
-
-    @get:OutputDirectory
-    abstract val outputDir: DirectoryProperty
-
-    @get:Inject
-    abstract val execOperations: ExecOperations
-
-    @TaskAction
-    fun generate() {
-        val asset = outputDir.get().asFile.resolve("geo/location-db.bin.gz")
-        asset.parentFile.mkdirs()
-        execOperations.exec {
-            commandLine(
-                "python3",
-                script.get().asFile.absolutePath,
-                "--month",
-                month.get(),
-                "--cache-dir",
-                cacheDir.get().asFile.absolutePath,
-                "--out",
-                asset.absolutePath,
-            )
-        }
-    }
-}
