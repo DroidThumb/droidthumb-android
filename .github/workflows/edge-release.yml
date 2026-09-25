@@ -27,10 +27,12 @@ name: Edge Release
 #   downloader can still observe assets from two adjacent commits (or a transient
 #   404); harmless for single-APK installs, unavoidable with the releases API.
 
+# Manual-only (docs/plans/demolition.md, decision D8): the automatic push-to-main trigger is
+# off while the app has no way to be driven end to end — the on-device server was removed
+# and the outbound transport does not exist yet — so no public build is published from main.
+# Restore the `push: branches: [main]` trigger once the app can be driven end to end again.
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
