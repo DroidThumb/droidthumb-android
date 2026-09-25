@@ -302,7 +302,7 @@ class UtilityToolsTest {
                     buildJsonObject {
                         put("by", "text")
                         put("value", "test")
-                        put("timeout", 50000)
+                        put("timeout", WaitForNodeTool.MAX_TIMEOUT_MS + 1)
                     }
 
                 val exception = assertThrows<McpToolException.InvalidParams> { tool.execute(params) }

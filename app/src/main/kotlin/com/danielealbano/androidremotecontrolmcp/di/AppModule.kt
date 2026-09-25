@@ -10,6 +10,8 @@ import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogReposi
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepositoryImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepositoryImpl
+import com.danielealbano.androidremotecontrolmcp.data.repository.TransportSettings
+import com.danielealbano.androidremotecontrolmcp.data.repository.TransportSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCache
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCacheImpl
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
@@ -32,6 +34,8 @@ import com.danielealbano.androidremotecontrolmcp.services.screencapture.ApiLevel
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.DefaultApiLevelProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProviderImpl
+import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
+import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClientImpl
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -82,6 +86,11 @@ abstract class RepositoryModule {
     @Singleton
     abstract fun bindEventChannelSettings(impl: EventChannelSettingsImpl): EventChannelSettings
 
+    /** Binds the M2 transport settings slice that [SettingsRepositoryImpl] delegates to. */
+    @Binds
+    @Singleton
+    abstract fun bindTransportSettings(impl: TransportSettingsImpl): TransportSettings
+
     /** Binds the disk-backed server log used by the in-app logs viewer. */
     @Binds
     @Singleton
@@ -90,6 +99,7 @@ abstract class RepositoryModule {
 
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("TooManyFunctions") // one trivial @Binds per interface — splitting would hurt cohesion, not help it
 abstract class ServiceModule {
     @Binds
     @Singleton
@@ -134,4 +144,8 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindBatteryOptimizationManager(impl: BatteryOptimizationManagerImpl): BatteryOptimizationManager
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceTransportClient(impl: DeviceTransportClientImpl): DeviceTransportClient
 }
