@@ -70,14 +70,28 @@ class TransportViewModel
             viewModelScope.launch(ioDispatcher) { settingsRepository.updateTransportPort(port) }
         }
 
+        /**
+         * Writes `enabled` *before* sending the start intent, not concurrently with it.
+         * `TransportService.handleStart()` collects `transportConfig` and stops itself the moment
+         * it observes `enabled == false` — a DataStore `Flow` re-emits the *current* value
+         * immediately on collection, so if the write below were merely launched (fire-and-forget)
+         * alongside `startService()` rather than awaited first, the service could start, begin
+         * collecting, and observe the pre-write `enabled == false` before the write lands,
+         * self-stopping within milliseconds of starting. Observed directly against a real device
+         * during M3 verification, not a theoretical race.
+         */
         fun start() {
-            viewModelScope.launch(ioDispatcher) { settingsRepository.updateTransportEnabled(true) }
-            startService()
+            viewModelScope.launch(ioDispatcher) {
+                settingsRepository.updateTransportEnabled(true)
+                startService()
+            }
         }
 
         fun stop() {
-            viewModelScope.launch(ioDispatcher) { settingsRepository.updateTransportEnabled(false) }
-            stopService()
+            viewModelScope.launch(ioDispatcher) {
+                settingsRepository.updateTransportEnabled(false)
+                stopService()
+            }
         }
 
         private fun startService() {

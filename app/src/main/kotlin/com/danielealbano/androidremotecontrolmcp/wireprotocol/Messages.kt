@@ -123,6 +123,13 @@ sealed interface FileReference {
 val wireJson =
     Json {
         ignoreUnknownKeys = true
+        // hello.schema.json requires `capabilities`/`flow_manifest` even when empty — kotlinx
+        // omits a property that equals its default value unless told not to, which would
+        // otherwise silently produce a hello the server's ajv validation rejects as malformed
+        // (closed with 4000, "expected a valid hello first" — found against a real server, not
+        // caught by this package's own round-trip tests, which don't validate against the real
+        // JSON Schema).
+        encodeDefaults = true
         serializersModule =
             SerializersModule {
                 polymorphic(WireMessage::class) {

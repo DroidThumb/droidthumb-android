@@ -30,6 +30,27 @@ class MessagesTest {
     }
 
     @Test
+    fun `hello encodes required fields even at their default value`() {
+        // Regression test: kotlinx.serialization omits a property equal to its default value
+        // unless `encodeDefaults = true` is set, which would silently produce a hello missing
+        // `capabilities`/`flow_manifest` whenever both are empty (the common case) — a shape
+        // hello.schema.json's ajv validation rejects outright, since both are required. Found
+        // against a real server (closed with 4000, "expected a valid hello first"), not caught by
+        // this package's own round-trip tests before this one, since encode-then-decode of the
+        // same Kotlin class can't detect a field that both sides simply never populated.
+        val hello =
+            Hello(
+                protocolVersion = 1,
+                apkVersion = "1.0.0",
+                deviceId = "device-1",
+                mode = "live",
+            )
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), hello)
+        assertTrue(encoded.contains("\"capabilities\""), "encoded hello missing capabilities: $encoded")
+        assertTrue(encoded.contains("\"flow_manifest\""), "encoded hello missing flow_manifest: $encoded")
+    }
+
+    @Test
     fun `welcome round-trips with settings`() {
         val welcome =
             Welcome(

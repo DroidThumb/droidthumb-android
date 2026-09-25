@@ -149,6 +149,7 @@ class DeviceTransportClientImpl
                     // WebSocket does not throw for a normal close frame, it just ends the channel.
                     if (!welcomed) {
                         val reason = closeReason.await()
+                        Logger.w(TAG, "Closed before welcome: code=${reason?.code} message=${reason?.message}")
                         _status.value =
                             TransportStatus.Rejected(reason?.code, reason?.message ?: "closed before welcome")
                     }

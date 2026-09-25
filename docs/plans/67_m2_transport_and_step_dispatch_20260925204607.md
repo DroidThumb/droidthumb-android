@@ -755,8 +755,51 @@ existing precedent) — exposes `transportConfig`, `transportStatus`, `startTran
 ### Definition of Done
 
 - [x] Compiles; `ktlintCheck`/`detekt` clean.
-- [ ] Manual check (part of M3 below, not repeated here): entering the redroid gateway host:port
-      and pressing start actually connects.
+- [x] Manual check (part of M3 below, not repeated here): entering the redroid gateway host:port
+      and pressing start actually connects. **Done, against a real redroid device and a real
+      server — see "Real-device verification findings" below for two more real bugs this surfaced
+      that no unit test, review, or mock could have caught.**
+
+### Real-device verification findings (against real redroid + a real server, not mocks)
+
+Both plan reviews above were thorough and correct about what they could see; neither could have
+caught these two, since both require an actual device, an actual server, and actual wall-clock
+timing — exactly the gap unit tests and code review can't close, which is why this DoD item
+existed. Recorded here rather than silently fixed, per this pass's "decide, don't ask, and record
+it" mandate.
+
+1. **`wireJson` didn't set `encodeDefaults = true`.** kotlinx.serialization omits a property equal
+   to its default value unless told otherwise — `Hello.capabilities`/`flowManifest` default to
+   `emptyList()`, the common case, so every real `hello` this build sent omitted both fields
+   entirely. `hello.schema.json` requires both. The real server closed every connection attempt
+   with `4000 "expected a valid hello first"` before `welcome` could ever arrive — silently, from
+   this build's own tests' perspective, since `MessagesTest`'s round-trip tests encode-then-decode
+   the same Kotlin class and can't detect a field neither side ever populated. Only visible by
+   logging the actual bytes sent to a real server and watching it reject them. Fixed:
+   `encodeDefaults = true` on `wireJson`. Regression test added
+   (`hello encodes required fields even at their default value`, asserting on the raw JSON string).
+2. **A real race between the settings write and the service-start intent** in
+   `TransportViewModel.start()`: `updateTransportEnabled(true)` was launched (fire-and-forget)
+   alongside `startService()` rather than before it. `TransportService.handleStart()` collects
+   `transportConfig` and stops itself the instant it observes `enabled == false` — and a DataStore
+   `Flow` re-emits the *current* value immediately on collection. If the service's first collection
+   read landed before the enabled-write completed, it saw the pre-write `false` and self-stopped
+   within tens of milliseconds of starting — reproduced directly, not theoretical (`Transport
+   started` immediately followed by `Transport service destroyed` in logcat, no exception, no
+   explicit stop tap). Fixed: `start()`/`stop()` now await the settings write before sending the
+   intent. **Note:** the identical pattern exists in the pre-existing, already-shipped
+   `ChannelViewModel.startChannel()`/`EventChannelService.handleStart()` — out of scope for this
+   plan (a file this plan doesn't otherwise touch), flagged here for a future pass rather than
+   fixed silently alongside an unrelated feature.
+
+**Verified working end-to-end** (2026-09-25, this host): built and installed the debug APK on the
+persistent redroid device, ran `droidthumb-server` with `DEVICE_BIND_HOST` set to the current
+podman gateway (`docs/debug-device.md`/plan 01 §0), entered that address in the app's Remote
+Control card, pressed Start — status reached `Connected (protocol v1)`. Confirmed from the server
+side with a real MCP client: `list_tools` returned all 7 device ops plus the M4/M5 tools, and
+`read_screen` executed against the live device and returned a real accessibility tree. This is
+also the first real evidence for M3 that the whole chain (app -> transport -> server -> MCP) works,
+ahead of M3's own dedicated proof pass.
 
 ---
 
