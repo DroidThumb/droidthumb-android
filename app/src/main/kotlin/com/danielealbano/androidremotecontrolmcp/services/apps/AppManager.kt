@@ -1,7 +1,5 @@
 package com.danielealbano.androidremotecontrolmcp.services.apps
 
-import com.danielealbano.androidremotecontrolmcp.data.model.AppInfo
-
 /**
  * Manages application lifecycle operations: listing, launching, and closing apps.
  */

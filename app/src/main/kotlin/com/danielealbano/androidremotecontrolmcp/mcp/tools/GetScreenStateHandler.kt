@@ -9,7 +9,6 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.Accessib
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeParser
-import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.CompactTreeFormatter
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.MultiWindowResult
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenInfo
@@ -27,11 +26,8 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,8 +56,6 @@ class GetScreenStateHandler
         private val screenStateSnapshotCache: ScreenStateSnapshotCache,
         private val webViewNodeMerger: WebViewNodeMerger,
     ) {
-        @Volatile private var includeScreenshotEnabled: Boolean = true
-
         suspend fun execute(arguments: JsonObject?): ToolResult {
             val includeScreenshot = parseIncludeScreenshot(arguments)
             val cursorElement = arguments?.get("cursor")
@@ -80,11 +74,7 @@ class GetScreenStateHandler
         }
 
         private fun parseIncludeScreenshot(arguments: JsonObject?): Boolean =
-            if (includeScreenshotEnabled) {
-                arguments?.get("include_screenshot")?.jsonPrimitive?.booleanOrNull ?: false
-            } else {
-                false
-            }
+            arguments?.get("include_screenshot")?.jsonPrimitive?.booleanOrNull ?: false
 
         private suspend fun handleFreshRequest(includeScreenshot: Boolean): ToolResult {
             // getFreshWindows clears the framework accessibility cache before reading (see there),
@@ -93,9 +83,8 @@ class GetScreenStateHandler
             // The node cache (used by element/action tools) is populated by getFreshWindows from the
             // original tree; the merge only collapses the tree shown to the LLM. Merged anchors keep
             // their original ids, so taps still resolve.
-            val rawResult =
+            val result =
                 webViewNodeMerger.merge(getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache))
-            val result = rawResult
             val screenInfo = accessibilityServiceProvider.getScreenInfo()
             val totalKept = compactTreeFormatter.countKeptNodes(result)
             val totalPages = ceilDiv(totalKept, CompactTreeFormatter.PAGE_SIZE)
@@ -228,7 +217,6 @@ class GetScreenStateHandler
                 )
             } finally {
                 annotatedBitmap?.recycle()
-                if (resizedBitmap !== resizedBitmap) resizedBitmap.recycle()
                 resizedBitmap.recycle()
             }
         }
@@ -284,7 +272,7 @@ class GetScreenStateHandler
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Registration function
+// Cursor and paging helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**

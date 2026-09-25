@@ -3,7 +3,6 @@
 package com.danielealbano.androidremotecontrolmcp.ui.screens.settings
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,7 +41,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavHostController
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)

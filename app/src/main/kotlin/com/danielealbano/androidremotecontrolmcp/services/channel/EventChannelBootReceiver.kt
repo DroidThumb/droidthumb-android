@@ -4,13 +4,17 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import java.io.IOException
 import javax.inject.Inject
 
 /**
@@ -27,7 +31,6 @@ import javax.inject.Inject
 class EventChannelBootReceiver : BroadcastReceiver() {
     @Inject lateinit var settingsRepository: SettingsRepository
 
-    @Suppress("TooGenericExceptionCaught")
     override fun onReceive(
         context: Context,
         intent: Intent,
@@ -41,7 +44,7 @@ class EventChannelBootReceiver : BroadcastReceiver() {
             try {
                 withTimeout(SETTINGS_READ_TIMEOUT_MS) {
                     val channelConfig = settingsRepository.getEventChannelConfig()
-                    if (channelConfig.enabled && channelConfig.endpointUrl.isNotBlank()) {
+                    if (shouldAutoStart(channelConfig)) {
                         val channelIntent =
                             Intent(context, EventChannelService::class.java).apply {
                                 action = EventChannelService.ACTION_START
@@ -50,8 +53,17 @@ class EventChannelBootReceiver : BroadcastReceiver() {
                         Log.i(TAG, "Event channel auto-started on boot")
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error checking Event Channel auto-start on boot", e)
+            } catch (e: TimeoutCancellationException) {
+                Log.e(TAG, "Timed out reading Event Channel settings on boot", e)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Could not read Event Channel settings on boot", e)
+            } catch (e: IllegalStateException) {
+                // Includes ForegroundServiceStartNotAllowedException (Android 12+).
+                Log.e(TAG, "Could not start the Event Channel on boot", e)
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Not allowed to start the Event Channel on boot", e)
             } finally {
                 pendingResult.finish()
             }
@@ -63,3 +75,6 @@ class EventChannelBootReceiver : BroadcastReceiver() {
         private const val SETTINGS_READ_TIMEOUT_MS = 10_000L
     }
 }
+
+/** The channel auto-starts on boot only when it is enabled and has an endpoint to send to. */
+internal fun shouldAutoStart(config: EventChannelConfig): Boolean = config.enabled && config.endpointUrl.isNotBlank()

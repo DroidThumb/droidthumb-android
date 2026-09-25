@@ -302,8 +302,7 @@ kotlin {
 }
 
 // Tooling-transitive CVE forces (netty 4.1.x, bouncycastle, httpclient, commons-lang3) live in the
-// root build.gradle.kts `allprojects` block so they apply to every module uniformly. The shipping
-// netty 4.2.x pins for Ktor's server engine remain here as scoped constraints (see below).
+// root build.gradle.kts `allprojects` block so they apply to every module uniformly.
 
 dependencies {
     // AndroidX Core
@@ -414,15 +413,9 @@ val jacocoExcludes =
         "**/*ComposableSingletons*",
         // Android framework classes (require device/emulator, not unit-testable)
         "**/McpApplication*",
-        "**/services/mcp/McpServerService*",
-        "**/services/mcp/BootCompletedReceiver*",
+        "**/services/channel/EventChannelBootReceiver*",
         "**/services/screencapture/ScreenCaptureService*",
         "**/services/accessibility/McpAccessibilityService*",
-        // Update check: WorkManager worker, scheduler, and notifier require Android framework
-        "**/services/update/UpdateCheckWorker*",
-        "**/services/update/UpdateCheckScheduler*",
-        "**/services/update/UpdateNotifierImpl*",
-        "**/services/update/BuildConfigAppVersionProvider*",
         // UI layer (requires instrumented/Compose tests)
         "**/ui/**",
         // Dependency injection configuration

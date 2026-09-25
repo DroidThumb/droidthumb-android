@@ -20,14 +20,12 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollDi
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 import kotlin.random.Random
 
@@ -52,16 +50,13 @@ class FindNodesTool
                 arguments?.get("by")?.jsonPrimitive?.contentOrNull
                     ?: throw McpToolException.InvalidParams("Missing required parameter 'by'")
 
-            val rawValue =
+            val value =
                 arguments["value"]?.jsonPrimitive?.contentOrNull
                     ?: throw McpToolException.InvalidParams("Missing required parameter 'value'")
 
-            if (rawValue.isEmpty()) {
+            if (value.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'value' must be non-empty")
             }
-
-            // Reverse any pseudonym placeholder so the search matches the real on-screen value.
-            val value = rawValue
 
             val exactMatch = arguments["exact_match"]?.jsonPrimitive?.booleanOrNull ?: false
 

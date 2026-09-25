@@ -2,7 +2,6 @@ package com.danielealbano.androidremotecontrolmcp.ui.viewmodels
 
 import android.content.Context
 import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
-import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMode
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import io.mockk.coEvery
 import io.mockk.coVerify

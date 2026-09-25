@@ -7,20 +7,12 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.Display
-import android.view.Gravity
-import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import android.widget.TextView
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -48,8 +40,6 @@ class McpAccessibilityService : AccessibilityService() {
     private var nodeCache: AccessibilityNodeCache? = null
 
     private var cacheInvalidationDebouncer: CacheInvalidationDebouncer? = null
-
-    private var toolCallIndicatorView: View? = null
 
     @Volatile
     private var currentPackageName: String? = null
@@ -136,7 +126,6 @@ class McpAccessibilityService : AccessibilityService() {
         currentPackageName = null
         currentActivityName = null
         inputMethodInstance = null
-        removeToolCallIndicator()
         instance = null
 
         super.onDestroy()
@@ -245,59 +234,6 @@ class McpAccessibilityService : AccessibilityService() {
         return method
     }
 
-    private fun showToolCallIndicatorInternal(toolName: String) {
-        val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val textView = (toolCallIndicatorView as? TextView) ?: createToolCallIndicatorView()
-        textView.text = "MCP controlling · ${formatToolName(toolName)}"
-        if (toolCallIndicatorView == null) {
-            runCatching {
-                windowManager.addView(textView, createToolCallIndicatorLayoutParams())
-                toolCallIndicatorView = textView
-            }.onFailure { Log.w(TAG, "Could not show MCP tool-call indicator", it) }
-        }
-    }
-
-    private fun removeToolCallIndicator() {
-        val view = toolCallIndicatorView ?: return
-        toolCallIndicatorView = null
-        val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        runCatching { windowManager.removeView(view) }
-            .onFailure { Log.w(TAG, "Could not remove MCP tool-call indicator", it) }
-    }
-
-    private fun createToolCallIndicatorView(): TextView {
-        val horizontalPadding = TOOL_INDICATOR_HORIZONTAL_PADDING_DP.dpToPx()
-        val verticalPadding = TOOL_INDICATOR_VERTICAL_PADDING_DP.dpToPx()
-        return TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = TOOL_INDICATOR_TEXT_SIZE_SP
-            setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
-            background =
-                GradientDrawable().apply {
-                    setColor(TOOL_INDICATOR_BACKGROUND_COLOR)
-                    cornerRadius = TOOL_INDICATOR_CORNER_RADIUS_DP.dpToPx().toFloat()
-                }
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
-    }
-
-    private fun createToolCallIndicatorLayoutParams(): WindowManager.LayoutParams =
-        WindowManager
-            .LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT,
-            ).apply {
-                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = TOOL_INDICATOR_TOP_MARGIN_DP.dpToPx()
-            }
-
-    private fun Int.dpToPx(): Int = (this * resources.displayMetrics.density).toInt()
-
     private fun configureServiceInfo() {
         serviceInfo =
             serviceInfo?.apply {
@@ -393,12 +329,6 @@ class McpAccessibilityService : AccessibilityService() {
         private const val TAG = "MCP:AccessibilityService"
         private const val NOTIFICATION_TIMEOUT_MS = 100L
         private const val SCREENSHOT_TIMEOUT_MS = 5000L
-        private const val TOOL_INDICATOR_HORIZONTAL_PADDING_DP = 16
-        private const val TOOL_INDICATOR_VERTICAL_PADDING_DP = 8
-        private const val TOOL_INDICATOR_CORNER_RADIUS_DP = 18
-        private const val TOOL_INDICATOR_TOP_MARGIN_DP = 12
-        private const val TOOL_INDICATOR_TEXT_SIZE_SP = 13f
-        private const val TOOL_INDICATOR_BACKGROUND_COLOR = 0xE6212121.toInt()
 
         /**
          * Length of the QUIET GAP (no further window-structure events) that must elapse before the
@@ -422,26 +352,8 @@ class McpAccessibilityService : AccessibilityService() {
         @Volatile
         var inputMethodInstance: McpInputMethod? = null
             private set
-
-        fun showToolCallIndicator(toolName: String) {
-            if (instance == null) return
-            Handler(Looper.getMainLooper()).post {
-                instance?.showToolCallIndicatorInternal(toolName)
-            }
-        }
-
-        fun hideToolCallIndicator() {
-            val service = instance ?: return
-            Handler(Looper.getMainLooper()).post {
-                if (instance === service) {
-                    service.removeToolCallIndicator()
-                }
-            }
-        }
     }
 }
-
-internal fun formatToolName(toolName: String): String = toolName.replace('_', ' ').replaceFirstChar { it.uppercase() }
 
 /**
  * Returns true if [eventType] is a structural window change after which cached node bounds may be

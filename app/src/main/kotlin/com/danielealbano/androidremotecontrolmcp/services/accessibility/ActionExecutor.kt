@@ -101,10 +101,6 @@ interface ActionExecutor {
 
     suspend fun pressRecents(): Result<Unit>
 
-    suspend fun openNotifications(): Result<Unit>
-
-    suspend fun openQuickSettings(): Result<Unit>
-
     /**
      * Dismisses the on-screen soft keyboard if one is currently open.
      *
@@ -125,7 +121,6 @@ interface ActionExecutor {
     companion object {
         internal const val DEFAULT_LONG_PRESS_DURATION_MS = 1000L
         internal const val DEFAULT_SWIPE_DURATION_MS = 300L
-        internal const val DEFAULT_GESTURE_DURATION_MS = 300L
         internal const val DEFAULT_SCROLL_VARIANCE_PERCENT = 0.05f
         internal const val MAX_SCROLL_VARIANCE_PERCENT = 0.20f
     }

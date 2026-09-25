@@ -92,7 +92,7 @@ jobs:
 
           if [ "$SUCCESS_COUNT" -eq 4 ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "All 5 gated CI checks succeeded for ${GITHUB_SHA}."
+            echo "All 4 gated CI checks succeeded for ${GITHUB_SHA}."
             exit 0
           fi
 
@@ -180,9 +180,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      # ── 4. Compile native dependencies (cached by submodule content) ──
-      # ── 5. Geolocation DB toolchain (generated at build time from DB-IP City Lite) ──
-      # ── 6. Decode the release keystore so the release APKs are signed with the same
+      # ── 4. Decode the release keystore so the release APKs are signed with the same
       #      key as stable releases (required for edge <-> stable install-over) ──
       - name: Decode release keystore
         env:
@@ -203,11 +201,11 @@ jobs:
             echo "keyPassword=$RELEASE_KEY_PASSWORD"
           } > "$GITHUB_WORKSPACE/keystore.properties"
 
-      # ── 7. Build APKs (versionName/versionCode derived by Gradle from git) ──
+      # ── 5. Build APKs (versionName/versionCode derived by Gradle from git) ──
       - name: Build APKs
         run: ./gradlew assembleGmsDebug assembleFossDebug assembleGmsRelease assembleFossRelease
 
-      # ── 8. Collect APKs under stable edge filenames (download links never change) ──
+      # ── 6. Collect APKs under stable edge filenames (download links never change) ──
       - name: Collect edge assets
         run: |
           mkdir -p release-assets
@@ -236,7 +234,7 @@ jobs:
           ls -lh release-assets/ >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-      # ── 9. Freshness guard: skip publishing if main moved past this commit ──
+      # ── 7. Freshness guard: skip publishing if main moved past this commit ──
       #        Runs queue in this concurrency group instead of cancelling, so a
       #        publish is never interrupted mid-upload; this guard is what keeps
       #        the release from being overwritten with a superseded build — the
@@ -252,7 +250,7 @@ jobs:
             echo "stale=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # ── 10. Move the edge tag to this commit ──
+      # ── 8. Move the edge tag to this commit ──
       #       Force-push is intentional: "edge" is a rolling pointer, not history.
       #       Pushing with GITHUB_TOKEN cannot trigger other workflows recursively,
       #       and release.yml only matches 'v*' tags anyway.
@@ -262,7 +260,7 @@ jobs:
           git tag -f edge
           git push -f origin edge
 
-      # ── 11. Create the edge release once, then always update it in place ──
+      # ── 9. Create the edge release once, then always update it in place ──
       - name: Create or update edge release
         if: steps.freshness.outputs.stale != 'true'
         env:

@@ -107,19 +107,6 @@ class McpNotificationListenerService : NotificationListenerService() {
         Logger.d(TAG, "onTrimMemory level=$level")
     }
 
-    fun getNotifications(): Array<StatusBarNotification> = activeNotifications ?: emptyArray()
-
-    fun dismissNotification(key: String) {
-        cancelNotification(key)
-    }
-
-    fun snoozeNotificationByKey(
-        key: String,
-        durationMs: Long,
-    ) {
-        snoozeNotification(key, durationMs)
-    }
-
     companion object {
         private const val TAG = "MCP:NotificationListener"
         private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 1 day

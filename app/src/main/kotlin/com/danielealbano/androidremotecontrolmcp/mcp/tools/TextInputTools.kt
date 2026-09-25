@@ -17,13 +17,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 
 // Shared constants for type tools
@@ -40,24 +35,6 @@ private const val COMMIT_MAX_RETRIES = 3
 private const val ADAPTIVE_DELAY_INCREASE_MS = 50
 private const val ADAPTIVE_DELAY_DECREASE_MS = 25
 private const val ADAPTIVE_DELAY_MAX_MS = 2000
-
-/**
- * Shared guidance appended to every text-entry tool description: entering text leaves the soft
- * keyboard open, which can cover lower parts of the screen. [toolNamePrefix] is interpolated so
- * the referenced tool name matches the server's configured prefix.
- */
-private fun keyboardOverlayHint(toolNamePrefix: String): String =
-    "Typing leaves the keyboard open and may cover elements; " +
-        "call ${toolNamePrefix}dismiss_keyboard before tapping them."
-
-/**
- * Standard trailing sentence shared by every text-entry tool description: confirms the
- * verification behavior and appends the [keyboardOverlayHint]. Kept as one helper so the common
- * tail stays DRY and does not lengthen each `register` function.
- */
-private fun verificationAndKeyboardHint(toolNamePrefix: String): String =
-    "Returns the field content after the operation for verification. " +
-        keyboardOverlayHint(toolNamePrefix)
 
 /**
  * Mutex serializing all type tool operations.
@@ -388,7 +365,6 @@ class TypeAppendTextTool
                 throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
             }
 
-            // Reverse any pseudonym placeholder so the real value is typed; length checks use the real length.
             val text = McpToolUtils.requireString(arguments, "text")
             if (text.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'text' must be non-empty")
@@ -574,7 +550,6 @@ class TypeReplaceTextTool
                 throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
             }
 
-            // Substitute both the search term (to match the real field content) and the replacement value.
             val search = McpToolUtils.requireString(arguments, "search")
             if (search.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'search' must be non-empty")

@@ -66,8 +66,9 @@ import kotlinx.serialization.json.JsonPrimitive
  * straight to each handler's `execute()`. No transport is involved: the on-device MCP server these
  * tests used to go through was removed (docs/plans/demolition.md). A thrown exception becomes
  * `ToolResult(isError = true)` carrying the exception message, which is how the removed MCP SDK
- * layer reported handler failures, so the tests keep asserting on outcomes; an unknown tool name
- * is an error result too.
+ * layer reported handler failures, so the tests keep asserting on outcomes. Only [Exception]s are
+ * mapped (a JVM [Error] propagates), and an unknown tool name throws, so a mistyped name can never
+ * pass as an expected error result.
  */
 object HandlerTestHarness {
     /** Prefix the tests use for tool names (the tools' former MCP names, e.g. `android_tap`). */
@@ -189,17 +190,20 @@ object HandlerTestHarness {
     ) {
         private val handlers: Map<String, suspend (JsonObject?) -> ToolResult> = buildHandlers(deps)
 
-        /** Calls the tool named [name] (with or without the `android_` prefix) with [arguments]. */
+        /**
+         * Calls the tool named [name] (with or without the `android_` prefix) with [arguments].
+         *
+         * @throws IllegalArgumentException if no handler has that name (a test bug, not a tool error).
+         */
         suspend fun callTool(
             name: String,
             arguments: Map<String, Any?> = emptyMap(),
         ): ToolResult {
             val handler =
-                handlers[name.removePrefix(TOOL_NAME_PREFIX)]
-                    ?: return errorResult("Tool $name not found")
+                requireNotNull(handlers[name.removePrefix(TOOL_NAME_PREFIX)]) { "No handler named '$name'" }
             return runCatching { handler(toJsonObject(arguments)) }
                 .getOrElse { e ->
-                    if (e is CancellationException) throw e
+                    if (e is CancellationException || e !is Exception) throw e
                     errorResult(e.message ?: e.toString())
                 }
         }

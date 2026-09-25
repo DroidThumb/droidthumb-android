@@ -6,7 +6,6 @@ import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionExecutor
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
 import javax.inject.Inject
 
 /**
@@ -137,14 +136,6 @@ class PressRecentsHandler
     }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// open_notifications
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// open_quick_settings
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
 // dismiss_keyboard
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -190,7 +181,3 @@ class DismissKeyboardHandler
             const val TOOL_NAME = "dismiss_keyboard"
         }
     }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Registration function
-// ─────────────────────────────────────────────────────────────────────────────

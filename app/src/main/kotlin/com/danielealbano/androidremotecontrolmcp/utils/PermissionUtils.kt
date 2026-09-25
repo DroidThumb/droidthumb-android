@@ -65,42 +65,6 @@ object PermissionUtils {
         ) == PackageManager.PERMISSION_GRANTED
 
     /**
-     * Checks whether the `CAMERA` runtime permission is granted.
-     *
-     * @param context Application context.
-     * @return `true` if camera permission is granted, `false` otherwise.
-     */
-    fun isCameraPermissionGranted(context: Context): Boolean =
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.CAMERA,
-        ) == PackageManager.PERMISSION_GRANTED
-
-    /**
-     * Checks whether the `RECORD_AUDIO` runtime permission is granted.
-     *
-     * @param context Application context.
-     * @return `true` if microphone permission is granted, `false` otherwise.
-     */
-    fun isMicrophonePermissionGranted(context: Context): Boolean =
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO,
-        ) == PackageManager.PERMISSION_GRANTED
-
-    /**
-     * Checks whether the `ACCESS_FINE_LOCATION` runtime permission is granted.
-     *
-     * @param context Application context.
-     * @return `true` if location permission is granted, `false` otherwise.
-     */
-    fun isLocationPermissionGranted(context: Context): Boolean =
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-        ) == PackageManager.PERMISSION_GRANTED
-
-    /**
      * Checks whether a specific notification listener service is currently enabled.
      *
      * Reads the `Settings.Secure` `enabled_notification_listeners` system setting

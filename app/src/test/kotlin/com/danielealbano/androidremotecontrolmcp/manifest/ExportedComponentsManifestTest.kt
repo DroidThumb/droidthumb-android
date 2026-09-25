@@ -46,13 +46,46 @@ class ExportedComponentsManifestTest {
         }
     }
 
+    @Test
+    fun `EventChannelService declares the specialUse foreground-service type it starts with`() {
+        // EventChannelService calls startForeground(..., FOREGROUND_SERVICE_TYPE_SPECIAL_USE); a
+        // mismatch with the manifest crashes at startForeground, so pin both halves here.
+        val service =
+            elementsIn(MAIN_MANIFEST, "service")
+                .single { it.getAttribute("android:name") == ".services.channel.EventChannelService" }
+        assertEquals("specialUse", service.getAttribute("android:foregroundServiceType"))
+
+        val properties = service.getElementsByTagName("property")
+        val subtype =
+            (0 until properties.length)
+                .map { properties.item(it) as Element }
+                .singleOrNull { it.getAttribute("android:name") == "android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" }
+        assertTrue(subtype != null && subtype.getAttribute("android:value").isNotBlank()) {
+            "EventChannelService must declare a non-empty PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        }
+        assertTrue(permissionsIn(MAIN_MANIFEST).contains("android.permission.FOREGROUND_SERVICE_SPECIAL_USE"))
+    }
+
+    private fun parse(relativePath: String) =
+        DocumentBuilderFactory
+            .newInstance()
+            .apply { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+            .newDocumentBuilder()
+            .parse(resolveManifest(relativePath))
+
+    private fun elementsIn(
+        relativePath: String,
+        tag: String,
+    ): List<Element> {
+        val nodes = parse(relativePath).getElementsByTagName(tag)
+        return (0 until nodes.length).map { nodes.item(it) as Element }
+    }
+
+    private fun permissionsIn(relativePath: String): List<String> =
+        elementsIn(relativePath, "uses-permission").map { it.getAttribute("android:name") }
+
     private fun componentsIn(relativePath: String): List<Component> {
-        val document =
-            DocumentBuilderFactory
-                .newInstance()
-                .apply { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
-                .newDocumentBuilder()
-                .parse(resolveManifest(relativePath))
+        val document = parse(relativePath)
 
         return COMPONENT_TAGS.flatMap { tag ->
             val nodes = document.getElementsByTagName(tag)

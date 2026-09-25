@@ -426,24 +426,6 @@ class ActionExecutorImpl
             )
 
         /**
-         * Opens the notification shade.
-         */
-        override suspend fun openNotifications(): Result<Unit> =
-            performGlobalAction(
-                android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS,
-                "openNotifications",
-            )
-
-        /**
-         * Opens the quick settings panel.
-         */
-        override suspend fun openQuickSettings(): Result<Unit> =
-            performGlobalAction(
-                android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS,
-                "openQuickSettings",
-            )
-
-        /**
          * Dismisses the soft keyboard if an input-method window is currently shown.
          *
          * Detects the keyboard via [McpAccessibilityService.getAccessibilityWindows] (an
@@ -853,7 +835,6 @@ class ActionExecutorImpl
             private const val TAG = "MCP:ActionExecutor"
             private const val TAP_DURATION_MS = 50L
             private const val DOUBLE_TAP_GAP_MS = 100L
-            private const val PINCH_BASE_DISTANCE = 100f
             private const val MIN_SCROLL_DISTANCE = 1f
             private const val GESTURE_TIMEOUT_MS = 10_000L
         }

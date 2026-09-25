@@ -3,14 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.mcp.tools
 import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,10 +43,6 @@ class OpenAppHandler
             private const val TAG = "MCP:OpenAppHandler"
         }
     }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// list_apps
-// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // close_app
@@ -96,7 +85,3 @@ class CloseAppHandler
             private const val TAG = "MCP:CloseAppHandler"
         }
     }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Registration function
-// ─────────────────────────────────────────────────────────────────────────────

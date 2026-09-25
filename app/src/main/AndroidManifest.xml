@@ -75,7 +75,6 @@
                 android:value="Forwards notification events to a user-configured endpoint" />
         </service>
 
-
         <!-- Event Channel auto-start on boot -->
         <receiver
             android:name=".services.channel.EventChannelBootReceiver"

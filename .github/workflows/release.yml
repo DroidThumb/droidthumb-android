@@ -102,9 +102,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      # ── 6. Compile native dependencies (cached by submodule content) ──
-      # ── 7. Geolocation DB toolchain (generated at build time from DB-IP City Lite) ──
-      # ── 8. Decode the release keystore and write signing config so the release APKs are signed.
+      # ── 6. Decode the release keystore and write signing config so the release APKs are signed.
       #      app/build.gradle.kts applies the release signingConfig only when keystore.properties
       #      exists at the repo root; without this step the release APKs build unsigned. ──
       - name: Decode release keystore
@@ -126,7 +124,7 @@ jobs:
             echo "keyPassword=$RELEASE_KEY_PASSWORD"
           } > "$GITHUB_WORKSPACE/keystore.properties"
 
-      # ── 9. Build APKs with version name from tag (versionCode derived by Gradle from git) ──
+      # ── 7. Build APKs with version name from tag (versionCode derived by Gradle from git) ──
       - name: Build APKs
         env:
           VERSION_NAME: ${{ steps.parse-tag.outputs.version }}

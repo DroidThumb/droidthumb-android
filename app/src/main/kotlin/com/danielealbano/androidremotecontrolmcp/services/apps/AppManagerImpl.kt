@@ -4,11 +4,8 @@ import android.app.ActivityManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.util.Log
-import androidx.core.content.pm.PackageInfoCompat
-import com.danielealbano.androidremotecontrolmcp.data.model.AppInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 

@@ -8,11 +8,6 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionEx
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollAmount
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollDirection
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -247,7 +242,3 @@ class ScrollTool
             private val MAX_VARIANCE = ActionExecutor.MAX_SCROLL_VARIANCE_PERCENT * PERCENT_DIVISOR
         }
     }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Registration function
-// ─────────────────────────────────────────────────────────────────────────────

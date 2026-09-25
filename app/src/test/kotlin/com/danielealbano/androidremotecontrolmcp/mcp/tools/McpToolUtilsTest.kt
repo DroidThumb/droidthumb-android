@@ -531,33 +531,7 @@ class McpToolUtilsTest {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // buildToolNamePrefix
-    // ─────────────────────────────────────────────────────────────────────
-
-    @Nested
-    @DisplayName("buildToolNamePrefix")
-    inner class BuildToolNamePrefixTests {
-        @Test
-        @DisplayName("returns android_ for empty slug")
-        fun returnsAndroidPrefixForEmptySlug() {
-            assertEquals("android_", McpToolUtils.buildToolNamePrefix(""))
-        }
-
-        @Test
-        @DisplayName("returns android_slug_ for non-empty slug")
-        fun returnsAndroidSlugPrefixForNonEmptySlug() {
-            assertEquals("android_pixel7_", McpToolUtils.buildToolNamePrefix("pixel7"))
-        }
-
-        @Test
-        @DisplayName("handles slug with underscores")
-        fun handlesSlugWithUnderscores() {
-            assertEquals("android_work_phone_", McpToolUtils.buildToolNamePrefix("work_phone"))
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
     // untrustedTextResult
     // ─────────────────────────────────────────────────────────────────────
 
@@ -664,32 +638,6 @@ class McpToolUtilsTest {
         @DisplayName("does not use note prefix")
         fun doesNotUseNotePrefix() {
             assertTrue(!McpToolUtils.UNTRUSTED_CONTENT_WARNING.lowercase().startsWith("note:"))
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // buildServerName
-    // ─────────────────────────────────────────────────────────────────────
-
-    @Nested
-    @DisplayName("buildServerName")
-    inner class BuildServerNameTests {
-        @Test
-        @DisplayName("returns default name for empty slug")
-        fun returnsDefaultNameForEmptySlug() {
-            assertEquals("android-remote-control-mcp", McpToolUtils.buildServerName(""))
-        }
-
-        @Test
-        @DisplayName("includes slug in server name")
-        fun includesSlugInServerName() {
-            assertEquals("android-remote-control-mcp-pixel7", McpToolUtils.buildServerName("pixel7"))
-        }
-
-        @Test
-        @DisplayName("handles slug with underscores")
-        fun handlesSlugWithUnderscores() {
-            assertEquals("android-remote-control-mcp-work_phone", McpToolUtils.buildServerName("work_phone"))
         }
     }
 }

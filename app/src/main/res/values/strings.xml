@@ -2,7 +2,7 @@
     <string name="app_name">Android Remote Control MCP</string>
 
     <!-- Accessibility Service -->
-    <string name="accessibility_service_description">Provides remote control capabilities via MCP protocol. Allows introspecting UI elements and performing actions on the device.</string>
+    <string name="accessibility_service_description">Lets DroidThumb read the screen and perform actions (taps, swipes, typing) on the device.</string>
 
     <!-- Tabs -->
     <string name="tab_server">Home</string>
@@ -58,7 +58,7 @@
     <string name="server_logs_show_more">Show more</string>
     <string name="server_logs_clear">Clear logs</string>
     <string name="server_logs_clear_dialog_title">Clear logs?</string>
-    <string name="server_logs_clear_dialog_body">All server log entries will be permanently deleted.</string>
+    <string name="server_logs_clear_dialog_body">All log entries will be permanently deleted.</string>
     <string name="server_logs_clear_dialog_confirm">Clear</string>
     <string name="server_logs_clear_dialog_cancel">Cancel</string>
     <string name="server_logs_type_tool_call">Tool calls</string>
@@ -75,5 +75,5 @@
     <string name="channel_not_configured_dialog_ok">OK</string>
 
     <!-- On-device approval -->
-    <string name="event_channel_subtitle">Notifications and WiFi event forwarding</string>
+    <string name="event_channel_subtitle">Notification event forwarding</string>
 </resources>
