@@ -1,14 +1,8 @@
 package com.danielealbano.androidremotecontrolmcp.mcp.tools
 
 import android.util.Log
-import com.danielealbano.androidremotecontrolmcp.data.model.AppFilter
-import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
-import com.danielealbano.androidremotecontrolmcp.privacy.PrivacyToolGate
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -37,7 +31,7 @@ class OpenAppHandler
         private val appManager: AppManager,
     ) {
         @Suppress("TooGenericExceptionCaught")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val packageId = McpToolUtils.requireString(arguments, "package_id")
             if (packageId.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'package_id' must not be empty")
@@ -51,31 +45,6 @@ class OpenAppHandler
             return McpToolUtils.textResult("Application '$packageId' launched successfully.")
         }
 
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Opens (launches) an application by its package ID. " +
-                        "The app must be installed and have a launchable activity. " +
-                        "Returns after the launch intent is sent.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("package_id") {
-                                    put("type", "string")
-                                    put("description", "The application package name (e.g., 'com.example.app')")
-                                }
-                            },
-                        required = listOf("package_id"),
-                    ),
-            ) { request -> execute(request.arguments) }
-        }
-
         companion object {
             const val TOOL_NAME = "open_app"
             private const val TAG = "MCP:OpenAppHandler"
@@ -85,106 +54,6 @@ class OpenAppHandler
 // ─────────────────────────────────────────────────────────────────────────────
 // list_apps
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * MCP tool handler for `list_apps`.
- *
- * Lists installed applications on the device with optional filtering.
- *
- * **Input**: `{ "filter": "all"|"user"|"system" (optional), "name_query": "<string>" (optional) }`
- * **Output**: `{ "content": [{ "type": "text",
- *   "text": "[{\"package_id\":\"...\",\"name\":\"...\", ...}]" }] }`
- */
-class ListAppsHandler
-    @Inject
-    constructor(
-        private val appManager: AppManager,
-        private val privacyToolGate: PrivacyToolGate,
-    ) {
-        @Suppress("TooGenericExceptionCaught")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
-            val filterStr = McpToolUtils.optionalString(arguments, "filter", "all")
-            val filter =
-                when (filterStr.lowercase()) {
-                    "all" -> AppFilter.ALL
-
-                    "user" -> AppFilter.USER
-
-                    "system" -> AppFilter.SYSTEM
-
-                    else -> throw McpToolException.InvalidParams(
-                        "Parameter 'filter' must be one of: 'all', 'user', 'system'. Got: '$filterStr'",
-                    )
-                }
-
-            val nameQuery = McpToolUtils.optionalString(arguments, "name_query", "").ifEmpty { null }
-
-            Log.d(TAG, "Executing list_apps with filter=$filter, nameQuery=$nameQuery")
-            val apps = appManager.listInstalledApps(filter, nameQuery)
-            val redactedNames = privacyToolGate.texts(apps.map { it.name to "app name" })
-
-            val jsonResult =
-                buildJsonArray {
-                    apps.forEachIndexed { index, app ->
-                        add(
-                            buildJsonObject {
-                                put("package_id", app.packageId)
-                                put("name", redactedNames[index])
-                                if (app.versionName != null) {
-                                    put("version_name", app.versionName)
-                                }
-                                put("version_code", app.versionCode)
-                                put("is_system", app.isSystemApp)
-                            },
-                        )
-                    }
-                }
-
-            return McpToolUtils.untrustedTextResult(Json.encodeToString(jsonResult))
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Lists installed applications on the device. " +
-                        "Can filter by type (user, system, all) and by name substring.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("filter") {
-                                    put("type", "string")
-                                    put(
-                                        "enum",
-                                        buildJsonArray {
-                                            add(JsonPrimitive("all"))
-                                            add(JsonPrimitive("user"))
-                                            add(JsonPrimitive("system"))
-                                        },
-                                    )
-                                    put("description", "Filter by app type: 'all', 'user', or 'system'")
-                                    put("default", "all")
-                                }
-                                putJsonObject("name_query") {
-                                    put("type", "string")
-                                    put("description", "Case-insensitive substring to filter by app name")
-                                }
-                            },
-                        required = listOf(),
-                    ),
-            ) { request -> execute(request.arguments) }
-        }
-
-        companion object {
-            const val TOOL_NAME = "list_apps"
-            private const val TAG = "MCP:ListAppsHandler"
-        }
-    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // close_app
@@ -205,7 +74,7 @@ class CloseAppHandler
         private val appManager: AppManager,
     ) {
         @Suppress("TooGenericExceptionCaught")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val packageId = McpToolUtils.requireString(arguments, "package_id")
             if (packageId.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'package_id' must not be empty")
@@ -222,33 +91,6 @@ class CloseAppHandler
             )
         }
 
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Kills a background application process. This only works for apps " +
-                        "that are in the background. For foreground apps that are hung or " +
-                        "unresponsive, first use the '${toolNamePrefix}press_home' tool to send the app to the " +
-                        "background, then call this tool. Note: some system " +
-                        "processes may restart automatically after being killed.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("package_id") {
-                                    put("type", "string")
-                                    put("description", "The application package name (e.g., 'com.example.app')")
-                                }
-                            },
-                        required = listOf("package_id"),
-                    ),
-            ) { request -> execute(request.arguments) }
-        }
-
         companion object {
             const val TOOL_NAME = "close_app"
             private const val TAG = "MCP:CloseAppHandler"
@@ -259,19 +101,3 @@ class CloseAppHandler
 // Registration function
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Registers all app management tools with the given [Server].
- */
-fun registerAppManagementTools(
-    registrar: LoggedToolRegistrar,
-    appManager: AppManager,
-    privacyToolGate: PrivacyToolGate,
-    toolNamePrefix: String,
-    perms: ToolPermissionsConfig,
-) {
-    if (perms.isToolEnabled(OpenAppHandler.TOOL_NAME)) OpenAppHandler(appManager).register(registrar, toolNamePrefix)
-    if (perms.isToolEnabled(ListAppsHandler.TOOL_NAME)) {
-        ListAppsHandler(appManager, privacyToolGate).register(registrar, toolNamePrefix)
-    }
-    if (perms.isToolEnabled(CloseAppHandler.TOOL_NAME)) CloseAppHandler(appManager).register(registrar, toolNamePrefix)
-}

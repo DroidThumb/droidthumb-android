@@ -4,10 +4,7 @@ package com.danielealbano.androidremotecontrolmcp.mcp.tools
 
 import android.util.Log
 import android.view.accessibility.AccessibilityWindowInfo
-import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
-import com.danielealbano.androidremotecontrolmcp.privacy.PlaceholderSubstitutor
-import com.danielealbano.androidremotecontrolmcp.privacy.PrivacyToolGate
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCache
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
@@ -21,9 +18,8 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.MultiWin
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenInfo
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollDirection
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import javax.inject.Inject
+import kotlin.random.Random
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -34,8 +30,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
-import javax.inject.Inject
-import kotlin.random.Random
 
 /**
  * MCP tool: find_nodes
@@ -50,11 +44,9 @@ class FindNodesTool
         private val elementFinder: ElementFinder,
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val nodeCache: AccessibilityNodeCache,
-        private val privacyToolGate: PrivacyToolGate,
-        private val substitutor: PlaceholderSubstitutor,
     ) {
         @Suppress("ThrowsCount")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             // Validate parameters
             val byStr =
                 arguments?.get("by")?.jsonPrimitive?.contentOrNull
@@ -69,7 +61,7 @@ class FindNodesTool
             }
 
             // Reverse any pseudonym placeholder so the search matches the real on-screen value.
-            val value = substitutor.substitute(rawValue)
+            val value = rawValue
 
             val exactMatch = arguments["exact_match"]?.jsonPrimitive?.booleanOrNull ?: false
 
@@ -87,21 +79,13 @@ class FindNodesTool
 
             Log.d(TAG, "find_nodes: by=$byStr, found=${elements.size}")
 
-            val redactedFields =
-                privacyToolGate.texts(
-                    elements.flatMap { listOf(it.text to "node text", it.contentDescription to "node description") },
-                )
-            val redactedElements =
-                elements.mapIndexed { index, element ->
-                    element.copy(text = redactedFields[index * 2], contentDescription = redactedFields[index * 2 + 1])
-                }
 
             val resultJson =
                 buildJsonObject {
                     put(
                         "nodes",
                         buildJsonArray {
-                            redactedElements.forEach { element ->
+                            elements.forEach { element ->
                                 add(McpToolUtils.buildNodeJson(element))
                             }
                         },
@@ -109,51 +93,6 @@ class FindNodesTool
                 }
 
             return McpToolUtils.untrustedTextResult(Json.encodeToString(resultJson))
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Find UI nodes matching the specified criteria " +
-                        "(text, content_desc, resource_id, class_name)",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("by") {
-                                    put("type", "string")
-                                    put(
-                                        "enum",
-                                        buildJsonArray {
-                                            add(JsonPrimitive("text"))
-                                            add(JsonPrimitive("content_desc"))
-                                            add(JsonPrimitive("resource_id"))
-                                            add(JsonPrimitive("class_name"))
-                                        },
-                                    )
-                                    put("description", "Search criteria type")
-                                }
-                                putJsonObject("value") {
-                                    put("type", "string")
-                                    put("description", "Search value")
-                                }
-                                putJsonObject("exact_match") {
-                                    put("type", "boolean")
-                                    put("default", false)
-                                    put(
-                                        "description",
-                                        "If true, match exactly. If false, match contains (case-insensitive)",
-                                    )
-                                }
-                            },
-                        required = listOf("by", "value"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -175,7 +114,7 @@ class ClickNodeTool
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val nodeCache: AccessibilityNodeCache,
     ) {
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val nodeId =
                 arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
                     ?: throw McpToolException.InvalidParams("Missing required parameter 'node_id'")
@@ -191,30 +130,6 @@ class ClickNodeTool
 
             Log.d(TAG, "click_node: nodeId=$nodeId succeeded")
             return McpToolUtils.textResult("Click performed on node '$nodeId'")
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Click the specified accessibility node by node ID. " +
-                        "Returns after the click is performed.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("node_id") {
-                                    put("type", "string")
-                                    put("description", "Node ID from ${toolNamePrefix}find_nodes")
-                                }
-                            },
-                        required = listOf("node_id"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -236,7 +151,7 @@ class LongClickNodeTool
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val nodeCache: AccessibilityNodeCache,
     ) {
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val nodeId =
                 arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
                     ?: throw McpToolException.InvalidParams("Missing required parameter 'node_id'")
@@ -252,30 +167,6 @@ class LongClickNodeTool
 
             Log.d(TAG, "long_click_node: nodeId=$nodeId succeeded")
             return McpToolUtils.textResult("Long-click performed on node '$nodeId'")
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Long-click the specified accessibility node by node ID. " +
-                        "Returns after the action is performed.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("node_id") {
-                                    put("type", "string")
-                                    put("description", "Node ID from ${toolNamePrefix}find_nodes")
-                                }
-                            },
-                        required = listOf("node_id"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -301,7 +192,7 @@ class TapNodeTool
         private val nodeCache: AccessibilityNodeCache,
     ) {
         @Suppress("ThrowsCount")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val nodeId =
                 arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
                     ?: throw McpToolException.InvalidParams("Missing required parameter 'node_id'")
@@ -361,43 +252,6 @@ class TapNodeTool
             return min + Random.nextFloat() * (max - min)
         }
 
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Performs a gesture-based tap at a random point within the bounds of the " +
-                        "node identified by node_id. Unlike click_node (which uses the " +
-                        "accessibility ACTION_CLICK), this performs a coordinate-based touch gesture. " +
-                        "The tap point is randomized within the node bounds, inset by a configurable " +
-                        "percentage (default 5%) from each edge to avoid hitting borders. " +
-                        "Returns after the gesture completes.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("node_id") {
-                                    put("type", "string")
-                                    put("description", "Node ID from ${toolNamePrefix}find_nodes")
-                                }
-                                putJsonObject("inset_percentage") {
-                                    put("type", "number")
-                                    put("default", DEFAULT_INSET_PERCENTAGE.toDouble())
-                                    put(
-                                        "description",
-                                        "Percentage to inset from each edge of the node bounds " +
-                                            "(0.0-45.0). Default 5.0",
-                                    )
-                                }
-                            },
-                        required = listOf("node_id"),
-                    ),
-            ) { request -> execute(request.arguments) }
-        }
-
         companion object {
             private const val TAG = "MCP:TapNodeTool"
             const val TOOL_NAME = "tap_node"
@@ -425,7 +279,7 @@ class ScrollToNodeTool
         private val nodeCache: AccessibilityNodeCache,
     ) {
         @Suppress("ThrowsCount", "LongMethod")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val nodeId =
                 arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
                     ?: throw McpToolException.InvalidParams("Missing required parameter 'node_id'")
@@ -578,28 +432,6 @@ class ScrollToNodeTool
                 }
             }
             return null
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description = "Scroll to make the specified node visible. Returns after the action is performed.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("node_id") {
-                                    put("type", "string")
-                                    put("description", "Node ID from ${toolNamePrefix}find_nodes")
-                                }
-                            },
-                        required = listOf("node_id"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -811,44 +643,6 @@ private fun getFreshWindowsLocked(
             ),
         degraded = true,
     )
-}
-
-/**
- * Registers all node action tools with the [Server].
- */
-@Suppress("LongParameterList")
-fun registerNodeActionTools(
-    registrar: LoggedToolRegistrar,
-    treeParser: AccessibilityTreeParser,
-    elementFinder: ElementFinder,
-    actionExecutor: ActionExecutor,
-    accessibilityServiceProvider: AccessibilityServiceProvider,
-    nodeCache: AccessibilityNodeCache,
-    privacyToolGate: PrivacyToolGate,
-    substitutor: PlaceholderSubstitutor,
-    toolNamePrefix: String,
-    perms: ToolPermissionsConfig,
-) {
-    if (perms.isToolEnabled(FindNodesTool.TOOL_NAME)) {
-        FindNodesTool(treeParser, elementFinder, accessibilityServiceProvider, nodeCache, privacyToolGate, substitutor)
-            .register(registrar, toolNamePrefix)
-    }
-    if (perms.isToolEnabled(ClickNodeTool.TOOL_NAME)) {
-        ClickNodeTool(treeParser, actionExecutor, accessibilityServiceProvider, nodeCache)
-            .register(registrar, toolNamePrefix)
-    }
-    if (perms.isToolEnabled(LongClickNodeTool.TOOL_NAME)) {
-        LongClickNodeTool(treeParser, actionExecutor, accessibilityServiceProvider, nodeCache)
-            .register(registrar, toolNamePrefix)
-    }
-    if (perms.isToolEnabled(TapNodeTool.TOOL_NAME)) {
-        TapNodeTool(treeParser, elementFinder, actionExecutor, accessibilityServiceProvider, nodeCache)
-            .register(registrar, toolNamePrefix)
-    }
-    if (perms.isToolEnabled(ScrollToNodeTool.TOOL_NAME)) {
-        ScrollToNodeTool(treeParser, elementFinder, actionExecutor, accessibilityServiceProvider, nodeCache)
-            .register(registrar, toolNamePrefix)
-    }
 }
 
 /**

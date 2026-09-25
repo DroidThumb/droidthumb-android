@@ -3,14 +3,10 @@
 package com.danielealbano.androidremotecontrolmcp.mcp.tools
 
 import android.util.Log
-import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionExecutor
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollAmount
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollDirection
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -36,7 +32,7 @@ class TapTool
     constructor(
         private val actionExecutor: ActionExecutor,
     ) {
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val x = McpToolUtils.requireFloat(arguments, "x")
             val y = McpToolUtils.requireFloat(arguments, "y")
             McpToolUtils.validateNonNegative(x, "x")
@@ -45,34 +41,6 @@ class TapTool
             Log.d(TAG, "Executing tap at ($x, $y)")
             val result = actionExecutor.tap(x, y)
             return McpToolUtils.handleActionResult(result, "Tap executed at (${x.toInt()}, ${y.toInt()})")
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Performs a single tap at the specified coordinates. " +
-                        "Returns after the gesture completes.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("x") {
-                                    put("type", "number")
-                                    put("description", "X coordinate")
-                                }
-                                putJsonObject("y") {
-                                    put("type", "number")
-                                    put("description", "Y coordinate")
-                                }
-                            },
-                        required = listOf("x", "y"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -98,7 +66,7 @@ class LongPressTool
     constructor(
         private val actionExecutor: ActionExecutor,
     ) {
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val x = McpToolUtils.requireFloat(arguments, "x")
             val y = McpToolUtils.requireFloat(arguments, "y")
             val duration = McpToolUtils.optionalLong(arguments, "duration", DEFAULT_DURATION_MS)
@@ -112,39 +80,6 @@ class LongPressTool
                 result,
                 "Long press executed at (${x.toInt()}, ${y.toInt()}) for ${duration}ms",
             )
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Performs a long press at the specified coordinates. " +
-                        "Returns after the gesture completes.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("x") {
-                                    put("type", "number")
-                                    put("description", "X coordinate")
-                                }
-                                putJsonObject("y") {
-                                    put("type", "number")
-                                    put("description", "Y coordinate")
-                                }
-                                putJsonObject("duration") {
-                                    put("type", "number")
-                                    put("description", "Press duration in ms")
-                                    put("default", DEFAULT_DURATION_MS)
-                                }
-                            },
-                        required = listOf("x", "y"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -171,7 +106,7 @@ class DoubleTapTool
     constructor(
         private val actionExecutor: ActionExecutor,
     ) {
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val x = McpToolUtils.requireFloat(arguments, "x")
             val y = McpToolUtils.requireFloat(arguments, "y")
             McpToolUtils.validateNonNegative(x, "x")
@@ -183,34 +118,6 @@ class DoubleTapTool
                 result,
                 "Double tap executed at (${x.toInt()}, ${y.toInt()})",
             )
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Performs a double tap at the specified coordinates. " +
-                        "Returns after the gesture completes.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("x") {
-                                    put("type", "number")
-                                    put("description", "X coordinate")
-                                }
-                                putJsonObject("y") {
-                                    put("type", "number")
-                                    put("description", "Y coordinate")
-                                }
-                            },
-                        required = listOf("x", "y"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -236,7 +143,7 @@ class SwipeTool
     constructor(
         private val actionExecutor: ActionExecutor,
     ) {
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val x1 = McpToolUtils.requireFloat(arguments, "x1")
             val y1 = McpToolUtils.requireFloat(arguments, "y1")
             val x2 = McpToolUtils.requireFloat(arguments, "x2")
@@ -255,47 +162,6 @@ class SwipeTool
                 "Swipe executed from (${x1.toInt()}, ${y1.toInt()}) to " +
                     "(${x2.toInt()}, ${y2.toInt()}) over ${duration}ms",
             )
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Performs a swipe gesture from one point to another. " +
-                        "Returns after the gesture completes.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("x1") {
-                                    put("type", "number")
-                                    put("description", "Start X coordinate")
-                                }
-                                putJsonObject("y1") {
-                                    put("type", "number")
-                                    put("description", "Start Y coordinate")
-                                }
-                                putJsonObject("x2") {
-                                    put("type", "number")
-                                    put("description", "End X coordinate")
-                                }
-                                putJsonObject("y2") {
-                                    put("type", "number")
-                                    put("description", "End Y coordinate")
-                                }
-                                putJsonObject("duration") {
-                                    put("type", "number")
-                                    put("description", "Swipe duration in ms")
-                                    put("default", DEFAULT_DURATION_MS)
-                                }
-                            },
-                        required = listOf("x1", "y1", "x2", "y2"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -323,7 +189,7 @@ class ScrollTool
         private val actionExecutor: ActionExecutor,
     ) {
         @Suppress("ThrowsCount")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val directionStr = McpToolUtils.requireString(arguments, "direction")
             val amountStr = McpToolUtils.optionalString(arguments, "amount", "medium")
             val variance = McpToolUtils.optionalFloat(arguments, "variance", DEFAULT_VARIANCE)
@@ -373,62 +239,6 @@ class ScrollTool
             )
         }
 
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Scrolls in the specified direction. Applies random variance to " +
-                        "scroll distance and center point for more natural-looking gestures. " +
-                        "Returns after the gesture completes.",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("direction") {
-                                    put("type", "string")
-                                    put(
-                                        "enum",
-                                        buildJsonArray {
-                                            add(JsonPrimitive("up"))
-                                            add(JsonPrimitive("down"))
-                                            add(JsonPrimitive("left"))
-                                            add(JsonPrimitive("right"))
-                                        },
-                                    )
-                                }
-                                putJsonObject("amount") {
-                                    put("type", "string")
-                                    put(
-                                        "enum",
-                                        buildJsonArray {
-                                            add(JsonPrimitive("small"))
-                                            add(JsonPrimitive("medium"))
-                                            add(JsonPrimitive("large"))
-                                        },
-                                    )
-                                    put("default", "medium")
-                                }
-                                putJsonObject("variance") {
-                                    put("type", "number")
-                                    put(
-                                        "description",
-                                        "Random variance percentage (0-${MAX_VARIANCE.toInt()}). " +
-                                            "Applied as ±variance% to scroll distance and center point.",
-                                    )
-                                    put("default", DEFAULT_VARIANCE.toInt())
-                                    put("minimum", 0)
-                                    put("maximum", MAX_VARIANCE.toInt())
-                                }
-                            },
-                        required = listOf("direction"),
-                    ),
-            ) { request -> execute(request.arguments) }
-        }
-
         companion object {
             const val TOOL_NAME = "scroll"
             private const val TAG = "MCP:ScrollTool"
@@ -442,18 +252,3 @@ class ScrollTool
 // Registration function
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Registers all touch action tools with the given [Server].
- */
-fun registerTouchActionTools(
-    registrar: LoggedToolRegistrar,
-    actionExecutor: ActionExecutor,
-    toolNamePrefix: String,
-    perms: ToolPermissionsConfig,
-) {
-    if (perms.isToolEnabled(TapTool.TOOL_NAME)) TapTool(actionExecutor).register(registrar, toolNamePrefix)
-    if (perms.isToolEnabled(LongPressTool.TOOL_NAME)) LongPressTool(actionExecutor).register(registrar, toolNamePrefix)
-    if (perms.isToolEnabled(DoubleTapTool.TOOL_NAME)) DoubleTapTool(actionExecutor).register(registrar, toolNamePrefix)
-    if (perms.isToolEnabled(SwipeTool.TOOL_NAME)) SwipeTool(actionExecutor).register(registrar, toolNamePrefix)
-    if (perms.isToolEnabled(ScrollTool.TOOL_NAME)) ScrollTool(actionExecutor).register(registrar, toolNamePrefix)
-}

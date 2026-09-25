@@ -1,24 +1,11 @@
 package com.danielealbano.androidremotecontrolmcp.services.apps
 
-import com.danielealbano.androidremotecontrolmcp.data.model.AppFilter
 import com.danielealbano.androidremotecontrolmcp.data.model.AppInfo
 
 /**
  * Manages application lifecycle operations: listing, launching, and closing apps.
  */
 interface AppManager {
-    /**
-     * Lists installed applications with optional filtering.
-     *
-     * @param filter Filter by app type (ALL, USER, SYSTEM).
-     * @param nameQuery Optional case-insensitive substring to filter by app name.
-     * @return List of matching [AppInfo] entries sorted by name.
-     */
-    suspend fun listInstalledApps(
-        filter: AppFilter = AppFilter.ALL,
-        nameQuery: String? = null,
-    ): List<AppInfo>
-
     /**
      * Launches an application by its package ID.
      *

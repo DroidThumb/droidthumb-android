@@ -8,7 +8,6 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.pm.PackageInfoCompat
-import com.danielealbano.androidremotecontrolmcp.data.model.AppFilter
 import com.danielealbano.androidremotecontrolmcp.data.model.AppInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -23,47 +22,6 @@ class AppManagerImpl
     constructor(
         @param:ApplicationContext private val context: Context,
     ) : AppManager {
-        override suspend fun listInstalledApps(
-            filter: AppFilter,
-            nameQuery: String?,
-        ): List<AppInfo> {
-            val pm = context.packageManager
-            val applications = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-
-            return applications
-                .asSequence()
-                .filter { appInfo ->
-                    when (filter) {
-                        AppFilter.ALL -> true
-                        AppFilter.USER -> (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0
-                        AppFilter.SYSTEM -> (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                    }
-                }.map { appInfo ->
-                    appInfo to pm.getApplicationLabel(appInfo).toString()
-                }.filter { (_, label) ->
-                    if (nameQuery != null) {
-                        label.contains(nameQuery, ignoreCase = true)
-                    } else {
-                        true
-                    }
-                }.map { (appInfo, label) ->
-                    val (versionName, versionCode) =
-                        try {
-                            val packageInfo = pm.getPackageInfo(appInfo.packageName, 0)
-                            packageInfo.versionName to PackageInfoCompat.getLongVersionCode(packageInfo)
-                        } catch (_: PackageManager.NameNotFoundException) {
-                            null to 0L
-                        }
-                    AppInfo(
-                        packageId = appInfo.packageName,
-                        name = label,
-                        versionName = versionName,
-                        versionCode = versionCode,
-                        isSystemApp = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
-                    )
-                }.sortedBy { it.name.lowercase() }
-                .toList()
-        }
 
         override suspend fun openApp(packageId: String): Result<Unit> =
             try {

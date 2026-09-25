@@ -1,10 +1,11 @@
 package com.danielealbano.androidremotecontrolmcp.mcp
 
 /**
- * Sealed exception hierarchy for MCP tool errors.
+ * Sealed exception hierarchy for tool handler errors.
  *
- * When thrown from a tool's `execute` method, the SDK catches
- * this exception and returns it as `CallToolResult(isError = true)`.
+ * Thrown from a tool handler's `execute` method. Whatever invokes the handler is responsible for
+ * turning it into an error result (`ToolResult(isError = true)`); the on-device MCP server that used
+ * to do this was removed (docs/plans/demolition.md).
  *
  * Each subclass classifies a specific failure mode.
  */
@@ -40,21 +41,10 @@ sealed class McpToolException(
     /**
      * Thrown when a tool operation exceeds its time limit.
      *
-     * Note: The SDK wraps all tool exceptions as `CallToolResult(isError = true)` with the
-     * message in `TextContent`, so the specific subclass is used for logging granularity
-     * and internal classification, not wire-level error codes.
+     * The specific subclass is used for logging granularity and internal classification,
+     * not wire-level error codes.
      */
     class Timeout(
-        message: String,
-        cause: Throwable? = null,
-    ) : McpToolException(message, cause)
-
-    /**
-     * Thrown when Privacy Mode is enabled with model-backed categories but the detection model is
-     * missing, unloadable, or failed mid-call. The tool returns NO device data (fail-closed); the
-     * message tells the agent why Privacy Mode is unavailable.
-     */
-    class PrivacyModeUnavailable(
         message: String,
         cause: Throwable? = null,
     ) : McpToolException(message, cause)

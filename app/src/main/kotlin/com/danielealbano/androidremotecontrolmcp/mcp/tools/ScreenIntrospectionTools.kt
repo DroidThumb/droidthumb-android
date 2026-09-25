@@ -4,9 +4,7 @@ package com.danielealbano.androidremotecontrolmcp.mcp.tools
 
 import android.graphics.Bitmap
 import android.util.Log
-import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
-import com.danielealbano.androidremotecontrolmcp.privacy.PrivacyToolGate
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCache
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
@@ -24,10 +22,7 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.formatMu
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotAnnotator
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotEncoder
-import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenshotRedactor
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import javax.inject.Inject
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -38,7 +33,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
-import javax.inject.Inject
 
 // ─────────────────────────────────────────────────────────────────────────────
 // get_screen_state
@@ -65,12 +59,10 @@ class GetScreenStateHandler
         private val nodeCache: AccessibilityNodeCache,
         private val screenStateSnapshotCache: ScreenStateSnapshotCache,
         private val webViewNodeMerger: WebViewNodeMerger,
-        private val privacyToolGate: PrivacyToolGate,
-        private val screenshotRedactor: ScreenshotRedactor,
     ) {
         @Volatile private var includeScreenshotEnabled: Boolean = true
 
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val includeScreenshot = parseIncludeScreenshot(arguments)
             val cursorElement = arguments?.get("cursor")
             // Absent, JSON null, or a blank string ⇒ fresh cursorless capture (settled behavior 1).
@@ -94,7 +86,7 @@ class GetScreenStateHandler
                 false
             }
 
-        private suspend fun handleFreshRequest(includeScreenshot: Boolean): CallToolResult {
+        private suspend fun handleFreshRequest(includeScreenshot: Boolean): ToolResult {
             // getFreshWindows clears the framework accessibility cache before reading (see there),
             // so this fresh capture — and the node cache it populates for element/action tools —
             // round-trips live even for stale-prone WebView content.
@@ -103,17 +95,14 @@ class GetScreenStateHandler
             // their original ids, so taps still resolve.
             val rawResult =
                 webViewNodeMerger.merge(getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache))
-            // Redact the tree BEFORE anything downstream: the snapshot stores the REDACTED tree so paged
-            // output and pseudonym mappings stay consistent. Fail-closed errors propagate as a tool error.
-            val processed = privacyToolGate.tree(rawResult)
-            val result = processed.result
+            val result = rawResult
             val screenInfo = accessibilityServiceProvider.getScreenInfo()
             val totalKept = compactTreeFormatter.countKeptNodes(result)
             val totalPages = ceilDiv(totalKept, CompactTreeFormatter.PAGE_SIZE)
             val compactOutput = buildFreshPageText(result, screenInfo, totalKept, totalPages)
             Log.d(TAG, "get_screen_state: includeScreenshot=$includeScreenshot pages=$totalPages")
             return if (includeScreenshot) {
-                buildScreenshotResult(result, screenInfo, compactOutput, processed.flaggedBounds)
+                buildScreenshotResult(result, screenInfo, compactOutput)
             } else {
                 McpToolUtils.untrustedTextResult(compactOutput)
             }
@@ -183,8 +172,7 @@ class GetScreenStateHandler
             result: MultiWindowResult,
             screenInfo: ScreenInfo,
             compactOutput: String,
-            flaggedBounds: List<BoundsData>,
-        ): CallToolResult {
+        ): ToolResult {
             if (!screenCaptureProvider.isScreenCaptureAvailable()) {
                 throw McpToolException.PermissionDenied(
                     "Screen capture not available. Please enable the accessibility " +
@@ -205,18 +193,15 @@ class GetScreenStateHandler
                     )
                 }
 
-            // Paint opaque boxes over flagged node bounds BEFORE annotation so PII never reaches the pixels.
-            val maskedBitmap =
-                screenshotRedactor.mask(resizedBitmap, flaggedBounds, screenInfo.width, screenInfo.height)
             var annotatedBitmap: Bitmap? = null
             try {
                 // Collect on-screen elements from ALL windows' trees
                 val onScreenElements = collectOnScreenElements(result.windows)
 
-                // Annotate the (masked) screenshot with bounding boxes
+                // Annotate the screenshot with bounding boxes
                 annotatedBitmap =
                     screenshotAnnotator.annotate(
-                        maskedBitmap,
+                        resizedBitmap,
                         onScreenElements,
                         screenInfo.width,
                         screenInfo.height,
@@ -243,7 +228,7 @@ class GetScreenStateHandler
                 )
             } finally {
                 annotatedBitmap?.recycle()
-                if (maskedBitmap !== resizedBitmap) maskedBitmap.recycle()
+                if (resizedBitmap !== resizedBitmap) resizedBitmap.recycle()
                 resizedBitmap.recycle()
             }
         }
@@ -270,58 +255,6 @@ class GetScreenStateHandler
             for (child in node.children) {
                 collectOnScreenElementsFromTree(child, result)
             }
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-            includeScreenshotParamEnabled: Boolean = true,
-        ) {
-            includeScreenshotEnabled = includeScreenshotParamEnabled
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Returns the current screen state: app info, screen dimensions, " +
-                        "and a compact UI node list (text/desc truncated to 100 chars, use " +
-                        "${toolNamePrefix}get_node_details to retrieve full values). Optionally includes a " +
-                        "low-resolution screenshot (only request the screenshot when the node " +
-                        "list alone is not sufficient to understand the screen layout). " +
-                        "Includes a hierarchy section showing node nesting via indentation. " +
-                        "Large screens are split into pages of 200 nodes: the response includes a " +
-                        "'page:N/total' line and a cursor; call again with that cursor to fetch the " +
-                        "next page. You do NOT need to fetch every page — stop once you have found " +
-                        "what you need. A screenshot can only be requested on page 1 (without a cursor).",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                if (includeScreenshotParamEnabled) {
-                                    putJsonObject("include_screenshot") {
-                                        put("type", "boolean")
-                                        put(
-                                            "description",
-                                            "Include a low-resolution screenshot. " +
-                                                "Only request when the UI node list is not sufficient.",
-                                        )
-                                        put("default", false)
-                                    }
-                                }
-                                putJsonObject("cursor") {
-                                    put("type", "string")
-                                    put(
-                                        "description",
-                                        "Pagination cursor from a previous response (format " +
-                                            "\"<id>.<page>\"). Omit to capture a fresh screen state " +
-                                            "starting at page 1. A cursor is tied to one screen " +
-                                            "snapshot; if the screen changed you will be told to " +
-                                            "request a fresh one.",
-                                    )
-                                }
-                            },
-                        required = emptyList(),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -353,49 +286,6 @@ class GetScreenStateHandler
 // ─────────────────────────────────────────────────────────────────────────────
 // Registration function
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Registers all screen introspection tools with the given [Server].
- *
- * Called from [McpServerService.startServer] during server startup.
- */
-@Suppress("LongParameterList")
-fun registerScreenIntrospectionTools(
-    registrar: LoggedToolRegistrar,
-    treeParser: AccessibilityTreeParser,
-    accessibilityServiceProvider: AccessibilityServiceProvider,
-    screenCaptureProvider: ScreenCaptureProvider,
-    compactTreeFormatter: CompactTreeFormatter,
-    screenshotAnnotator: ScreenshotAnnotator,
-    screenshotEncoder: ScreenshotEncoder,
-    nodeCache: AccessibilityNodeCache,
-    screenStateSnapshotCache: ScreenStateSnapshotCache,
-    webViewNodeMerger: WebViewNodeMerger,
-    privacyToolGate: PrivacyToolGate,
-    screenshotRedactor: ScreenshotRedactor,
-    toolNamePrefix: String,
-    perms: ToolPermissionsConfig,
-) {
-    if (perms.isToolEnabled(GetScreenStateHandler.TOOL_NAME)) {
-        GetScreenStateHandler(
-            treeParser,
-            accessibilityServiceProvider,
-            screenCaptureProvider,
-            compactTreeFormatter,
-            screenshotAnnotator,
-            screenshotEncoder,
-            nodeCache,
-            screenStateSnapshotCache,
-            webViewNodeMerger,
-            privacyToolGate,
-            screenshotRedactor,
-        ).register(
-            registrar,
-            toolNamePrefix,
-            includeScreenshotParamEnabled = perms.isParamEnabled(GetScreenStateHandler.TOOL_NAME, "include_screenshot"),
-        )
-    }
-}
 
 /**
  * Parses a pagination cursor "<id>.<page>" into (id, page). Validates FORMAT only (id present, page

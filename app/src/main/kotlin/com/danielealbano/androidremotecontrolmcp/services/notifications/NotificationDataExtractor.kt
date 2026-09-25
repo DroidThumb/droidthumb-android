@@ -11,6 +11,15 @@ object NotificationDataExtractor {
     private const val TAG = "MCP:NotifExtractor"
     private val appNameCache = ConcurrentHashMap<String, String>()
 
+    /** Stable short id for a notification, derived from its [StatusBarNotification.getKey]. */
+    fun computeNotificationHash(key: String): String = "%08x".format(key.hashCode())
+
+    /** Stable short id for action [actionIndex] of the notification with [key]. */
+    fun computeActionHash(
+        key: String,
+        actionIndex: Int,
+    ): String = "%08x".format("$key::$actionIndex".hashCode())
+
     fun extract(
         sbn: StatusBarNotification,
         context: Context,
@@ -33,14 +42,14 @@ object NotificationDataExtractor {
         val actions =
             notification.actions?.mapIndexed { index, action ->
                 NotificationActionData(
-                    actionId = NotificationProviderImpl.computeActionHash(sbn.key, index),
+                    actionId = computeActionHash(sbn.key, index),
                     index = index,
                     title = action.title?.toString() ?: "",
                     acceptsText = action.remoteInputs?.any { !it.isDataOnly } ?: false,
                 )
             } ?: emptyList()
         return NotificationData(
-            notificationId = NotificationProviderImpl.computeNotificationHash(sbn.key),
+            notificationId = computeNotificationHash(sbn.key),
             packageName = sbn.packageName,
             appName = appName,
             title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(),

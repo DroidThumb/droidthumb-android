@@ -6,19 +6,13 @@ import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import com.danielealbano.androidremotecontrolmcp.data.model.ToolPermissionsConfig
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
-import com.danielealbano.androidremotecontrolmcp.privacy.PlaceholderSubstitutor
-import com.danielealbano.androidremotecontrolmcp.privacy.PrivacyToolGate
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCache
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeLock
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeParser
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionExecutor
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.TypeInputController
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -386,18 +380,16 @@ class TypeAppendTextTool
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val typeInputController: TypeInputController,
         private val nodeCache: AccessibilityNodeCache,
-        private val privacyToolGate: PrivacyToolGate,
-        private val substitutor: PlaceholderSubstitutor,
     ) {
         @Suppress("ThrowsCount")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val nodeId = McpToolUtils.requireString(arguments, "node_id")
             if (nodeId.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
             }
 
             // Reverse any pseudonym placeholder so the real value is typed; length checks use the real length.
-            val text = substitutor.substitute(McpToolUtils.requireString(arguments, "text"))
+            val text = McpToolUtils.requireString(arguments, "text")
             if (text.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'text' must be non-empty")
             }
@@ -444,66 +436,10 @@ class TypeAppendTextTool
                 }
 
             Log.d(TAG, "type_append_text: typed ${text.length} chars on node '$nodeId'")
-            val redactedFieldContent = privacyToolGate.text(fieldContent, "field content").orEmpty()
             return McpToolUtils.untrustedTextResult(
                 "Typed ${text.length} characters at end of node '$nodeId'.\n" +
-                    "Field content: $redactedFieldContent",
+                    "Field content: $fieldContent",
             )
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Type text character by character at the end of a text field. " +
-                        "Uses natural InputConnection typing (indistinguishable from keyboard input). " +
-                        "Maximum text length: $MAX_TEXT_LENGTH characters. " +
-                        "For text longer than $MAX_TEXT_LENGTH chars, call this tool multiple times — " +
-                        "subsequent calls continue typing at the current cursor position. " +
-                        verificationAndKeyboardHint(toolNamePrefix),
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("node_id") {
-                                    put("type", "string")
-                                    put("description", "Target node ID to type into")
-                                }
-                                putJsonObject("text") {
-                                    put("type", "string")
-                                    put(
-                                        "description",
-                                        "Text to type (must be non-empty, " +
-                                            "max $MAX_TEXT_LENGTH characters)",
-                                    )
-                                }
-                                putJsonObject("typing_speed") {
-                                    put("type", "integer")
-                                    put(
-                                        "description",
-                                        "Base delay between characters in ms " +
-                                            "(default: $DEFAULT_TYPING_SPEED_MS, " +
-                                            "min: $MIN_TYPING_SPEED_MS, " +
-                                            "max: $MAX_TYPING_SPEED_MS)",
-                                    )
-                                }
-                                putJsonObject("typing_speed_variance") {
-                                    put("type", "integer")
-                                    put(
-                                        "description",
-                                        "Random variance in ms, clamped to " +
-                                            "[0, typing_speed] " +
-                                            "(default: $DEFAULT_TYPING_VARIANCE_MS)",
-                                    )
-                                }
-                            },
-                        required = listOf("node_id", "text"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -520,17 +456,15 @@ class TypeInsertTextTool
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val typeInputController: TypeInputController,
         private val nodeCache: AccessibilityNodeCache,
-        private val privacyToolGate: PrivacyToolGate,
-        private val substitutor: PlaceholderSubstitutor,
     ) {
         @Suppress("ThrowsCount")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val nodeId = McpToolUtils.requireString(arguments, "node_id")
             if (nodeId.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
             }
 
-            val text = substitutor.substitute(McpToolUtils.requireString(arguments, "text"))
+            val text = McpToolUtils.requireString(arguments, "text")
             if (text.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'text' must be non-empty")
             }
@@ -588,75 +522,10 @@ class TypeInsertTextTool
                 }
 
             Log.d(TAG, "type_insert_text: typed ${text.length} chars at offset $offset on '$nodeId'")
-            val redactedFieldContent = privacyToolGate.text(fieldContent, "field content").orEmpty()
             return McpToolUtils.untrustedTextResult(
                 "Typed ${text.length} characters at offset $offset in node '$nodeId'.\n" +
-                    "Field content: $redactedFieldContent",
+                    "Field content: $fieldContent",
             )
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Type text character by character at a specific position in a text field. " +
-                        "Uses natural InputConnection typing (indistinguishable from keyboard input). " +
-                        "Maximum text length: $MAX_TEXT_LENGTH characters. " +
-                        verificationAndKeyboardHint(toolNamePrefix),
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("node_id") {
-                                    put("type", "string")
-                                    put("description", "Target node ID to type into")
-                                }
-                                putJsonObject("text") {
-                                    put("type", "string")
-                                    put(
-                                        "description",
-                                        "Text to type (must be non-empty, " +
-                                            "max $MAX_TEXT_LENGTH characters)",
-                                    )
-                                }
-                                putJsonObject("offset") {
-                                    put("type", "integer")
-                                    put(
-                                        "description",
-                                        "0-based character offset (UTF-16 code units) " +
-                                            "for cursor position. Must be within " +
-                                            "[0, current text length]. Note: emoji " +
-                                            "and other supplementary characters count " +
-                                            "as 2 units.",
-                                    )
-                                }
-                                putJsonObject("typing_speed") {
-                                    put("type", "integer")
-                                    put(
-                                        "description",
-                                        "Base delay between characters in ms " +
-                                            "(default: $DEFAULT_TYPING_SPEED_MS, " +
-                                            "min: $MIN_TYPING_SPEED_MS, " +
-                                            "max: $MAX_TYPING_SPEED_MS)",
-                                    )
-                                }
-                                putJsonObject("typing_speed_variance") {
-                                    put("type", "integer")
-                                    put(
-                                        "description",
-                                        "Random variance in ms, clamped to " +
-                                            "[0, typing_speed] " +
-                                            "(default: $DEFAULT_TYPING_VARIANCE_MS)",
-                                    )
-                                }
-                            },
-                        required = listOf("node_id", "text", "offset"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -697,18 +566,16 @@ class TypeReplaceTextTool
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val typeInputController: TypeInputController,
         private val nodeCache: AccessibilityNodeCache,
-        private val privacyToolGate: PrivacyToolGate,
-        private val substitutor: PlaceholderSubstitutor,
     ) {
         @Suppress("ThrowsCount", "LongMethod")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val nodeId = McpToolUtils.requireString(arguments, "node_id")
             if (nodeId.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
             }
 
             // Substitute both the search term (to match the real field content) and the replacement value.
-            val search = substitutor.substitute(McpToolUtils.requireString(arguments, "search"))
+            val search = McpToolUtils.requireString(arguments, "search")
             if (search.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'search' must be non-empty")
             }
@@ -719,7 +586,7 @@ class TypeReplaceTextTool
                 )
             }
 
-            val newText = substitutor.substitute(McpToolUtils.requireString(arguments, "new_text"))
+            val newText = McpToolUtils.requireString(arguments, "new_text")
             if (newText.isNotEmpty()) {
                 validateTextLength(newText, "new_text")
             }
@@ -797,78 +664,10 @@ class TypeReplaceTextTool
                 "type_replace_text: replaced ${search.length} chars " +
                     "with ${newText.length} chars on '$nodeId'",
             )
-            val redactedFieldContent = privacyToolGate.text(fieldContent, "field content").orEmpty()
             return McpToolUtils.untrustedTextResult(
                 "Replaced ${search.length} characters with ${newText.length} characters in node '$nodeId'.\n" +
-                    "Field content: $redactedFieldContent",
+                    "Field content: $fieldContent",
             )
-        }
-
-        @Suppress("LongMethod")
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Find and replace text in a field by typing the replacement naturally. " +
-                        "Finds the first occurrence of search text, deletes it, then types new_text " +
-                        "character by character via InputConnection. " +
-                        "Maximum new_text length: $MAX_TEXT_LENGTH characters. " +
-                        "Returns error if search text is not found. " +
-                        verificationAndKeyboardHint(toolNamePrefix),
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("node_id") {
-                                    put("type", "string")
-                                    put("description", "Target node ID")
-                                }
-                                putJsonObject("search") {
-                                    put("type", "string")
-                                    put(
-                                        "description",
-                                        "Text to find in the field " +
-                                            "(first occurrence, " +
-                                            "max $MAX_SURROUNDING_TEXT_LENGTH chars)",
-                                    )
-                                }
-                                putJsonObject("new_text") {
-                                    put("type", "string")
-                                    put(
-                                        "description",
-                                        "Replacement text to type " +
-                                            "(max $MAX_TEXT_LENGTH characters). " +
-                                            "Can be empty to just delete " +
-                                            "the found text.",
-                                    )
-                                }
-                                putJsonObject("typing_speed") {
-                                    put("type", "integer")
-                                    put(
-                                        "description",
-                                        "Base delay between characters in ms " +
-                                            "(default: $DEFAULT_TYPING_SPEED_MS, " +
-                                            "min: $MIN_TYPING_SPEED_MS, " +
-                                            "max: $MAX_TYPING_SPEED_MS)",
-                                    )
-                                }
-                                putJsonObject("typing_speed_variance") {
-                                    put("type", "integer")
-                                    put(
-                                        "description",
-                                        "Random variance in ms, clamped to " +
-                                            "[0, typing_speed] " +
-                                            "(default: $DEFAULT_TYPING_VARIANCE_MS)",
-                                    )
-                                }
-                            },
-                        required = listOf("node_id", "search", "new_text"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -896,10 +695,9 @@ class TypeClearTextTool
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val typeInputController: TypeInputController,
         private val nodeCache: AccessibilityNodeCache,
-        private val privacyToolGate: PrivacyToolGate,
     ) {
         @Suppress("ThrowsCount")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val nodeId = McpToolUtils.requireString(arguments, "node_id")
             if (nodeId.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
@@ -960,35 +758,9 @@ class TypeClearTextTool
                 }
 
             Log.d(TAG, "type_clear_text: cleared text on node '$nodeId'")
-            val redactedFieldContent = privacyToolGate.text(fieldContent, "field content").orEmpty()
             return McpToolUtils.untrustedTextResult(
-                "Text cleared from node '$nodeId'.\nField content: $redactedFieldContent",
+                "Text cleared from node '$nodeId'.\nField content: $fieldContent",
             )
-        }
-
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description =
-                    "Clear all text from a field naturally using select-all + delete. " +
-                        "Uses InputConnection operations (indistinguishable from user action). " +
-                        verificationAndKeyboardHint(toolNamePrefix),
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("node_id") {
-                                    put("type", "string")
-                                    put("description", "Target node ID to clear")
-                                }
-                            },
-                        required = listOf("node_id"),
-                    ),
-            ) { request -> execute(request.arguments) }
         }
 
         companion object {
@@ -1015,7 +787,7 @@ class PressKeyTool
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
     ) {
         @Suppress("ThrowsCount")
-        suspend fun execute(arguments: JsonObject?): CallToolResult {
+        suspend fun execute(arguments: JsonObject?): ToolResult {
             val key =
                 arguments?.get("key")?.jsonPrimitive?.contentOrNull
                     ?: throw McpToolException.InvalidParams("Missing required parameter 'key'")
@@ -1140,109 +912,12 @@ class PressKeyTool
             }
         }
 
-        fun register(
-            registrar: LoggedToolRegistrar,
-            toolNamePrefix: String,
-        ) {
-            registrar.addTool(
-                toolName = TOOL_NAME,
-                name = "$toolNamePrefix$TOOL_NAME",
-                description = "Press a specific key (ENTER, BACK, DEL, HOME, TAB, SPACE)",
-                inputSchema =
-                    ToolSchema(
-                        properties =
-                            buildJsonObject {
-                                putJsonObject("key") {
-                                    put("type", "string")
-                                    put(
-                                        "enum",
-                                        buildJsonArray {
-                                            add(JsonPrimitive("ENTER"))
-                                            add(JsonPrimitive("BACK"))
-                                            add(JsonPrimitive("DEL"))
-                                            add(JsonPrimitive("HOME"))
-                                            add(JsonPrimitive("TAB"))
-                                            add(JsonPrimitive("SPACE"))
-                                        },
-                                    )
-                                    put("description", "Key to press")
-                                }
-                            },
-                        required = listOf("key"),
-                    ),
-            ) { request -> execute(request.arguments) }
-        }
-
         companion object {
             private const val TAG = "MCP:PressKeyTool"
             const val TOOL_NAME = "press_key"
             private val ALLOWED_KEYS = setOf("ENTER", "BACK", "DEL", "HOME", "TAB", "SPACE")
         }
     }
-
-/**
- * Registers all text input tools with the given [Server].
- */
-@Suppress("LongParameterList")
-fun registerTextInputTools(
-    registrar: LoggedToolRegistrar,
-    treeParser: AccessibilityTreeParser,
-    actionExecutor: ActionExecutor,
-    accessibilityServiceProvider: AccessibilityServiceProvider,
-    typeInputController: TypeInputController,
-    nodeCache: AccessibilityNodeCache,
-    privacyToolGate: PrivacyToolGate,
-    substitutor: PlaceholderSubstitutor,
-    toolNamePrefix: String,
-    perms: ToolPermissionsConfig,
-) {
-    if (perms.isToolEnabled(TypeAppendTextTool.TOOL_NAME)) {
-        TypeAppendTextTool(
-            treeParser,
-            actionExecutor,
-            accessibilityServiceProvider,
-            typeInputController,
-            nodeCache,
-            privacyToolGate,
-            substitutor,
-        ).register(registrar, toolNamePrefix)
-    }
-    if (perms.isToolEnabled(TypeInsertTextTool.TOOL_NAME)) {
-        TypeInsertTextTool(
-            treeParser,
-            actionExecutor,
-            accessibilityServiceProvider,
-            typeInputController,
-            nodeCache,
-            privacyToolGate,
-            substitutor,
-        ).register(registrar, toolNamePrefix)
-    }
-    if (perms.isToolEnabled(TypeReplaceTextTool.TOOL_NAME)) {
-        TypeReplaceTextTool(
-            treeParser,
-            actionExecutor,
-            accessibilityServiceProvider,
-            typeInputController,
-            nodeCache,
-            privacyToolGate,
-            substitutor,
-        ).register(registrar, toolNamePrefix)
-    }
-    if (perms.isToolEnabled(TypeClearTextTool.TOOL_NAME)) {
-        TypeClearTextTool(
-            treeParser,
-            actionExecutor,
-            accessibilityServiceProvider,
-            typeInputController,
-            nodeCache,
-            privacyToolGate,
-        ).register(registrar, toolNamePrefix)
-    }
-    if (perms.isToolEnabled(PressKeyTool.TOOL_NAME)) {
-        PressKeyTool(actionExecutor, accessibilityServiceProvider).register(registrar, toolNamePrefix)
-    }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared Utility for Text Input Tools

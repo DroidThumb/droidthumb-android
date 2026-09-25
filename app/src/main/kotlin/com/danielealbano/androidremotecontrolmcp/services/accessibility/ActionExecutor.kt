@@ -3,19 +3,6 @@ package com.danielealbano.androidremotecontrolmcp.services.accessibility
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
- * Represents a single point in a gesture path.
- *
- * @property x The X coordinate on screen.
- * @property y The Y coordinate on screen.
- * @property time The time offset in milliseconds from the start of the gesture.
- */
-data class GesturePoint(
-    val x: Float,
-    val y: Float,
-    val time: Long,
-)
-
-/**
  * Direction for scroll gestures.
  */
 enum class ScrollDirection {
@@ -128,15 +115,6 @@ interface ActionExecutor {
      *   `Result.success(false)` if no keyboard was open, or `Result.failure` on error.
      */
     suspend fun dismissKeyboard(): Result<Boolean>
-
-    suspend fun pinch(
-        centerX: Float,
-        centerY: Float,
-        scale: Float,
-        duration: Long = DEFAULT_GESTURE_DURATION_MS,
-    ): Result<Unit>
-
-    suspend fun customGesture(paths: List<List<GesturePoint>>): Result<Unit>
 
     fun findAccessibilityNodeByNodeId(
         rootNode: AccessibilityNodeInfo,
