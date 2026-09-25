@@ -14,8 +14,6 @@ import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
 @Composable
 fun ServerTabScreen(
     onNavigateToPermissions: () -> Unit,
-    onNavigateToNetworkSettings: () -> Unit,
-    onOpenPrivacySettings: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel(),
 ) {
@@ -29,8 +27,6 @@ fun ServerTabScreen(
             ServerScreen(
                 onNavigateToPermissions = onNavigateToPermissions,
                 onShowAllLogs = { navController.navigate(ServerRoute.Logs.route) },
-                onNavigateToNetworkSettings = onNavigateToNetworkSettings,
-                onOpenPrivacySettings = onOpenPrivacySettings,
                 viewModel = viewModel,
             )
         }

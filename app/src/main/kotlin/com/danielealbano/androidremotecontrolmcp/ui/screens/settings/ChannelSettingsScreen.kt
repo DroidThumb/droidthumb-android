@@ -19,7 +19,6 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,9 +49,7 @@ import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 @Composable
 fun ChannelSettingsScreen(
     viewModel: ChannelViewModel,
-    navController: NavHostController,
     onNavigateToNotificationFilter: () -> Unit,
-    onNavigateToWifiMonitor: () -> Unit,
     onNavigateBack: () -> Unit,
 ) {
     val config by viewModel.eventChannelConfig.collectAsStateWithLifecycle()
@@ -163,24 +160,6 @@ fun ChannelSettingsScreen(
                     modifier = Modifier.clickable(onClick = onNavigateToNotificationFilter),
                 )
             }
-            item {
-                ListItem(
-                    headlineContent = { Text("WiFi Events") },
-                    leadingContent = { Icon(Icons.Default.Wifi, contentDescription = null) },
-                    trailingContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Switch(
-                                checked = config.wifi.enabled,
-                                onCheckedChange = { viewModel.updateWifiChannelEnabled(it) },
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                        }
-                    },
-                    modifier = Modifier.clickable(onClick = onNavigateToWifiMonitor),
-                )
-            }
-            geofenceEventSourceItem(navController)
         }
     }
 }

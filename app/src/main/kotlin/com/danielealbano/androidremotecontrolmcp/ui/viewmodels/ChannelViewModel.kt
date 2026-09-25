@@ -134,51 +134,6 @@ class ChannelViewModel
             }
         }
 
-        // WiFi settings
-        fun updateWifiChannelEnabled(enabled: Boolean) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateWifiChannelEnabled(enabled)
-            }
-        }
-
-        fun addWifiSsid(ssid: String) {
-            viewModelScope.launch(ioDispatcher) {
-                val current = settingsRepository.getEventChannelConfig().wifi.ssids
-                settingsRepository.updateWifiSsids(current + ssid)
-            }
-        }
-
-        fun removeWifiSsid(ssid: String) {
-            viewModelScope.launch(ioDispatcher) {
-                val current = settingsRepository.getEventChannelConfig().wifi.ssids
-                settingsRepository.updateWifiSsids(current - ssid)
-            }
-        }
-
-        fun updateWifiNotifyOnDiscovered(enabled: Boolean) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateWifiNotifyOnDiscovered(enabled)
-            }
-        }
-
-        fun updateWifiNotifyOnLost(enabled: Boolean) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateWifiNotifyOnLost(enabled)
-            }
-        }
-
-        fun updateWifiNotifyOnConnected(enabled: Boolean) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateWifiNotifyOnConnected(enabled)
-            }
-        }
-
-        fun updateWifiNotifyOnDisconnected(enabled: Boolean) {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateWifiNotifyOnDisconnected(enabled)
-            }
-        }
-
         fun loadInstalledApps() {
             // Show cached list immediately (preloaded at app start)
             _installedApps.value = toAppInfoList(appIconCache.getLaunchableApps())

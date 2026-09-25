@@ -59,9 +59,6 @@ private fun disabledColor(): Color = if (isSystemInDarkTheme()) Color(0xFFEF5350
 fun PermissionsSettingsScreen(
     onBack: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
-    onRequestCameraPermission: () -> Unit,
-    onRequestMicrophonePermission: () -> Unit,
-    onRequestLocationPermission: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel(),
 ) {
@@ -71,9 +68,6 @@ fun PermissionsSettingsScreen(
     val isAccessibilityEnabled by viewModel.isAccessibilityEnabled.collectAsStateWithLifecycle()
     val isNotificationPermissionGranted by viewModel.isNotificationPermissionGranted.collectAsStateWithLifecycle()
     val isNotificationListenerEnabled by viewModel.isNotificationListenerEnabled.collectAsStateWithLifecycle()
-    val isCameraPermissionGranted by viewModel.isCameraPermissionGranted.collectAsStateWithLifecycle()
-    val isMicrophonePermissionGranted by viewModel.isMicrophonePermissionGranted.collectAsStateWithLifecycle()
-    val isLocationPermissionGranted by viewModel.isLocationPermissionGranted.collectAsStateWithLifecycle()
 
     // Refresh permissions on ON_RESUME
     DisposableEffect(lifecycleOwner) {
@@ -160,63 +154,6 @@ fun PermissionsSettingsScreen(
                     },
                 onAction = { PermissionUtils.openNotificationListenerSettings(context) },
                 actionEnabled = !isNotificationListenerEnabled,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            PermissionRow(
-                label = stringResource(R.string.permission_camera),
-                rationale = stringResource(R.string.permission_camera_rationale),
-                isEnabled = isCameraPermissionGranted,
-                buttonText =
-                    if (isCameraPermissionGranted) {
-                        stringResource(R.string.permission_granted)
-                    } else {
-                        stringResource(R.string.permission_grant)
-                    },
-                onAction = onRequestCameraPermission,
-                actionEnabled = !isCameraPermissionGranted,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            PermissionRow(
-                label = stringResource(R.string.permission_location),
-                rationale = stringResource(R.string.permission_location_rationale),
-                isEnabled = isLocationPermissionGranted,
-                buttonText =
-                    if (isLocationPermissionGranted) {
-                        stringResource(R.string.permission_granted)
-                    } else {
-                        stringResource(R.string.permission_grant)
-                    },
-                onAction = onRequestLocationPermission,
-                actionEnabled = !isLocationPermissionGranted,
-            )
-
-            // Background Location is geofence-only; rendered via a flavor seam (gms only).
-            // The gms seam owns its own leading spacer so foss shows no dangling gap.
-            BackgroundLocationPermissionRow()
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // ---- Optional ----
-            PermissionSectionHeader(
-                title = stringResource(R.string.permission_section_optional_title),
-                subtitle = stringResource(R.string.permission_section_optional_subtitle),
-            )
-            PermissionRow(
-                label = stringResource(R.string.permission_microphone),
-                rationale = stringResource(R.string.permission_microphone_rationale),
-                isEnabled = isMicrophonePermissionGranted,
-                buttonText =
-                    if (isMicrophonePermissionGranted) {
-                        stringResource(R.string.permission_granted)
-                    } else {
-                        stringResource(R.string.permission_grant)
-                    },
-                onAction = onRequestMicrophonePermission,
-                actionEnabled = !isMicrophonePermissionGranted,
             )
         }
     }

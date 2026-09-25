@@ -4,13 +4,12 @@
 
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Foreground services -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
-    <!-- Boot receiver -->
+    <!-- Boot receiver (Event Channel auto-start) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Notifications (Android 13+) -->
@@ -19,32 +18,6 @@
     <!-- App Management -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
-
-    <!-- Camera -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
-    <!-- Location (background-location is geofence-only → declared in the gms flavor manifest) -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-
-    <!-- WiFi (Event Channel) -->
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
-
-    <!-- Foreground service type for Event Channel (location for geofence/WiFi) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-
-    <!-- Media read access (optional — enables "all files" mode for built-in storage locations) -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
-
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-feature android:name="android.hardware.microphone" android:required="false" />
-    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
         android:name=".McpApplication"
@@ -67,35 +40,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- Share Target (receives content shared INTO the app via the Android share sheet) -->
-        <activity
-            android:name=".ui.ShareReceiverActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:label="@string/share_target_label"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND_MULTIPLE" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
-        </activity>
-
-        <!-- MCP Server Foreground Service -->
-        <service
-            android:name=".services.mcp.McpServerService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="MCP server providing remote device control" />
-        </service>
 
         <!-- Accessibility Service -->
         <service
@@ -120,69 +64,26 @@
             </intent-filter>
         </service>
 
-        <!-- Boot Completed Receiver -->
+        <!-- Event Channel Service (notification events → configured endpoint). specialUse: it
+             forwards notification events and holds no location, camera or media access. -->
+        <service
+            android:name=".services.channel.EventChannelService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Forwards notification events to a user-configured endpoint" />
+        </service>
+
+
+        <!-- Event Channel auto-start on boot -->
         <receiver
-            android:name=".services.mcp.BootCompletedReceiver"
+            android:name=".services.channel.EventChannelBootReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
-
-        <!-- Package Replaced Receiver (restart the MCP server after an app update if it was running) -->
-        <receiver
-            android:name=".services.mcp.PackageReplacedReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- ADB Configuration Receiver (headless setup via adb shell am broadcast) -->
-        <!-- Gated on DUMP: a signature/privileged platform permission held by the
-             adb shell UID (com.android.shell) but NOT grantable to third-party apps.
-             Enforced by ActivityManager against the sender's real binder UID, so
-             `adb shell am broadcast` still works while ordinary apps get a SecurityException. -->
-        <receiver
-            android:name=".services.mcp.AdbConfigReceiver"
-            android:exported="true"
-            android:permission="android.permission.DUMP">
-        </receiver>
-
-        <!-- Event Channel Service -->
-        <service
-            android:name=".services.channel.EventChannelService"
-            android:exported="false"
-            android:foregroundServiceType="location" />
-
-        <!-- ADB Service Trampoline (headless start/stop via adb shell am start) -->
-        <!-- Gated on DUMP (adb-shell-only) for the same reason as AdbConfigReceiver above. -->
-        <activity
-            android:name=".services.mcp.AdbServiceTrampolineActivity"
-            android:exported="true"
-            android:permission="android.permission.DUMP"
-            android:theme="@android:style/Theme.NoDisplay"
-            android:excludeFromRecents="true"
-            android:noHistory="true" />
-
-        <activity
-            android:name=".ui.ApprovalActivity"
-            android:exported="false"
-            android:label="@string/approval_title" />
-
-        <!-- Remove WorkManager's default on-startup initializer: McpApplication implements
-             Configuration.Provider for on-demand initialization with the Hilt worker factory. -->
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            android:exported="false"
-            tools:node="merge">
-            <meta-data
-                android:name="androidx.work.WorkManagerInitializer"
-                android:value="androidx.startup"
-                tools:node="remove" />
-        </provider>
-
     </application>
 
 </manifest>

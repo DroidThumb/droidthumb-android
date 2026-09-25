@@ -11,7 +11,6 @@ data class EventChannelConfig(
     val endpointUrl: String = "",
     val authToken: String = "",
     val notifications: NotificationChannelConfig = NotificationChannelConfig(),
-    val wifi: WifiChannelConfig = WifiChannelConfig(),
 ) {
     companion object {
         const val DEFAULT_ENDPOINT_URL = "http://localhost:9090"
@@ -42,13 +41,3 @@ enum class NotificationFilterMode {
     WHITELIST,
     BLACKLIST,
 }
-
-@Serializable
-data class WifiChannelConfig(
-    val enabled: Boolean = false,
-    val ssids: Set<String> = emptySet(),
-    val notifyOnDiscovered: Boolean = true,
-    val notifyOnLost: Boolean = true,
-    val notifyOnConnected: Boolean = true,
-    val notifyOnDisconnected: Boolean = true,
-)

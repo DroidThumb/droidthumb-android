@@ -126,51 +126,6 @@ class EventChannelSettingsImpl
             )
         }
 
-        override suspend fun updateWifiChannelEnabled(enabled: Boolean) {
-            val (old, new) = updateConfig { it.copy(wifi = it.wifi.copy(enabled = enabled)) }
-            logToggle("channel_wifi", old.wifi.enabled, new.wifi.enabled, "Wi-Fi events")
-        }
-
-        override suspend fun updateWifiSsids(ssids: Set<String>) {
-            val (old, new) = updateConfig { it.copy(wifi = it.wifi.copy(ssids = ssids)) }
-            logSetChange("channel_wifi_ssids", old.wifi.ssids, new.wifi.ssids, "Wi-Fi monitored SSIDs changed")
-        }
-
-        override suspend fun updateWifiNotifyOnDiscovered(enabled: Boolean) {
-            val (old, new) = updateConfig { it.copy(wifi = it.wifi.copy(notifyOnDiscovered = enabled)) }
-            logToggle(
-                "channel_wifi_discovered",
-                old.wifi.notifyOnDiscovered,
-                new.wifi.notifyOnDiscovered,
-                "Wi-Fi notify-on-discovered",
-            )
-        }
-
-        override suspend fun updateWifiNotifyOnLost(enabled: Boolean) {
-            val (old, new) = updateConfig { it.copy(wifi = it.wifi.copy(notifyOnLost = enabled)) }
-            logToggle("channel_wifi_lost", old.wifi.notifyOnLost, new.wifi.notifyOnLost, "Wi-Fi notify-on-lost")
-        }
-
-        override suspend fun updateWifiNotifyOnConnected(enabled: Boolean) {
-            val (old, new) = updateConfig { it.copy(wifi = it.wifi.copy(notifyOnConnected = enabled)) }
-            logToggle(
-                "channel_wifi_connected",
-                old.wifi.notifyOnConnected,
-                new.wifi.notifyOnConnected,
-                "Wi-Fi notify-on-connected",
-            )
-        }
-
-        override suspend fun updateWifiNotifyOnDisconnected(enabled: Boolean) {
-            val (old, new) = updateConfig { it.copy(wifi = it.wifi.copy(notifyOnDisconnected = enabled)) }
-            logToggle(
-                "channel_wifi_disconnected",
-                old.wifi.notifyOnDisconnected,
-                new.wifi.notifyOnDisconnected,
-                "Wi-Fi notify-on-disconnected",
-            )
-        }
-
         /**
          * Submits a set-valued change: the old/new values are the LOSSLESS serialized sets (so a
          * count-preserving membership swap is not dropped as a no-op), while the rendered message

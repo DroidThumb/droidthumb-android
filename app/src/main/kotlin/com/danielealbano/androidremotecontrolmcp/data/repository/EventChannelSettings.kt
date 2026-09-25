@@ -49,22 +49,4 @@ interface EventChannelSettings {
 
     /** Updates the set of app package names for notification filtering. */
     suspend fun updateNotificationFilterApps(apps: Set<String>)
-
-    /** Updates the WiFi channel enabled toggle. */
-    suspend fun updateWifiChannelEnabled(enabled: Boolean)
-
-    /** Updates the set of WiFi SSIDs to monitor. */
-    suspend fun updateWifiSsids(ssids: Set<String>)
-
-    /** Updates the WiFi notify on discovered toggle. */
-    suspend fun updateWifiNotifyOnDiscovered(enabled: Boolean)
-
-    /** Updates the WiFi notify on lost toggle. */
-    suspend fun updateWifiNotifyOnLost(enabled: Boolean)
-
-    /** Updates the WiFi notify on connected toggle. */
-    suspend fun updateWifiNotifyOnConnected(enabled: Boolean)
-
-    /** Updates the WiFi notify on disconnected toggle. */
-    suspend fun updateWifiNotifyOnDisconnected(enabled: Boolean)
 }

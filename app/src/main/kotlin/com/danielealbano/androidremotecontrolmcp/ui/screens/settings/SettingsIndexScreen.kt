@@ -58,46 +58,10 @@ private fun SettingsEntriesColumn(
 ) {
     Column(modifier = modifier) {
         SettingsEntry(
-            icon = Icons.Default.Tune,
-            title = stringResource(R.string.settings_general_title),
-            subtitle = stringResource(R.string.settings_general_subtitle),
-            onClick = { onNavigate(SettingsRoute.General.route) },
-        )
-        SettingsEntry(
-            icon = Icons.Default.Key,
-            title = stringResource(R.string.settings_access_title),
-            subtitle = stringResource(R.string.settings_access_subtitle),
-            onClick = { onNavigate(SettingsRoute.Access.route) },
-        )
-        SettingsEntry(
-            icon = Icons.Default.Lock,
-            title = stringResource(R.string.settings_security_title),
-            subtitle = stringResource(R.string.settings_security_subtitle),
-            onClick = { onNavigate(SettingsRoute.Security.route) },
-        )
-        SettingsEntry(
-            icon = Icons.Default.Shield,
-            title = stringResource(R.string.settings_privacy_title),
-            subtitle = stringResource(R.string.settings_privacy_subtitle),
-            onClick = { onNavigate(SettingsRoute.Privacy.route) },
-        )
-        SettingsEntry(
-            icon = Icons.Default.Build,
-            title = stringResource(R.string.settings_mcp_tools_title),
-            subtitle = stringResource(R.string.settings_mcp_tools_subtitle),
-            onClick = { onNavigate(SettingsRoute.McpTools.route) },
-        )
-        SettingsEntry(
             icon = Icons.Default.AdminPanelSettings,
             title = stringResource(R.string.settings_permissions_title),
             subtitle = stringResource(R.string.settings_permissions_subtitle),
             onClick = { onNavigate(SettingsRoute.Permissions.route) },
-        )
-        SettingsEntry(
-            icon = Icons.Default.Folder,
-            title = stringResource(R.string.settings_storage_title),
-            subtitle = stringResource(R.string.settings_storage_subtitle),
-            onClick = { onNavigate(SettingsRoute.Storage.route) },
         )
         SettingsEntry(
             icon = Icons.Default.CellTower,

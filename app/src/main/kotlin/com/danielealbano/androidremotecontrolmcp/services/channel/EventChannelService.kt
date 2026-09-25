@@ -13,11 +13,10 @@ import com.danielealbano.androidremotecontrolmcp.data.model.EventChannelConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerLogEntry
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepository
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
-import com.danielealbano.androidremotecontrolmcp.privacy.PrivacyToolGate
 import com.danielealbano.androidremotecontrolmcp.services.channel.listeners.NotificationEventListener
-import com.danielealbano.androidremotecontrolmcp.services.channel.listeners.WifiEventListener
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,7 +25,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class EventChannelService : Service() {
@@ -37,16 +35,9 @@ class EventChannelService : Service() {
     lateinit var eventDispatcher: EventDispatcher
 
     @Inject
-    lateinit var geofenceController: GeofenceChannelController
-
-    @Inject
     lateinit var serverLogRepository: ServerLogRepository
 
-    @Inject
-    lateinit var privacyToolGate: PrivacyToolGate
-
     private var notificationEventListener: NotificationEventListener? = null
-    private var wifiEventListener: WifiEventListener? = null
 
     @Volatile
     private var startLogged = false
@@ -63,7 +54,6 @@ class EventChannelService : Service() {
         when (intent?.action) {
             ACTION_START -> handleStart()
             ACTION_STOP -> handleStop()
-            ACTION_GEOFENCE_EVENT -> intent?.let { geofenceController.handleGeofenceIntent(it) }
         }
         return START_STICKY
     }
@@ -71,7 +61,7 @@ class EventChannelService : Service() {
     private fun handleStart() {
         createNotificationChannel()
         val notification = buildForegroundNotification()
-        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
 
         serviceScope.launch {
             val config = settingsRepository.getEventChannelConfig()
@@ -102,7 +92,6 @@ class EventChannelService : Service() {
             }
 
             startListeners(config)
-            geofenceController.onChannelStarted(eventDispatcher, serviceScope)
 
             settingsRepository.eventChannelConfig.collect { newConfig ->
                 if (!newConfig.enabled) {
@@ -117,9 +106,6 @@ class EventChannelService : Service() {
     private fun handleStop() {
         notificationEventListener?.stop()
         notificationEventListener = null
-        wifiEventListener?.stop()
-        wifiEventListener = null
-        geofenceController.onChannelStopped()
         eventDispatcher.stop()
         _serviceStatus.value = ChannelConnectionStatus.Idle
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -128,19 +114,15 @@ class EventChannelService : Service() {
 
     private fun startListeners(config: EventChannelConfig) {
         if (config.notifications.enabled) {
-            notificationEventListener = NotificationEventListener(eventDispatcher, serviceScope, privacyToolGate)
+            notificationEventListener = NotificationEventListener(eventDispatcher, serviceScope)
             notificationEventListener?.start(config.notifications)
-        }
-        if (config.wifi.enabled) {
-            wifiEventListener = WifiEventListener(eventDispatcher, serviceScope)
-            wifiEventListener?.start(config.wifi, applicationContext)
         }
     }
 
     private fun reconfigureListeners(config: EventChannelConfig) {
         // Notification listener
         if (config.notifications.enabled && notificationEventListener == null) {
-            notificationEventListener = NotificationEventListener(eventDispatcher, serviceScope, privacyToolGate)
+            notificationEventListener = NotificationEventListener(eventDispatcher, serviceScope)
             notificationEventListener?.start(config.notifications)
         } else if (!config.notifications.enabled) {
             notificationEventListener?.stop()
@@ -148,17 +130,6 @@ class EventChannelService : Service() {
         } else {
             notificationEventListener?.updateConfig(config.notifications)
         }
-        // WiFi listener
-        if (config.wifi.enabled && wifiEventListener == null) {
-            wifiEventListener = WifiEventListener(eventDispatcher, serviceScope)
-            wifiEventListener?.start(config.wifi, applicationContext)
-        } else if (!config.wifi.enabled) {
-            wifiEventListener?.stop()
-            wifiEventListener = null
-        } else {
-            wifiEventListener?.updateConfig(config.wifi)
-        }
-        // Geofence config is observed independently by the GeofenceChannelController (gms); nothing to do here.
     }
 
     private fun createNotificationChannel() {
@@ -182,8 +153,6 @@ class EventChannelService : Service() {
     override fun onDestroy() {
         // Stop listeners BEFORE cancelling scope — listeners may launch cleanup coroutines
         notificationEventListener?.stop()
-        wifiEventListener?.stop()
-        geofenceController.onChannelStopped()
         eventDispatcher.stop()
         if (startLogged) {
             serverLogRepository.log(ServerLogEntry.Type.CHANNEL, CHANNEL_STOPPED_LOG_MESSAGE)
@@ -198,9 +167,6 @@ class EventChannelService : Service() {
     companion object {
         const val ACTION_START = "com.danielealbano.androidremotecontrolmcp.channel.START"
         const val ACTION_STOP = "com.danielealbano.androidremotecontrolmcp.channel.STOP"
-        const val ACTION_GEOFENCE_EVENT = "com.danielealbano.androidremotecontrolmcp.channel.GEOFENCE_EVENT"
-        const val EXTRA_GEOFENCE_ZONE_ID = "geofence_zone_id"
-        const val EXTRA_GEOFENCE_TRANSITION = "geofence_transition"
 
         private const val NOTIFICATION_ID = 2
         private const val CHANNEL_ID = "event_channel_status"

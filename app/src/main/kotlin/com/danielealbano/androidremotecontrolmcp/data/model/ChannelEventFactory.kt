@@ -52,20 +52,4 @@ object ChannelEventFactory {
                     )
                 },
         )
-
-    fun wifi(
-        ssid: String,
-        eventType: String,
-        bssid: String?,
-    ): ChannelEvent =
-        ChannelEvent(
-            type = "wifi",
-            timestamp = nowIso8601(),
-            data =
-                buildJsonObject {
-                    put("ssid", ssid)
-                    put("eventType", eventType)
-                    put("bssid", bssid?.let { JsonPrimitive(it) } ?: JsonNull)
-                },
-        )
 }

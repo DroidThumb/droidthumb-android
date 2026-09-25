@@ -51,23 +51,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.R
-import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.UpdateCheckUiState
-import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.UpdateViewModel
 
 private const val GITHUB_URL = "https://github.com/danielealbano/android-remote-control-mcp"
 private const val LICENSE_URL = "https://github.com/danielealbano/android-remote-control-mcp/blob/main/LICENSE"
 private const val ISSUES_URL = "https://github.com/danielealbano/android-remote-control-mcp/issues"
 private const val LINKEDIN_URL = "https://linkedin.com/in/danielesalvatorealbano"
 private const val X_URL = "https://x.com/daniele_dll"
-private const val DBIP_URL = "https://db-ip.com"
-private const val PRIVACY_MODEL_URL =
-    "https://huggingface.co/ai4privacy/llama-ai4privacy-multilingual-categorical-anonymiser-openpii"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
     modifier: Modifier = Modifier,
-    updateViewModel: UpdateViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
 
@@ -116,19 +110,6 @@ fun AboutScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-
-            Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            // Updates section
-            UpdateSettingsSection(
-                viewModel = updateViewModel,
-                onOpenUrl = { url ->
-                    // No-op if the device has no browser to handle ACTION_VIEW (never crash).
-                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                },
-            )
 
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
@@ -234,36 +215,6 @@ fun AboutScreen(
                     },
             )
 
-            Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            // Attributions section
-            Text(
-                text = stringResource(R.string.about_attributions_section),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = stringResource(R.string.about_attribution_dbip),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier =
-                    Modifier.clickable {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DBIP_URL)))
-                    },
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = stringResource(R.string.about_attribution_privacy_model),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier =
-                    Modifier.clickable {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_MODEL_URL)))
-                    },
-            )
-
             Spacer(Modifier.height(24.dp))
 
             // Footer
@@ -278,77 +229,3 @@ fun AboutScreen(
     }
 }
 
-@Composable
-private fun UpdateSettingsSection(
-    viewModel: UpdateViewModel,
-    onOpenUrl: (String) -> Unit,
-) {
-    val autoCheckEnabled by viewModel.autoCheckEnabled.collectAsStateWithLifecycle()
-    val checkState by viewModel.checkState.collectAsStateWithLifecycle()
-
-    Text(
-        text = stringResource(R.string.about_updates_section),
-        style = MaterialTheme.typography.titleMedium,
-    )
-    Spacer(Modifier.height(8.dp))
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = stringResource(R.string.about_auto_update_label),
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f),
-        )
-        Switch(checked = autoCheckEnabled, onCheckedChange = viewModel::setAutoCheckEnabled)
-    }
-
-    Spacer(Modifier.height(8.dp))
-    OutlinedButton(
-        onClick = viewModel::checkNow,
-        enabled = checkState !is UpdateCheckUiState.Checking,
-    ) {
-        if (checkState is UpdateCheckUiState.Checking) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-        } else {
-            Text(stringResource(R.string.about_check_updates_button))
-        }
-    }
-
-    UpdateCheckStatusText(state = checkState, onOpenUrl = onOpenUrl)
-}
-
-@Composable
-private fun UpdateCheckStatusText(
-    state: UpdateCheckUiState,
-    onOpenUrl: (String) -> Unit,
-) {
-    if (state is UpdateCheckUiState.UpdateFound) {
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.about_update_found, state.update.versionName),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.clickable { onOpenUrl(state.update.releaseUrl) },
-        )
-        return
-    }
-    val message =
-        when (state) {
-            UpdateCheckUiState.UpToDate -> stringResource(R.string.about_update_up_to_date)
-            UpdateCheckUiState.Failed -> stringResource(R.string.about_update_check_failed)
-            UpdateCheckUiState.DevBuild -> stringResource(R.string.about_update_dev_build)
-            else -> null
-        }
-    if (message != null) {
-        UpdateStatusLine(message)
-    }
-}
-
-@Composable
-private fun UpdateStatusLine(text: String) {
-    Spacer(Modifier.height(8.dp))
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
