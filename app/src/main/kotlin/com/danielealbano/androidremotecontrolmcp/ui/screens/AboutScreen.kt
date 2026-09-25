@@ -60,9 +60,7 @@ private const val X_URL = "https://x.com/daniele_dll"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(
-    modifier: Modifier = Modifier,
-) {
+fun AboutScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -228,4 +226,3 @@ fun AboutScreen(
         }
     }
 }
-

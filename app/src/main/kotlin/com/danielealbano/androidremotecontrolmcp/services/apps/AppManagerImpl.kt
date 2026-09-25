@@ -22,7 +22,6 @@ class AppManagerImpl
     constructor(
         @param:ApplicationContext private val context: Context,
     ) : AppManager {
-
         override suspend fun openApp(packageId: String): Result<Unit> =
             try {
                 val intent =

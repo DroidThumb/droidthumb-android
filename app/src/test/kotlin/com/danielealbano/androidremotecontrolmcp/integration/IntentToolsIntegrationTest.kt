@@ -128,5 +128,4 @@ class IntentToolsIntegrationTest {
                 assertTrue(text.contains("No app found"))
             }
         }
-
 }

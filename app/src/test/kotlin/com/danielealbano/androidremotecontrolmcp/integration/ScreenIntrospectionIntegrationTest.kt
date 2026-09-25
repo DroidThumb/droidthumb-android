@@ -2,11 +2,11 @@
 
 package com.danielealbano.androidremotecontrolmcp.integration
 
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import android.graphics.Bitmap
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import com.danielealbano.androidremotecontrolmcp.data.model.ScreenshotData
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.PaginationTestTrees

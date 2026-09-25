@@ -1,7 +1,7 @@
 package com.danielealbano.androidremotecontrolmcp.integration
 
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import com.danielealbano.androidremotecontrolmcp.data.model.AppInfo
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import io.mockk.coEvery
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach

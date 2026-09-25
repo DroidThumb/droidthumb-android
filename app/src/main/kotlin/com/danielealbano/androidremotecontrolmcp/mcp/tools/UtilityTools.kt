@@ -569,4 +569,3 @@ class WaitForIdleTool
             private const val REQUIRED_IDLE_CHECKS = 2
         }
     }
-

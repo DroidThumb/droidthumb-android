@@ -35,7 +35,6 @@ class EventChannelConfigTest {
             val config = EventChannelConfig()
             assertEquals(NotificationFilterMode.ALL, config.notifications.filterMode)
         }
-
     }
 
     @Nested

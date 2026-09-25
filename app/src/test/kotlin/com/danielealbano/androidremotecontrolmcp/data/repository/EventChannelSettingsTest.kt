@@ -78,7 +78,6 @@ class EventChannelSettingsTest {
             val restored = EventChannelConfig.fromJson(json)
             assertEquals(apps, restored.notifications.filterApps)
         }
-
     }
 
     @Nested

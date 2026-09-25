@@ -1,10 +1,10 @@
 package com.danielealbano.androidremotecontrolmcp.integration
 
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.SystemClock
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.stripUntrustedWarning
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData

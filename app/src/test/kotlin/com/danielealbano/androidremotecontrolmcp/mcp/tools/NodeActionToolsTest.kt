@@ -21,9 +21,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.unmockkAll
 import io.mockk.verifyOrder
-import java.util.concurrent.CyclicBarrier
-import java.util.concurrent.atomic.AtomicInteger
-import kotlin.concurrent.thread
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -39,6 +36,9 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 
 @DisplayName("NodeActionTools")
 class NodeActionToolsTest {

@@ -20,7 +20,6 @@ sealed class SettingsRoute(
     data object ChannelSettings : SettingsRoute("settings/channel")
 
     data object NotificationFilter : SettingsRoute("settings/channel/notification_filter")
-
 }
 
 sealed class ServerRoute(

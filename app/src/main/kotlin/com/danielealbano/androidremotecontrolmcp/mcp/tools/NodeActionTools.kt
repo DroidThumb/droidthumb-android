@@ -18,8 +18,6 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.MultiWin
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenInfo
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollDirection
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
-import javax.inject.Inject
-import kotlin.random.Random
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -30,6 +28,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import javax.inject.Inject
+import kotlin.random.Random
 
 /**
  * MCP tool: find_nodes
@@ -78,7 +78,6 @@ class FindNodesTool
             val elements = elementFinder.findElements(result.windows, findBy, value, exactMatch)
 
             Log.d(TAG, "find_nodes: by=$byStr, found=${elements.size}")
-
 
             val resultJson =
                 buildJsonObject {

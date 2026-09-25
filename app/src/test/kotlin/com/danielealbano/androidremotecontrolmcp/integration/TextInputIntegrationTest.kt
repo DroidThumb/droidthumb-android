@@ -2,8 +2,8 @@
 
 package com.danielealbano.androidremotecontrolmcp.integration
 
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import android.view.inputmethod.SurroundingText
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenInfo
@@ -322,5 +322,4 @@ class TextInputIntegrationTest {
                 assertTrue(text.contains("BACK"))
             }
         }
-
 }
