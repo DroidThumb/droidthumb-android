@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Android Remote Control MCP</string>
+    <string name="app_name">DroidThumb</string>
 
     <!-- Accessibility Service -->
     <string name="accessibility_service_description">Lets DroidThumb read the screen and perform actions (taps, swipes, typing) on the device.</string>
