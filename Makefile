@@ -1,4 +1,4 @@
-.PHONY: help check-deps check-deps-updates update-deps build build-foss build-release clean \
+.PHONY: help check-deps check-deps-updates update-deps build build-release clean \
         test-unit test coverage \
         lint lint-fix \
         install install-release uninstall grant-permissions launch-app \
@@ -89,23 +89,20 @@ update-deps: ## Update version catalog with latest stable versions (interactive)
 # Build
 # ─────────────────────────────────────────────────────────────────────────────
 
-build: ## Build gms debug APK
-	$(GRADLE) assembleGmsDebug
+build: ## Build debug APK
+	$(GRADLE) assembleDebug
 
-build-foss: ## Build foss (F-Droid) debug APK
-	$(GRADLE) assembleFossDebug
+build-release: ## Build release APK
+	$(GRADLE) assembleRelease
 
-build-release: ## Build gms + foss release APKs
-	$(GRADLE) assembleGmsRelease assembleFossRelease
-
-build-release-bundle: ## Build signed gms release AAB for Google Play upload
+build-release-bundle: ## Build signed release AAB for Google Play upload
 	@test -f keystore.properties || { \
 		echo "ERROR: keystore.properties not found — the AAB would be UNSIGNED and rejected by Google Play."; \
 		echo "Create it from keystore.properties.example first."; \
 		exit 1; \
 	}
-	$(GRADLE) bundleGmsRelease
-	@echo "AAB: app/build/outputs/bundle/gmsRelease/app-gms-release.aab"
+	$(GRADLE) bundleRelease
+	@echo "AAB: app/build/outputs/bundle/release/app-release.aab"
 
 clean: ## Clean build artifacts
 	$(GRADLE) clean
@@ -137,11 +134,11 @@ lint-fix: ## Auto-fix linting issues
 # Device Management
 # ─────────────────────────────────────────────────────────────────────────────
 
-install: ## Install gms debug APK on connected device/emulator
-	$(GRADLE) installGmsDebug
+install: ## Install debug APK on connected device/emulator
+	$(GRADLE) installDebug
 
-install-release: ## Install gms release APK on connected device/emulator
-	$(GRADLE) installGmsRelease
+install-release: ## Install release APK on connected device/emulator
+	$(GRADLE) installRelease
 
 uninstall: ## Uninstall app from connected device/emulator
 	$(ADB) uninstall $(APP_ID) 2>/dev/null || true
@@ -249,7 +246,7 @@ check-so-alignment: ## Check 16KB page alignment of native .so libraries in debu
 		echo "ERROR: llvm-objdump not found. Install LLVM toolchain."; \
 		exit 1; \
 	fi; \
-	APK="app/build/outputs/apk/gms/debug/app-gms-debug.apk"; \
+	APK="app/build/outputs/apk/debug/app-debug.apk"; \
 	if [ ! -f "$$APK" ]; then \
 		echo "Debug APK not found. Run 'make build' first."; \
 		exit 1; \

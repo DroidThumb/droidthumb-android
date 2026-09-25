@@ -63,7 +63,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-regexp: '^(Build Release - (GMS|FOSS)|Unit Tests|Lint)$'
+          check-regexp: '^(Build Release|Unit Tests|Lint)$'
           wait-interval: 30
           allowed-conclusions: success,failure,cancelled,timed_out,skipped,neutral,action_required,stale
           checks-discovery-timeout: 600
@@ -83,16 +83,15 @@ jobs:
           # slurped into a single external jq invocation instead.
           SUCCESS_COUNT=$(gh api "repos/${REPO}/commits/${GITHUB_SHA}/check-runs?per_page=100" --paginate |
             jq -s '[.[].check_runs[]
-                    | select(.name == "Build Release - GMS"
-                          or .name == "Build Release - FOSS"
+                    | select(.name == "Build Release"
                           or .name == "Unit Tests"
                           or .name == "Lint")
                     | select(.conclusion == "success")
                     | .name] | unique | length')
 
-          if [ "$SUCCESS_COUNT" -eq 4 ]; then
+          if [ "$SUCCESS_COUNT" -eq 3 ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "All 4 gated CI checks succeeded for ${GITHUB_SHA}."
+            echo "All 3 gated CI checks succeeded for ${GITHUB_SHA}."
             exit 0
           fi
 
@@ -203,30 +202,28 @@ jobs:
 
       # ── 5. Build APKs (versionName/versionCode derived by Gradle from git) ──
       - name: Build APKs
-        run: ./gradlew assembleGmsDebug assembleFossDebug assembleGmsRelease assembleFossRelease
+        run: ./gradlew assembleDebug assembleRelease
 
       # ── 6. Collect APKs under stable edge filenames (download links never change) ──
       - name: Collect edge assets
         run: |
           mkdir -p release-assets
 
-          for flavor in gms foss; do
-            debug_apk="app/build/outputs/apk/${flavor}/debug/app-${flavor}-debug.apk"
-            if [ ! -f "$debug_apk" ]; then
-              echo "::error::Debug APK not found at $debug_apk"
-              exit 1
-            fi
-            cp "$debug_apk" \
-              "release-assets/android-remote-control-mcp-edge-${flavor}-debug.apk"
+          debug_apk="app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "$debug_apk" ]; then
+            echo "::error::Debug APK not found at $debug_apk"
+            exit 1
+          fi
+          cp "$debug_apk" \
+            "release-assets/android-remote-control-mcp-edge-debug.apk"
 
-            release_apk="app/build/outputs/apk/${flavor}/release/app-${flavor}-release.apk"
-            if [ ! -f "$release_apk" ]; then
-              echo "::error::Signed release APK not found at $release_apk"
-              exit 1
-            fi
-            cp "$release_apk" \
-              "release-assets/android-remote-control-mcp-edge-${flavor}-release.apk"
-          done
+          release_apk="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$release_apk" ]; then
+            echo "::error::Signed release APK not found at $release_apk"
+            exit 1
+          fi
+          cp "$release_apk" \
+            "release-assets/android-remote-control-mcp-edge-release.apk"
 
           echo "### Edge Assets" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -282,11 +279,7 @@ jobs:
 
           **This is not a stable release.** It may contain regressions, incomplete features, or bugs. For production use, install the [latest stable release](https://github.com/${REPO}/releases/latest). The in-app update checker only offers stable releases and will never prompt you to install an edge build.
 
-          ### Flavors
-          - \`gms\` — standard build (Google Play services geofencing/location)
-          - \`foss\` — no Google dependencies
-
-          Each flavor ships two APKs:
+          ### Assets
           - \`…-release.apk\` — signed with the same key as stable releases, so it installs cleanly over a stable install.
           - \`…-debug.apk\` — debug-signed, with the separate \`.debug\` application id: it installs **alongside** the main app (never over it), for testing only.
           EOF

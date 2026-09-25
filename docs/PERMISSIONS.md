@@ -8,16 +8,20 @@ The commands below require a device or emulator reachable over `adb` where the a
 
 Replace `<app-id>` with the application ID for your build:
 
-- **Debug**: `uk.co.drhconsulting.droidthumb.<flavor>.debug` (e.g. `uk.co.drhconsulting.droidthumb.gms.debug`, `uk.co.drhconsulting.droidthumb.foss.debug`)
-- **Release**: `uk.co.drhconsulting.droidthumb` (identical across flavours)
+- **Debug**: `uk.co.drhconsulting.droidthumb.debug`
+- **Release**: `uk.co.drhconsulting.droidthumb`
 
 > **Note**: the **class names do not change** with the application ID. The Accessibility and Notification Listener component names below always use the source package (`com.danielealbano.androidremotecontrolmcp.services.*`).
 
 ## Permission categories
 
-- **Normal** — granted automatically at install. No command needed: `INTERNET`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `RECEIVE_BOOT_COMPLETED`, `QUERY_ALL_PACKAGES`, `KILL_BACKGROUND_PROCESSES`, and (`gms` only) `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`.
+- **Normal** — granted automatically at install. No command needed: `INTERNET`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `RECEIVE_BOOT_COMPLETED`, `QUERY_ALL_PACKAGES`, `KILL_BACKGROUND_PROCESSES`.
 - **Runtime** — granted with `pm grant`.
 - **Special access** — granted with `settings put secure` / `cmd notification`, **not** `pm grant`.
+
+No battery-optimization permission is needed: the app opens the settings list
+(`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`) rather than requesting the one-tap exemption
+dialog, which would need `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`.
 
 See `docs/ARCHITECTURE.md` → "Permission Model" for what each permission is used for.
 
@@ -58,30 +62,9 @@ adb shell settings put secure enabled_notification_listeners \
 
 ## One-shot script
 
-The following script grants the runtime permission and enables both special-access services. Set `APP_ID` to match your installed build.
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Set to uk.co.drhconsulting.droidthumb for a release build
-APP_ID="uk.co.drhconsulting.droidthumb.gms.debug"
-
-ACCESSIBILITY_SERVICE="$APP_ID/com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService"
-NOTIFICATION_LISTENER="$APP_ID/com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService"
-
-# Runtime permissions
-adb shell pm grant "$APP_ID" android.permission.POST_NOTIFICATIONS
-
-# Accessibility service
-adb shell settings put secure enabled_accessibility_services "$ACCESSIBILITY_SERVICE"
-adb shell settings put secure accessibility_enabled 1
-
-# Notification listener
-adb shell cmd notification allow_listener "$NOTIFICATION_LISTENER"
-
-echo "Permissions granted for $APP_ID"
-```
+`scripts/install-debug.sh` builds the debug APK, installs it, grants everything above, and
+launches it — the canonical version of the sequence documented in this file. Run it directly, or
+via `make redeploy [SERIAL=<adb-serial>]`. See its `--help` for options.
 
 ## Verifying
 

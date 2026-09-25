@@ -33,14 +33,12 @@ jobs:
           fi
 
       # ── 3. Wait for CI to pass on this commit (gates on existing CI results) ──
-      # The CI build-release job is a per-flavor matrix, so the checks are named
-      # "Build Release - GMS" and "Build Release - FOSS"; the regexp waits for both.
       - name: Wait for CI to pass
         uses: lewagon/wait-on-check-action@v1.9.1
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-regexp: '^Build Release - (GMS|FOSS)$'
+          check-regexp: '^Build Release$'
           wait-interval: 30
           allowed-conclusions: success
           running-workflow-name: 'Create Draft Release'
@@ -128,34 +126,31 @@ jobs:
       - name: Build APKs
         env:
           VERSION_NAME: ${{ steps.parse-tag.outputs.version }}
-        run: ./gradlew assembleGmsDebug assembleFossDebug assembleGmsRelease assembleFossRelease -PVERSION_NAME="$VERSION_NAME"
+        run: ./gradlew assembleDebug assembleRelease -PVERSION_NAME="$VERSION_NAME"
 
-      # ── 8. Rename APKs with proper names (per flavor: gms + foss) ──
+      # ── 8. Rename APKs with proper names ──
       - name: Rename APKs
         env:
           TAG: ${{ steps.parse-tag.outputs.tag }}
         run: |
           mkdir -p release-assets
 
-          for flavor in gms foss; do
-            # Debug APK
-            debug_apk="app/build/outputs/apk/${flavor}/debug/app-${flavor}-debug.apk"
-            if [ ! -f "$debug_apk" ]; then
-              echo "::error::Debug APK not found at $debug_apk"
-              exit 1
-            fi
-            cp "$debug_apk" \
-              "release-assets/android-remote-control-mcp-${TAG}-${flavor}-debug.apk"
+          debug_apk="app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "$debug_apk" ]; then
+            echo "::error::Debug APK not found at $debug_apk"
+            exit 1
+          fi
+          cp "$debug_apk" \
+            "release-assets/android-remote-control-mcp-${TAG}-debug.apk"
 
-            # Release APK may be signed or unsigned depending on keystore config
-            if [ -f "app/build/outputs/apk/${flavor}/release/app-${flavor}-release.apk" ]; then
-              cp "app/build/outputs/apk/${flavor}/release/app-${flavor}-release.apk" \
-                "release-assets/android-remote-control-mcp-${TAG}-${flavor}-release.apk"
-            else
-              cp "app/build/outputs/apk/${flavor}/release/app-${flavor}-release-unsigned.apk" \
-                "release-assets/android-remote-control-mcp-${TAG}-${flavor}-release.apk"
-            fi
-          done
+          # Release APK may be signed or unsigned depending on keystore config
+          if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            cp "app/build/outputs/apk/release/app-release.apk" \
+              "release-assets/android-remote-control-mcp-${TAG}-release.apk"
+          else
+            cp "app/build/outputs/apk/release/app-release-unsigned.apk" \
+              "release-assets/android-remote-control-mcp-${TAG}-release.apk"
+          fi
 
           echo "### Release Assets" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"

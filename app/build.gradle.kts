@@ -221,15 +221,6 @@ android {
         versionName = versionNameProp
     }
 
-    // Distribution flavors: `gms` (full app, GitHub/Play) and `foss` (F-Droid, no Google Play Services).
-    // Release applicationId is identical for both flavors; debug builds get a per-flavor suffix (set via the
-    // variant API in androidComponents below) so gms/foss debug builds can be installed side-by-side.
-    flavorDimensions += "distribution"
-    productFlavors {
-        create("gms") { dimension = "distribution" }
-        create("foss") { dimension = "distribution" }
-    }
-
     // Release signing configuration (optional, uses keystore.properties if present)
     val keystorePropertiesFile = rootProject.file("keystore.properties")
     if (keystorePropertiesFile.exists()) {
@@ -248,8 +239,9 @@ android {
 
     buildTypes {
         debug {
-            // Debug applicationId is set per-flavor via the variant API (androidComponents below) so it becomes
-            // `…droidthumb.<flavor>.debug`, keeping the release applicationId identical across flavors.
+            // `.debug` suffix so the debug build (`…droidthumb.debug`) installs alongside a release
+            // install of the same app instead of overwriting it.
+            applicationIdSuffix = ".debug"
             isDebuggable = true
             isMinifyEnabled = false
         }
@@ -361,16 +353,6 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
-androidComponents {
-    // Per-flavor debug applicationId (`…droidthumb.gms.debug` / `…droidthumb.foss.debug`) so both debug builds
-    // coexist, while the release applicationId stays identical across flavors (`uk.co.drhconsulting.droidthumb`).
-    onVariants(selector().withBuildType("debug")) { variant ->
-        variant.applicationId.set(
-            "uk.co.drhconsulting.droidthumb.${variant.flavorName}.debug",
-        )
-    }
-}
-
 tasks.withType<Test> {
     useJUnitPlatform()
     maxHeapSize = "3g"
@@ -423,7 +405,7 @@ val jacocoExcludes =
     )
 
 tasks.register<JacocoReport>("jacocoTestReport") {
-    dependsOn("testGmsDebugUnitTest")
+    dependsOn("testDebugUnitTest")
 
     reports {
         html.required.set(true)
@@ -434,15 +416,15 @@ tasks.register<JacocoReport>("jacocoTestReport") {
     }
 
     val debugTree =
-        fileTree("${layout.buildDirectory.get()}/tmp/kotlin-classes/gmsDebug") {
+        fileTree("${layout.buildDirectory.get()}/tmp/kotlin-classes/debug") {
             exclude(jacocoExcludes)
         }
 
     classDirectories.setFrom(debugTree)
-    sourceDirectories.setFrom(files("src/main/kotlin", "src/gms/kotlin"))
+    sourceDirectories.setFrom(files("src/main/kotlin"))
     executionData.setFrom(
         fileTree(layout.buildDirectory) {
-            include("jacoco/testGmsDebugUnitTest.exec")
+            include("jacoco/testDebugUnitTest.exec")
         },
     )
 }
@@ -451,15 +433,15 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
     dependsOn("jacocoTestReport")
 
     val debugTree =
-        fileTree("${layout.buildDirectory.get()}/tmp/kotlin-classes/gmsDebug") {
+        fileTree("${layout.buildDirectory.get()}/tmp/kotlin-classes/debug") {
             exclude(jacocoExcludes)
         }
 
     classDirectories.setFrom(debugTree)
-    sourceDirectories.setFrom(files("src/main/kotlin", "src/gms/kotlin"))
+    sourceDirectories.setFrom(files("src/main/kotlin"))
     executionData.setFrom(
         fileTree(layout.buildDirectory) {
-            include("jacoco/testGmsDebugUnitTest.exec")
+            include("jacoco/testDebugUnitTest.exec")
         },
     )
 

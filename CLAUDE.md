@@ -475,7 +475,7 @@ fun `findByText returns matching nodes`() {
 - Environment variables are stored in `.env` (gitignored). See `.env.example` for required variables.
 - **When running tests via Makefile** (`make test-unit`, `make test`): `.env` is sourced automatically if it exists.
 - **When running tests manually** via `./gradlew`: source `.env` first: `set -a && source .env && set +a && ./gradlew :app:test`
-- To run a single test class: `set -a && source .env && set +a && ./gradlew :app:testGmsDebugUnitTest --tests "com.danielealbano.androidremotecontrolmcp.integration.TouchActionIntegrationTest"`
+- To run a single test class: `set -a && source .env && set +a && ./gradlew :app:testDebugUnitTest --tests "com.danielealbano.androidremotecontrolmcp.integration.TouchActionIntegrationTest"`
 
 ### Fix broken tests rule
 - If you encounter failing tests unrelated to your changes:
@@ -540,12 +540,12 @@ Local development requires Android SDK, emulator/device, and standard Android de
 
 ### APK building
 - **Debug APK**: Build with `make build` or `./gradlew assembleDebug`.
-  - Application ID: `uk.co.drhconsulting.droidthumb.<flavor>.debug` (e.g. `uk.co.drhconsulting.droidthumb.gms.debug`, `uk.co.drhconsulting.droidthumb.foss.debug`).
+  - Application ID: `uk.co.drhconsulting.droidthumb.debug`.
   - Debuggable: true.
   - Minify: false.
   - Signed with debug keystore.
 - **Release APK**: Build with `make build-release` or `./gradlew assembleRelease`.
-  - Application ID: `uk.co.drhconsulting.droidthumb` (identical across flavours).
+  - Application ID: `uk.co.drhconsulting.droidthumb`.
   - Debuggable: false.
   - Minify: false (open source with MIT license, no ProGuard/R8).
   - Signed with release keystore (if configured in `keystore.properties`).

@@ -26,6 +26,8 @@ import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatche
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcherImpl
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcherImpl
+import com.danielealbano.androidremotecontrolmcp.services.power.BatteryOptimizationManager
+import com.danielealbano.androidremotecontrolmcp.services.power.BatteryOptimizationManagerImpl
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ApiLevelProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.DefaultApiLevelProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
@@ -128,4 +130,8 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindEventDispatcher(impl: EventDispatcherImpl): EventDispatcher
+
+    @Binds
+    @Singleton
+    abstract fun bindBatteryOptimizationManager(impl: BatteryOptimizationManagerImpl): BatteryOptimizationManager
 }

@@ -32,8 +32,10 @@ screen and act on any app, driven by a hosted relay rather than by a server on t
 - **Minimal UI**: enable the accessibility service, notification access and the battery-optimisation
   exemption; configure and start the Event Channel; view recent logs.
 
-Flavours: `gms` and `foss`. They currently differ only in the battery-optimisation flow (`gms` uses
-the one-tap system exemption dialog, which F-Droid does not allow).
+One build: opens the battery-optimization settings list (rather than requesting the one-tap system
+exemption dialog) so the app needs no permission Google Play restricts and F-Droid flags. Until
+2026-09-25 this was a two-flavour (`gms`/`foss`) split; the flavours differed only in that one
+behaviour, so they were merged using the `foss` implementation.
 
 ## Build
 
@@ -41,7 +43,7 @@ Requirements: JDK 17 and the Android SDK (`compileSdk` 37, `platforms;android-37
 `docs/debug-device.md` → "Host setup" → "Toolchain" for the exact user-local install.
 
 ```bash
-./gradlew assembleGmsDebug          # or assembleFossDebug
+./gradlew assembleDebug
 ./gradlew :app:test                 # JVM unit tests
 ./gradlew ktlintCheck detekt        # lint
 ```
@@ -52,7 +54,8 @@ Requirements: JDK 17 and the Android SDK (`compileSdk` 37, `platforms;android-37
 
 `docs/debug-device.md` describes the persistent redroid (Android-in-a-container) debug device used
 for development: how to reach it over adb, install the debug APK and enable the accessibility
-service.
+service. `scripts/install-debug.sh` builds, installs, re-grants the special-access permissions a
+plain reinstall clears, and launches — the one-command debug loop.
 
 ## Documentation
 

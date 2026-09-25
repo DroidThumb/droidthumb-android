@@ -71,7 +71,11 @@ serialised by `AccessibilityTreeLock`.
 | `KILL_BACKGROUND_PROCESSES` | Normal | Manifest | `close_app` |
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE` | Normal | Manifest | `EventChannelService` |
 | `RECEIVE_BOOT_COMPLETED` | Normal | Manifest | Event Channel auto-start |
-| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Normal (`gms` only) | Manifest + system dialog | One-tap battery exemption |
+
+No battery-optimization permission is declared: `BatteryOptimizationManagerImpl` opens the
+settings list (`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`) rather than requesting the one-tap
+exemption dialog, which needs `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` — Play restricts it and
+F-Droid flags it.
 
 ---
 

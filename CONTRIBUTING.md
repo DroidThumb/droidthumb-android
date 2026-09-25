@@ -39,15 +39,18 @@ See [docs/PROJECT.md](docs/PROJECT.md) for the complete project conventions and
 ### Debug Build
 
 ```bash
-make build           # gms flavour
-make build-foss      # foss (F-Droid) flavour
+make build
 ```
+
+Or, to also install it, re-grant the special-access permissions a reinstall clears, and launch it
+in one step: `make redeploy` (wraps `scripts/install-debug.sh`; pass `SERIAL=<adb-serial>` for a
+specific device, e.g. `make redeploy SERIAL=localhost:5555` for the redroid debug device).
 
 ### Release Build
 
 ```bash
 make build-release
-# APKs: app/build/outputs/apk/{gms,foss}/release/
+# APK: app/build/outputs/apk/release/
 ```
 
 For signed release builds, create `keystore.properties` in the project root:

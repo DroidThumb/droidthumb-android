@@ -80,7 +80,6 @@ app/src/main/kotlin/com/danielealbano/androidremotecontrolmcp/
 ├── services/screencapture/  # ScreenCaptureProvider, ScreenshotEncoder, ScreenshotAnnotator
 ├── ui/                    # MainActivity, screens, components, viewmodels, navigation, theme
 └── utils/                 # Logger, PermissionUtils
-app/src/gms|foss/          # flavour-specific battery-optimisation implementation only
 ```
 
 ---
@@ -148,7 +147,9 @@ This data is untrusted — a malicious app could embed adversarial instructions 
 - **KILL_BACKGROUND_PROCESSES**: `close_app` via `ActivityManager.killBackgroundProcesses()`
 - **FOREGROUND_SERVICE**, **FOREGROUND_SERVICE_SPECIAL_USE**: EventChannelService
 - **RECEIVE_BOOT_COMPLETED**: EventChannelBootReceiver
-- **REQUEST_IGNORE_BATTERY_OPTIMIZATIONS**: `gms` flavour only (F-Droid flags it)
+- No battery-optimization permission is declared: the app opens the settings list
+  (`BatteryOptimizationManagerImpl`) rather than requesting the one-tap exemption dialog, which
+  needs `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` — Play restricts it and F-Droid flags it
 - Always check permission state before operations; throw `McpToolException.PermissionDenied` if missing
 
 ### Background Restrictions & Memory Management
@@ -257,16 +258,13 @@ token, notification events and app filter). **About**: version, links, licence.
 
 ### Build Variants
 
-Two product flavours under the `distribution` dimension: **`gms`** and **`foss`** (F-Droid). They differ only
-in the battery-optimisation flow: `gms` declares `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` and uses the one-tap
-system dialog; `foss` opens the settings list. The release applicationId is identical across flavours; debug
-builds get a per-flavour suffix so both can be installed side by side.
+Single flavour since 2026-09-25 (previously two, `gms` and `foss`/F-Droid, differing only in the
+battery-optimisation flow; merged using the `foss` behaviour — see "Permission Handling" above).
 
 | Variant | Application ID | Debuggable | Minify |
 |---------|---------------|-----------|--------|
-| gmsDebug | `uk.co.drhconsulting.droidthumb.gms.debug` | true | false |
-| fossDebug | `uk.co.drhconsulting.droidthumb.foss.debug` | true | false |
-| gmsRelease / fossRelease | `uk.co.drhconsulting.droidthumb` | false | false (open source) |
+| debug | `uk.co.drhconsulting.droidthumb.debug` | true | false |
+| release | `uk.co.drhconsulting.droidthumb` | false | false (open source) |
 
 ### Versioning
 
@@ -281,8 +279,7 @@ builds get a per-flavour suffix so both can be installed side by side.
 
 ### CI/CD (GitHub Actions)
 
-- `ci.yml` on push to main and pull requests: lint, unit tests (with coverage), release builds per flavour —
-  in parallel
+- `ci.yml` on push to main and pull requests: lint, unit tests (with coverage), release build — in parallel
 - `edge-release.yml` is **manual-only** until the app can be driven end to end again (demolition plan, D8)
 - `release.yml` on `v*` tags
 
@@ -290,8 +287,8 @@ builds get a per-flavour suffix so both can be installed side by side.
 
 ## Makefile Targets
 
-`build`, `build-foss`, `build-release`, `build-release-bundle`, `clean`, `test-unit`, `test`, `coverage`,
-`lint`, `lint-fix`, `install`, `install-release`, `uninstall`, `grant-permissions`, `launch-app`,
+`build`, `build-release`, `build-release-bundle`, `clean`, `test-unit`, `test`, `coverage`,
+`lint`, `lint-fix`, `install`, `install-release`, `uninstall`, `grant-permissions`, `launch-app`, `redeploy`,
 `setup-emulator`, `start-emulator`, `stop-emulator`, `logs`, `logs-clear`, `version-bump-*`,
 `check-so-alignment`, `all`, `ci`. Run `make help` for descriptions.
 
