@@ -338,7 +338,6 @@ dependencies {
     // Logging binding for the Ktor client (SLF4J); without it Ktor logs through a NOP logger.
     runtimeOnly(libs.slf4j.android)
 
-
     // Kotlinx
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
@@ -479,4 +478,3 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
         }
     }
 }
-
