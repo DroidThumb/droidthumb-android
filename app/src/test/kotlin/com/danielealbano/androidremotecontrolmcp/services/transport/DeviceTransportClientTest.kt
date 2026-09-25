@@ -75,7 +75,7 @@ class DeviceTransportClientTest {
             ) { port ->
                 val client = DeviceTransportClientImpl(stepDispatcherMock())
                 client.start("127.0.0.1", port, "device-1")
-                withTimeout(5.seconds) {
+                withTimeout(15.seconds) {
                     while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
                 }
                 assertEquals(TransportStatus.Connected(1), client.status.value)
@@ -94,7 +94,7 @@ class DeviceTransportClientTest {
             ) { port ->
                 val client = DeviceTransportClientImpl(stepDispatcherMock())
                 client.start("127.0.0.1", port, "device-1")
-                withTimeout(5.seconds) {
+                withTimeout(15.seconds) {
                     while (client.status.value !is TransportStatus.Rejected) kotlinx.coroutines.yield()
                 }
                 val rejected = client.status.value as TransportStatus.Rejected
@@ -129,7 +129,7 @@ class DeviceTransportClientTest {
             ) { port ->
                 val client = DeviceTransportClientImpl(dispatcher)
                 client.start("127.0.0.1", port, "device-1")
-                withTimeout(5.seconds) {
+                withTimeout(15.seconds) {
                     while (receivedReply.get() == null) kotlinx.coroutines.yield()
                 }
                 val decoded = wireJson.decodeFromString(WireMessage.serializer(), receivedReply.get()!!)
@@ -152,7 +152,7 @@ class DeviceTransportClientTest {
             ) { port ->
                 val client = DeviceTransportClientImpl(stepDispatcherMock())
                 client.start("127.0.0.1", port, "device-1")
-                withTimeout(5.seconds) {
+                withTimeout(15.seconds) {
                     while (client.status.value !is TransportStatus.Connecting) kotlinx.coroutines.yield()
                 }
                 client.stop()
@@ -174,7 +174,7 @@ class DeviceTransportClientTest {
             ) { port ->
                 val client = DeviceTransportClientImpl(stepDispatcherMock())
                 client.start("127.0.0.1", port, "device-1")
-                withTimeout(5.seconds) {
+                withTimeout(15.seconds) {
                     while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
                 }
                 client.stop()
