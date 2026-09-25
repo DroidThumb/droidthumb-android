@@ -46,7 +46,7 @@ class ServerLogRepositoryImplTest {
     fun `log persists entry and bumps revision`() =
         runTest {
             val repo = repo(StandardTestDispatcher(testScheduler))
-            repo.log(ServerLogEntry.Type.SERVER, "started")
+            repo.log(ServerLogEntry.Type.CHANNEL, "started")
             advanceUntilIdle()
 
             assertEquals(1L, repo.revision.value)
@@ -60,7 +60,7 @@ class ServerLogRepositoryImplTest {
         runTest {
             val repo = repo(StandardTestDispatcher(testScheduler))
             val uuid = "12345678-1234-1234-1234-123456789012"
-            repo.log(ServerLogEntry.Type.SERVER, "token is $uuid", toolName = uuid)
+            repo.log(ServerLogEntry.Type.CHANNEL, "token is $uuid", toolName = uuid)
             advanceUntilIdle()
 
             val entry = repo.readEntry(repo.readIndex().first())
@@ -72,7 +72,7 @@ class ServerLogRepositoryImplTest {
     fun `recent returns newest first capped at count`() =
         runTest {
             val repo = repo(StandardTestDispatcher(testScheduler))
-            repeat(8) { i -> repo.log(ServerLogEntry.Type.SERVER, "m$i") }
+            repeat(8) { i -> repo.log(ServerLogEntry.Type.CHANNEL, "m$i") }
             advanceUntilIdle()
 
             val recent = repo.recent(5)
@@ -83,7 +83,7 @@ class ServerLogRepositoryImplTest {
     fun `clear empties log and bumps revision`() =
         runTest {
             val repo = repo(StandardTestDispatcher(testScheduler))
-            repo.log(ServerLogEntry.Type.SERVER, "a")
+            repo.log(ServerLogEntry.Type.CHANNEL, "a")
             advanceUntilIdle()
             val revisionBefore = repo.revision.value
 
@@ -98,7 +98,7 @@ class ServerLogRepositoryImplTest {
     fun `writes are ordered`() =
         runTest {
             val repo = repo(StandardTestDispatcher(testScheduler))
-            repeat(50) { i -> repo.log(ServerLogEntry.Type.SERVER, "m$i") }
+            repeat(50) { i -> repo.log(ServerLogEntry.Type.CHANNEL, "m$i") }
             advanceUntilIdle()
 
             val messages = repo.readIndex().map { repo.readEntry(it).message }
@@ -109,8 +109,8 @@ class ServerLogRepositoryImplTest {
     fun `readIndex is served from the in-memory cache`() =
         runTest {
             val repo = repo(StandardTestDispatcher(testScheduler))
-            repo.log(ServerLogEntry.Type.SERVER, "a")
-            repo.log(ServerLogEntry.Type.SERVER, "b")
+            repo.log(ServerLogEntry.Type.CHANNEL, "a")
+            repo.log(ServerLogEntry.Type.CHANNEL, "b")
             advanceUntilIdle()
             assertEquals(2, repo.readIndex().size)
 
@@ -124,7 +124,7 @@ class ServerLogRepositoryImplTest {
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val repo = ServerLogRepositoryImpl(ServerLogSegmentedStore(File(tempDir, "logs"), 3, 2), dispatcher)
-            repeat(7) { i -> repo.log(ServerLogEntry.Type.SERVER, "m$i") }
+            repeat(7) { i -> repo.log(ServerLogEntry.Type.CHANNEL, "m$i") }
             advanceUntilIdle()
 
             val index = repo.readIndex()
@@ -141,16 +141,16 @@ class ServerLogRepositoryImplTest {
             val store = mockk<ServerLogSegmentedStore>()
             val validResult =
                 AppendResult(
-                    entry = ServerLogIndexEntry(1, 0, 0L, ServerLogEntry.Type.SERVER, null, 0, 0, 0),
+                    entry = ServerLogIndexEntry(1, 0, 0L, ServerLogEntry.Type.CHANNEL, null, 0, 0, 0),
                     removedSegmentSeqs = emptyList(),
                 )
             val diskFull = IOException("disk full")
             coEvery { store.append(any(), any(), any(), any(), any()) } throws diskFull andThen validResult
 
             val repo = ServerLogRepositoryImpl(store, StandardTestDispatcher(testScheduler))
-            repo.log(ServerLogEntry.Type.SERVER, "fails")
-            repo.log(ServerLogEntry.Type.SERVER, "ok1")
-            repo.log(ServerLogEntry.Type.SERVER, "ok2")
+            repo.log(ServerLogEntry.Type.CHANNEL, "fails")
+            repo.log(ServerLogEntry.Type.CHANNEL, "ok1")
+            repo.log(ServerLogEntry.Type.CHANNEL, "ok2")
             advanceUntilIdle()
 
             assertEquals(2L, repo.revision.value)

@@ -29,16 +29,16 @@ class ServerLogSegmentedStoreTest {
     fun `append then readIndex and readEntry roundtrip`() =
         runTest {
             val store = store()
-            store.append(100L, ServerLogEntry.Type.SERVER, "started", null, null)
-            store.append(200L, ServerLogEntry.Type.TOOL_CALL, "", "tap", 42L)
-            store.append(300L, ServerLogEntry.Type.OAUTH, "connected", null, null)
+            store.append(100L, ServerLogEntry.Type.CHANNEL, "started", null, null)
+            store.append(200L, ServerLogEntry.Type.SETTINGS, "", "tap", 42L)
+            store.append(300L, ServerLogEntry.Type.CHANNEL, "connected", null, null)
 
             val index = store.readIndex()
             assertEquals(3, index.size)
             assertEquals(listOf(100L, 200L, 300L), index.map { it.timestamp })
 
             val second = store.readEntry(index[1])
-            assertEquals(ServerLogEntry.Type.TOOL_CALL, second.type)
+            assertEquals(ServerLogEntry.Type.SETTINGS, second.type)
             assertEquals("tap", second.toolName)
             assertEquals("", second.message)
             assertEquals(42L, second.durationMs)
@@ -48,7 +48,7 @@ class ServerLogSegmentedStoreTest {
     fun `null duration and null toolName roundtrip`() =
         runTest {
             val store = store()
-            store.append(100L, ServerLogEntry.Type.SERVER, "hello", null, null)
+            store.append(100L, ServerLogEntry.Type.CHANNEL, "hello", null, null)
 
             val entry = store.readEntry(store.readIndex().first())
             assertNull(entry.durationMs)
@@ -60,7 +60,7 @@ class ServerLogSegmentedStoreTest {
     fun `rotation starts new segment after maxEntriesPerSegment`() =
         runTest {
             val store = store(maxEntriesPerSegment = 3, maxSegments = 2)
-            repeat(4) { i -> store.append(i.toLong(), ServerLogEntry.Type.SERVER, "m$i", null, null) }
+            repeat(4) { i -> store.append(i.toLong(), ServerLogEntry.Type.CHANNEL, "m$i", null, null) }
 
             val index = store.readIndex()
             assertEquals(4, index.size)
@@ -72,7 +72,7 @@ class ServerLogSegmentedStoreTest {
     fun `oldest segment pair deleted beyond maxSegments`() =
         runTest {
             val store = store(maxEntriesPerSegment = 3, maxSegments = 2)
-            repeat(7) { i -> store.append(i.toLong(), ServerLogEntry.Type.SERVER, "m$i", null, null) }
+            repeat(7) { i -> store.append(i.toLong(), ServerLogEntry.Type.CHANNEL, "m$i", null, null) }
 
             val index = store.readIndex()
             assertEquals(4, index.size)
@@ -86,13 +86,13 @@ class ServerLogSegmentedStoreTest {
     fun `clear removes all entries and never reuses sequence numbers`() =
         runTest {
             val store = store()
-            store.append(1L, ServerLogEntry.Type.SERVER, "a", null, null)
+            store.append(1L, ServerLogEntry.Type.CHANNEL, "a", null, null)
             val seqBefore = store.readIndex().first().segmentSeq
 
             store.clear()
             assertTrue(store.readIndex().isEmpty())
 
-            store.append(2L, ServerLogEntry.Type.SERVER, "b", null, null)
+            store.append(2L, ServerLogEntry.Type.CHANNEL, "b", null, null)
             assertTrue(store.readIndex().first().segmentSeq > seqBefore)
         }
 
@@ -100,7 +100,7 @@ class ServerLogSegmentedStoreTest {
     fun `message truncated to the 500-byte entry budget at utf8 boundary`() =
         runTest {
             val store = store()
-            store.append(1L, ServerLogEntry.Type.SERVER, "€".repeat(300), null, null)
+            store.append(1L, ServerLogEntry.Type.CHANNEL, "€".repeat(300), null, null)
 
             val ref = store.readIndex().first()
             assertTrue(ref.messageLen <= ServerLogSegmentedStore.MAX_ENTRY_DATA_BYTES)
@@ -113,7 +113,7 @@ class ServerLogSegmentedStoreTest {
     fun `message budget shrinks by the tool name bytes`() =
         runTest {
             val store = store()
-            store.append(1L, ServerLogEntry.Type.TOOL_CALL, "€".repeat(300), "a".repeat(100), 5L)
+            store.append(1L, ServerLogEntry.Type.SETTINGS, "€".repeat(300), "a".repeat(100), 5L)
 
             val ref = store.readIndex().first()
             assertEquals(ServerLogSegmentedStore.MAX_TOOL_NAME_BYTES, ref.toolNameLen)
@@ -127,7 +127,7 @@ class ServerLogSegmentedStoreTest {
     fun `toolName truncated to MAX_TOOL_NAME_BYTES`() =
         runTest {
             val store = store()
-            store.append(1L, ServerLogEntry.Type.TOOL_CALL, "short", "b".repeat(200), 5L)
+            store.append(1L, ServerLogEntry.Type.SETTINGS, "short", "b".repeat(200), 5L)
 
             val ref = store.readIndex().first()
             assertEquals(ServerLogSegmentedStore.MAX_TOOL_NAME_BYTES, ref.toolNameLen)
@@ -138,8 +138,8 @@ class ServerLogSegmentedStoreTest {
     fun `partial tail index record ignored`() =
         runTest {
             val store = store()
-            store.append(1L, ServerLogEntry.Type.SERVER, "a", null, null)
-            store.append(2L, ServerLogEntry.Type.SERVER, "b", null, null)
+            store.append(1L, ServerLogEntry.Type.CHANNEL, "a", null, null)
+            store.append(2L, ServerLogEntry.Type.CHANNEL, "b", null, null)
 
             FileOutputStream(ServerLogSegmentFiles.indexFile(File(tempDir, "logs"), 1), true).use {
                 it.write(ByteArray(10) { 0x7F })
@@ -152,7 +152,7 @@ class ServerLogSegmentedStoreTest {
     fun `unknown type id skipped`() =
         runTest {
             val store = store()
-            store.append(1L, ServerLogEntry.Type.SERVER, "a", null, null)
+            store.append(1L, ServerLogEntry.Type.CHANNEL, "a", null, null)
 
             val garbage = ByteBuffer.allocate(ServerLogSegmentFiles.INDEX_RECORD_BYTES)
             garbage.putLong(2L)
@@ -174,7 +174,7 @@ class ServerLogSegmentedStoreTest {
     fun `readEntry with missing data file returns corrupted placeholder`() =
         runTest {
             val store = store()
-            store.append(1L, ServerLogEntry.Type.SERVER, "a", null, null)
+            store.append(1L, ServerLogEntry.Type.CHANNEL, "a", null, null)
             val ref = store.readIndex().first()
 
             ServerLogSegmentFiles.dataFile(File(tempDir, "logs"), ref.segmentSeq).delete()
@@ -202,12 +202,12 @@ class ServerLogSegmentedStoreTest {
     fun `append returns index ref and reports evicted segments`() =
         runTest {
             val store = store(maxEntriesPerSegment = 3, maxSegments = 2)
-            val nonRotating = store.append(1L, ServerLogEntry.Type.SERVER, "m0", null, null)
+            val nonRotating = store.append(1L, ServerLogEntry.Type.CHANNEL, "m0", null, null)
             assertTrue(nonRotating.removedSegmentSeqs.isEmpty())
 
             var last = nonRotating
             (1 until 7).forEach { i ->
-                last = store.append(i.toLong(), ServerLogEntry.Type.SERVER, "m$i", null, null)
+                last = store.append(i.toLong(), ServerLogEntry.Type.CHANNEL, "m$i", null, null)
             }
 
             assertEquals(listOf(1), last.removedSegmentSeqs)

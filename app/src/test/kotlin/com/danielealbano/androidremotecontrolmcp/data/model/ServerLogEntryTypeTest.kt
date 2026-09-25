@@ -9,10 +9,6 @@ import org.junit.jupiter.api.Test
 class ServerLogEntryTypeTest {
     @Test
     fun `type ids are pinned to their on-disk values`() {
-        assertEquals(0.toByte(), ServerLogEntry.Type.TOOL_CALL.id)
-        assertEquals(2.toByte(), ServerLogEntry.Type.SERVER.id)
-        assertEquals(3.toByte(), ServerLogEntry.Type.OAUTH.id)
-        assertEquals(4.toByte(), ServerLogEntry.Type.AUTH.id)
         assertEquals(5.toByte(), ServerLogEntry.Type.CHANNEL.id)
         assertEquals(6.toByte(), ServerLogEntry.Type.SETTINGS.id)
     }
@@ -26,7 +22,10 @@ class ServerLogEntryTypeTest {
     }
 
     @Test
-    fun `fromId returns null for the retired TUNNEL id`() {
-        assertNull(ServerLogEntry.Type.fromId(1.toByte()))
+    fun `fromId returns null for every retired id`() {
+        // 0=TOOL_CALL, 1=TUNNEL, 2=SERVER, 3=OAUTH, 4=AUTH, 7=PRIVACY — see ServerLogEntry.kt.
+        listOf(0, 1, 2, 3, 4, 7).forEach { id ->
+            assertNull(ServerLogEntry.Type.fromId(id.toByte()), "id $id should decode to null")
+        }
     }
 }

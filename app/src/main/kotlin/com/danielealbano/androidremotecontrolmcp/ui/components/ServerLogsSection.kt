@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming", "UnusedPrivateMember", "LongMethod")
+@file:Suppress("FunctionNaming")
 
 package com.danielealbano.androidremotecontrolmcp.ui.components
 
@@ -85,75 +85,26 @@ private fun ServerLogEntryRow(entry: ServerLogEntry) {
     val timeFormat = remember { SimpleDateFormat(TIME_FORMAT_PATTERN, Locale.getDefault()) }
     val timeString = timeFormat.format(Date(entry.timestamp))
 
-    when (entry.type) {
-        ServerLogEntry.Type.TOOL_CALL -> {
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = timeString,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = entry.toolName ?: "",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "${entry.durationMs ?: 0}ms",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (entry.message.isNotEmpty()) {
-                Text(
-                    text = entry.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-
-        ServerLogEntry.Type.SERVER,
-        ServerLogEntry.Type.OAUTH,
-        ServerLogEntry.Type.AUTH,
-        ServerLogEntry.Type.CHANNEL,
-        ServerLogEntry.Type.SETTINGS,
-        ServerLogEntry.Type.PRIVACY,
-        -> {
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = timeString,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = entry.message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = timeString,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = entry.message,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -166,10 +117,8 @@ private fun ServerLogsSectionPreview() {
                 listOf(
                     ServerLogEntry(
                         timestamp = System.currentTimeMillis(),
-                        type = ServerLogEntry.Type.TOOL_CALL,
-                        message = "tap",
-                        toolName = "tap",
-                        durationMs = 42,
+                        type = ServerLogEntry.Type.CHANNEL,
+                        message = "Event channel started",
                     ),
                 ),
             onShowMore = {},

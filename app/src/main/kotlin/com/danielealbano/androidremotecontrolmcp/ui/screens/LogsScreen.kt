@@ -53,10 +53,6 @@ private const val LOGS_TIME_FORMAT_PATTERN = "MMM d, HH:mm:ss"
 /** Chip display order as agreed with the user — NOT enum declaration order. */
 private val CHIP_DISPLAY_ORDER =
     listOf(
-        ServerLogEntry.Type.SERVER,
-        ServerLogEntry.Type.TOOL_CALL,
-        ServerLogEntry.Type.OAUTH,
-        ServerLogEntry.Type.AUTH,
         ServerLogEntry.Type.CHANNEL,
         ServerLogEntry.Type.SETTINGS,
     )
@@ -178,38 +174,13 @@ private fun LogEntryRow(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f),
             )
-            if (ref.type == ServerLogEntry.Type.TOOL_CALL) {
-                Text(
-                    text = "${ref.durationMs ?: 0}ms",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
-        if (ref.type == ServerLogEntry.Type.TOOL_CALL) {
-            Text(
-                text = entry?.toolName ?: "…",
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (!entry?.message.isNullOrEmpty()) {
-                Text(
-                    text = entry?.message.orEmpty(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        } else {
-            Text(
-                text = entry?.message.orEmpty(),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            text = entry?.message.orEmpty(),
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -217,12 +188,7 @@ private fun LogEntryRow(
 private fun typeLabel(type: ServerLogEntry.Type): String =
     stringResource(
         when (type) {
-            ServerLogEntry.Type.TOOL_CALL -> R.string.server_logs_type_tool_call
-            ServerLogEntry.Type.SERVER -> R.string.server_logs_type_server
-            ServerLogEntry.Type.OAUTH -> R.string.server_logs_type_oauth
-            ServerLogEntry.Type.AUTH -> R.string.server_logs_type_auth
             ServerLogEntry.Type.CHANNEL -> R.string.server_logs_type_channel
             ServerLogEntry.Type.SETTINGS -> R.string.server_logs_type_settings
-            ServerLogEntry.Type.PRIVACY -> R.string.server_logs_type_privacy
         },
     )

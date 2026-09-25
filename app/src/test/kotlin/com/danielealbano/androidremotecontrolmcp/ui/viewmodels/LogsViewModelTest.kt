@@ -41,7 +41,7 @@ class LogsViewModelTest {
     @Test
     fun `recentServerLogs exposes 5 newest entries`() =
         runTest(dispatcher) {
-            repeat(7) { repo.log(ServerLogEntry.Type.SERVER, "m$it") }
+            repeat(7) { repo.log(ServerLogEntry.Type.CHANNEL, "m$it") }
 
             viewModel.recentServerLogs.test {
                 advanceUntilIdle()
@@ -56,8 +56,7 @@ class LogsViewModelTest {
     @Test
     fun `filteredIndex newest first with all types default`() =
         runTest(dispatcher) {
-            repo.log(ServerLogEntry.Type.SERVER, "s")
-            repo.log(ServerLogEntry.Type.TOOL_CALL, "", toolName = "tap")
+            repo.log(ServerLogEntry.Type.CHANNEL, "connected")
             repo.log(ServerLogEntry.Type.SETTINGS, "cfg")
 
             viewModel.filteredIndex.test {
@@ -66,8 +65,7 @@ class LogsViewModelTest {
                 assertEquals(
                     listOf(
                         ServerLogEntry.Type.SETTINGS,
-                        ServerLogEntry.Type.TOOL_CALL,
-                        ServerLogEntry.Type.SERVER,
+                        ServerLogEntry.Type.CHANNEL,
                     ),
                     refs.map { it.type },
                 )
@@ -78,7 +76,7 @@ class LogsViewModelTest {
     @Test
     fun `toggleType filters entries`() =
         runTest(dispatcher) {
-            repo.log(ServerLogEntry.Type.SERVER, "s")
+            repo.log(ServerLogEntry.Type.CHANNEL, "s")
             repo.log(ServerLogEntry.Type.SETTINGS, "cfg")
 
             viewModel.filteredIndex.test {
@@ -102,7 +100,7 @@ class LogsViewModelTest {
     @Test
     fun `clearLogs empties index`() =
         runTest(dispatcher) {
-            repo.log(ServerLogEntry.Type.SERVER, "s")
+            repo.log(ServerLogEntry.Type.CHANNEL, "s")
 
             viewModel.filteredIndex.test {
                 advanceUntilIdle()
@@ -119,7 +117,7 @@ class LogsViewModelTest {
     @Test
     fun `entryAt caches loaded entries`() =
         runTest(dispatcher) {
-            repo.log(ServerLogEntry.Type.SERVER, "s")
+            repo.log(ServerLogEntry.Type.CHANNEL, "s")
             val ref = repo.readIndex().first()
 
             viewModel.entryAt(ref)

@@ -61,13 +61,8 @@
     <string name="server_logs_clear_dialog_body">All log entries will be permanently deleted.</string>
     <string name="server_logs_clear_dialog_confirm">Clear</string>
     <string name="server_logs_clear_dialog_cancel">Cancel</string>
-    <string name="server_logs_type_tool_call">Tool calls</string>
-    <string name="server_logs_type_server">Server</string>
-    <string name="server_logs_type_oauth">OAuth</string>
-    <string name="server_logs_type_auth">Auth</string>
     <string name="server_logs_type_channel">Channel</string>
     <string name="server_logs_type_settings">Settings</string>
-    <string name="server_logs_type_privacy">Privacy</string>
 
     <!-- Event Channel — start/stop dialogs -->
     <string name="channel_not_configured_dialog_title">Endpoint URL not set</string>

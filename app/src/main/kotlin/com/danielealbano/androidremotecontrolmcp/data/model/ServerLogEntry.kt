@@ -1,25 +1,22 @@
 package com.danielealbano.androidremotecontrolmcp.data.model
 
 // On-disk byte ids for ServerLogEntry.Type — NEVER renumber (constants, not literals, for detekt MagicNumber).
-// Id 1 was TUNNEL, retired when the tunnel subsystem was removed — do not reuse it; old devices
-// may still have persisted entries with byte id 1, which Type.fromId now correctly maps to null.
-private const val TYPE_ID_TOOL_CALL: Byte = 0
-private const val TYPE_ID_SERVER: Byte = 2
-private const val TYPE_ID_OAUTH: Byte = 3
-private const val TYPE_ID_AUTH: Byte = 4
+// Ids 0 (TOOL_CALL), 1 (TUNNEL), 2 (SERVER), 3 (OAUTH), 4 (AUTH) and 7 (PRIVACY) are retired: the
+// on-device MCP server, OAuth server, tool registration and Privacy Mode that wrote them were
+// removed (docs/plans/demolition.md). Do not reuse any of them — old devices may still have
+// persisted entries with those byte ids, which Type.fromId correctly maps to null (the reader
+// skips unrecognized ids rather than failing).
 private const val TYPE_ID_CHANNEL: Byte = 5
 private const val TYPE_ID_SETTINGS: Byte = 6
-private const val TYPE_ID_PRIVACY: Byte = 7
 
 /**
- * Represents a single log entry from the MCP server, displayed in the
- * server logs viewer UI.
+ * Represents a single log entry, displayed in the in-app logs viewer.
  *
  * @property timestamp The epoch milliseconds when the event occurred.
  * @property type The category of this log entry.
  * @property message A human-readable message describing the event.
- * @property toolName The MCP tool name (only for [Type.TOOL_CALL] entries).
- * @property durationMs The request processing duration in milliseconds (only for [Type.TOOL_CALL]).
+ * @property toolName Optional short label a producer can attach; currently unset by every producer.
+ * @property durationMs Optional duration in milliseconds a producer can attach; currently unset by every producer.
  */
 data class ServerLogEntry(
     val timestamp: Long,
@@ -32,26 +29,11 @@ data class ServerLogEntry(
     enum class Type(
         val id: Byte,
     ) {
-        /** An MCP tool call (has toolName, durationMs; message holds a failure marker or is empty). */
-        TOOL_CALL(TYPE_ID_TOOL_CALL),
-
-        /** A general server event (starting, started, stopping, stopped, error). */
-        SERVER(TYPE_ID_SERVER),
-
-        /** An OAuth event (registration, approval lifecycle, token grants, idle-session, revocation). */
-        OAUTH(TYPE_ID_OAUTH),
-
-        /** An authentication failure on the MCP endpoint. */
-        AUTH(TYPE_ID_AUTH),
-
         /** An event-channel lifecycle or delivery event. */
         CHANNEL(TYPE_ID_CHANNEL),
 
         /** A settings change (UI or ADB). */
         SETTINGS(TYPE_ID_SETTINGS),
-
-        /** A Privacy Mode lifecycle event (self-check result at server start). */
-        PRIVACY(TYPE_ID_PRIVACY),
 
         ;
 
