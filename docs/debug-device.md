@@ -22,7 +22,7 @@ treat an unverified claim as true; run the check first.
 |---|---|
 | OS | Ubuntu 26.04.1 LTS, kernel `7.0.0-34-generic` |
 | User | `dan` (uid 1000, primary group `dan`). **Was `danny-harris` before the 2026-09-22 reinstall** — any path or group name containing `danny-harris` (e.g. in a stale `local.properties`) is dead. |
-| Repo checkout | `/run/media/dan/Shared/Projects/DroidThumb/droidthumb-android` (NTFS partition — see "Git on the NTFS partition" below) |
+| Repo checkout | `/home/dan/Projects/DroidThumb/droidthumb-android` (ext4, moved from the NTFS `Shared` partition 2026-09-25 — see "A full OS reinstall wipes all of this" below for what that changes) |
 | Podman | 5.7.0 (apt, installed by the owner). The previous install ran 4.9.3. |
 | git | 2.53.0 (apt) |
 | gh | installed (apt) |
@@ -274,9 +274,12 @@ the demolition pass. Its replacement, a fake-relay harness, comes with the outbo
 
 **This has happened twice.** Everything in "Host setup" below lives on the root filesystem
 (`/etc`, `/home/dan`, podman's image store under `/var/lib/containers`), and a reinstall of
-Ubuntu replaces that filesystem wholesale. What survives is only what is on the separate NTFS
-`Shared` partition: this repo (including `scripts/redroid/redroid.container` and this doc) and
-its `build/` outputs. What is lost, every time:
+Ubuntu replaces that filesystem wholesale. `/home` is **not** a separate partition on this host
+(`df -h /home/dan` and `/` both resolve to the same `ubuntu-vg/ubuntu-lv` volume) — so as of the
+2026-09-25 move off the NTFS `Shared` partition, **this repo checkout no longer survives a
+reinstall.** Before, the checkout (including `scripts/redroid/redroid.container` and this doc)
+lived on the separate NTFS partition and came back for free; now recovery step 0 below is
+re-cloning it from `origin`. Everything lost, every time (this item is new since the move):
 
 - apt packages: `git`, `podman`, `make` (and any container images pulled into rootful storage)
 - `/etc/modules-load.d/binder.conf`, `/etc/modprobe.d/binder.conf`
@@ -290,6 +293,9 @@ its `build/` outputs. What is lost, every time:
   (git identity), and any GitHub credentials
 - the username itself, if a different one is chosen at install time (it was: `danny-harris` →
   `dan`)
+- **new since 2026-09-25:** the repo checkout itself (`/home/dan/Projects/DroidThumb/`). Committed
+  history is safe on `origin` — re-clone it — but anything uncommitted, stashed, or in
+  `.git/config` (e.g. `user.name`/`user.email`) is gone
 
 Don't trust a feeling that "the /etc files are still there" — check. After the 2026-09-22
 reinstall they had all gone. The quickest audit:
@@ -301,8 +307,10 @@ grep binder /etc/fstab; ls /etc/modules-load.d/binder.conf /etc/modprobe.d/binde
 command -v git podman make; ls ~/toolchain
 ```
 
-Recovery, in order. Steps 1–5 need sudo; 6–9 don't.
+Recovery, in order. Steps 1–5 need sudo; 0, 6–9 don't.
 
+0. Re-clone the repo (it no longer survives a reinstall — see above):
+   `git clone https://github.com/DroidThumb/droidthumb-android.git ~/Projects/DroidThumb/droidthumb-android`.
 1. `sudo apt install git podman make`
 2. Recreate the two binder module files (contents under "Kernel module persistence").
 3. Append the binderfs line to `/etc/fstab` (under "binderfs mount") — the **fixed** one with
@@ -324,11 +332,12 @@ Recovery, in order. Steps 1–5 need sudo; 6–9 don't.
 6. Reboot. This is the real test: after it, `ls /dev/binderfs` must show `binder-control` et al.
    and `systemctl status redroid.service` must be active with nothing started by hand.
 7. Toolchain, user-local (see "Toolchain" below).
-8. Point `local.properties` at the new SDK path (it's gitignored, so it survives on the NTFS
-   partition with the **old** path in it):
+8. Point `local.properties` at the new SDK path (it's gitignored, and the checkout itself is
+   gone per step 0, so this is a fresh write, not an edit of a stale one):
    `echo "sdk.dir=/home/dan/toolchain/android-sdk" > local.properties`
-9. Git: `git config core.fileMode false` (see below), and set `user.name`/`user.email` and
-   GitHub credentials again before committing/pushing.
+9. Git: `core.fileMode` should stay at its default `true` (see "Git and file modes" below — this
+   repo is on ext4 now, not NTFS); set `user.name`/`user.email` and GitHub credentials again
+   before committing/pushing.
 
 Then work through "The adb address…" and "Build, install, launch…" above.
 
@@ -365,13 +374,17 @@ package (gotcha #1 in `docs/build-notes.md`). If `unzip` is missing,
 `python3 -c "import zipfile; zipfile.ZipFile('<zip>').extractall('.')"` works without sudo, but
 then `chmod +x latest/bin/*` because Python's extractor drops the exec bits.
 
-### Git on the NTFS partition
+### Git and file modes
 
-The checkout lives on an `ntfs3` mount with no `fmask`, so every file reads back as mode 755. With
-git's default `core.fileMode=true`, a fresh `git status` after a reinstall shows **every tracked
-file as modified** (≈659 files, all `old mode 100644 / new mode 100755`, zero content changes).
-That's not real work — set `git config core.fileMode false` (repo-local, lives in `.git/config`,
-which is on NTFS and so survives the next reinstall too). Never commit those mode flips.
+**History, for anyone who finds a `core.fileMode false` note stale:** the checkout used to live on
+an `ntfs3` mount with no `fmask`, where every file read back as mode 755 — with git's default
+`core.fileMode=true`, a fresh `git status` there showed **every tracked file as modified** (≈659
+files, all `old mode 100644 / new mode 100755`, zero content changes), and `core.fileMode false`
+was the workaround. As of the 2026-09-25 move to `~/Projects/DroidThumb/droidthumb-android` (ext4),
+file modes are real again and `core.fileMode` should stay at its **default, `true`** — do not set
+it to `false` here. If a fresh checkout on this host ever shows every file modified again, the
+first suspect is a mode bit that didn't restore correctly (e.g. copied from an NTFS source rather
+than cloned), not the filesystem itself.
 
 ### Kernel module persistence
 

@@ -43,7 +43,7 @@ Volume=/sys/fs/cgroup
 # only removes anonymous volumes; a named one survives. Named volume rather than a bind
 # mount: it lives on the host's ext4 root (/var/lib/containers/storage/volumes), which
 # carries the Unix ownership/modes/xattrs Android's /data needs. Do NOT bind-mount it
-# onto the NTFS Shared partition. Reset to a factory-fresh device: see debug-device.md.
+# onto the repo checkout's filesystem. Reset to a factory-fresh device: see debug-device.md.
 Volume=redroid-data:/data
 
 # Matches AndroidContainerSetup.kt's explicit device list.
