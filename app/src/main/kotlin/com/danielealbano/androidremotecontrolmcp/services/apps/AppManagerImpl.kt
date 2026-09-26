@@ -19,7 +19,10 @@ class AppManagerImpl
     constructor(
         @param:ApplicationContext private val context: Context,
     ) : AppManager {
-        override suspend fun openApp(packageId: String): Result<Unit> =
+        override suspend fun openApp(
+            packageId: String,
+            fresh: Boolean,
+        ): Result<Unit> =
             try {
                 val intent =
                     context.packageManager.getLaunchIntentForPackage(packageId)
@@ -27,8 +30,11 @@ class AppManagerImpl
                             IllegalArgumentException("No launchable activity found for package '$packageId'"),
                         )
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (fresh) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                }
                 context.startActivity(intent)
-                Log.i(TAG, "Launched application: $packageId")
+                Log.i(TAG, "Launched application: $packageId (fresh=$fresh)")
                 Result.success(Unit)
             } catch (e: ActivityNotFoundException) {
                 Log.e(TAG, "Activity not found for package: $packageId", e)

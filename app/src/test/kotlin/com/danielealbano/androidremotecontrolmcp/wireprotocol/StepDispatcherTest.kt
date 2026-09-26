@@ -1,5 +1,7 @@
 package com.danielealbano.androidremotecontrolmcp.wireprotocol
 
+import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.ClickNodeTool
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.DismissKeyboardHandler
@@ -10,18 +12,25 @@ import com.danielealbano.androidremotecontrolmcp.mcp.tools.PressBackHandler
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.PressHomeHandler
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.PressRecentsHandler
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.ScrollToNodeTool
-import com.danielealbano.androidremotecontrolmcp.mcp.tools.ScrollTool
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.TapTool
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolContent
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.ToolResult
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.TypeAppendTextTool
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.TypeClearTextTool
+import com.danielealbano.androidremotecontrolmcp.mcp.tools.WaitForIdleTool
 import com.danielealbano.androidremotecontrolmcp.mcp.tools.WaitForNodeTool
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCache
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeData
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeParser
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -30,6 +39,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 
@@ -40,17 +50,26 @@ class StepDispatcherTest {
     private lateinit var typeAppendTextTool: TypeAppendTextTool
     private lateinit var typeClearTextTool: TypeClearTextTool
     private lateinit var scrollToNodeTool: ScrollToNodeTool
-    private lateinit var scrollTool: ScrollTool
     private lateinit var pressBackHandler: PressBackHandler
     private lateinit var pressHomeHandler: PressHomeHandler
     private lateinit var pressRecentsHandler: PressRecentsHandler
     private lateinit var dismissKeyboardHandler: DismissKeyboardHandler
     private lateinit var openAppHandler: OpenAppHandler
     private lateinit var waitForNodeTool: WaitForNodeTool
-    private lateinit var selectorResolver: SelectorResolver
+    private lateinit var waitForIdleTool: WaitForIdleTool
+    private lateinit var treeParser: AccessibilityTreeParser
+    private lateinit var accessibilityServiceProvider: AccessibilityServiceProvider
+    private lateinit var nodeCache: AccessibilityNodeCache
     private lateinit var dispatcher: StepDispatcher
 
+    private val mockRootNode = mockk<AccessibilityNodeInfo>()
+    private val mockWindowInfo = mockk<AccessibilityWindowInfo>()
+
     private val ok = ToolResult(content = listOf(ToolContent.Text("ok")))
+    private val foundTrueJson = """{"found":true,"elapsedMs":1,"attempts":1,"node":{}}"""
+    private val foundTrue =
+        ToolResult(content = listOf(ToolContent.Text("${McpToolUtils.UNTRUSTED_CONTENT_WARNING}\n$foundTrueJson")))
+    private val idleOk = ToolResult(content = listOf(ToolContent.Text("UI is idle")))
 
     @BeforeEach
     fun setUp() {
@@ -60,14 +79,16 @@ class StepDispatcherTest {
         typeAppendTextTool = mockk()
         typeClearTextTool = mockk()
         scrollToNodeTool = mockk()
-        scrollTool = mockk()
         pressBackHandler = mockk()
         pressHomeHandler = mockk()
         pressRecentsHandler = mockk()
         dismissKeyboardHandler = mockk()
         openAppHandler = mockk()
         waitForNodeTool = mockk()
-        selectorResolver = mockk()
+        waitForIdleTool = mockk()
+        treeParser = mockk()
+        accessibilityServiceProvider = mockk()
+        nodeCache = mockk(relaxed = true)
         dispatcher =
             StepDispatcher(
                 getScreenState,
@@ -76,15 +97,22 @@ class StepDispatcherTest {
                 typeAppendTextTool,
                 typeClearTextTool,
                 scrollToNodeTool,
-                scrollTool,
                 pressBackHandler,
                 pressHomeHandler,
                 pressRecentsHandler,
                 dismissKeyboardHandler,
                 openAppHandler,
                 waitForNodeTool,
-                selectorResolver,
+                waitForIdleTool,
+                treeParser,
+                accessibilityServiceProvider,
+                nodeCache,
             )
+
+        // Auto-wait (before every selector-targeted action) and post-action idle-wait default to
+        // "already there" / "already idle" so most tests don't need to think about them.
+        coEvery { waitForNodeTool.execute(any()) } returns foundTrue
+        coEvery { waitForIdleTool.execute(any()) } returns idleOk
     }
 
     private fun step(
@@ -106,6 +134,8 @@ class StepDispatcherTest {
             val output = result.output!!.jsonObject
             assertEquals("tree text", output["tree"]!!.jsonPrimitive.content)
             assertTrue("screenshot" !in output)
+            // read_screen is a query, not an action — no post-action idle wait.
+            coVerify(exactly = 0) { waitForIdleTool.execute(any()) }
         }
 
     @Test
@@ -127,18 +157,77 @@ class StepDispatcherTest {
             assertEquals("YmFzZTY0", screenshot["data"]!!.jsonPrimitive.content)
         }
 
+    // ── tap ─────────────────────────────────────────────────────────────────
+
     @Test
-    fun `tap with selector resolves node_id and calls click_node`() =
+    fun `tap with selector auto-waits then hands the raw selector to click_node`() =
         runTest {
-            coEvery { selectorResolver.resolve(any()) } returns "node-42"
             coEvery { clickNodeTool.execute(any()) } returns ok
             dispatcher.dispatch(step("tap", selectorParams()))
-            coVerify { clickNodeTool.execute(match { it.get("node_id")?.jsonPrimitive?.content == "node-42" }) }
+            coVerify { waitForNodeTool.execute(match { it["value"]?.jsonPrimitive?.content == "com.app:id/x" }) }
+            coVerify {
+                clickNodeTool.execute(
+                    match {
+                        it["selector"]
+                            ?.jsonObject
+                            ?.get("resource_id")
+                            ?.jsonPrimitive
+                            ?.content == "com.app:id/x"
+                    },
+                )
+            }
+            coVerify { waitForIdleTool.execute(any()) }
         }
 
     @Test
-    fun `tap with at calls TapTool directly, no selector resolution`() =
+    fun `tap with selector never appearing fails without ever calling click_node`() =
         runTest {
+            val timeoutJson = """{"found":false,"elapsedMs":5000,"attempts":10,"message":"timed out"}"""
+            coEvery { waitForNodeTool.execute(any()) } returns
+                ToolResult(
+                    content = listOf(ToolContent.Text("${McpToolUtils.UNTRUSTED_CONTENT_WARNING}\n$timeoutJson")),
+                )
+            val result = dispatcher.dispatch(step("tap", selectorParams())) as StepError
+            assertEquals("NodeNotFound", result.code)
+            coVerify(exactly = 0) { clickNodeTool.execute(any()) }
+        }
+
+    @Test
+    fun `tap with selector and at falls back to the coordinate when click_node reports NodeNotFound`() =
+        runTest {
+            coEvery { clickNodeTool.execute(any()) } throws McpToolException.NodeNotFound("stale")
+            coEvery { tapTool.execute(any()) } returns ok
+            val params =
+                buildJsonObject {
+                    put("selector", buildJsonObject { put("resource_id", "com.app:id/x") })
+                    put(
+                        "at",
+                        buildJsonObject {
+                            put("x", 10)
+                            put("y", 20)
+                        },
+                    )
+                }
+            val result = dispatcher.dispatch(step("tap", params))
+            assertTrue(result is StepResult)
+            coVerify { tapTool.execute(match { it["x"]?.jsonPrimitive?.content == "10" }) }
+        }
+
+    @Test
+    fun `tap with selector only (no at) propagates NodeNotFound instead of falling back`() =
+        runTest {
+            coEvery { clickNodeTool.execute(any()) } throws McpToolException.NodeNotFound("stale")
+            val result = dispatcher.dispatch(step("tap", selectorParams())) as StepError
+            assertEquals("NodeNotFound", result.code)
+            coVerify(exactly = 0) { tapTool.execute(any()) }
+        }
+
+    @Test
+    fun `tap with at taps the coordinate and no selector resolution or auto-wait happens`() =
+        runTest {
+            coEvery { accessibilityServiceProvider.isReady() } returns true
+            coEvery { accessibilityServiceProvider.getAccessibilityWindows() } returns emptyList()
+            coEvery { accessibilityServiceProvider.getRootNode() } returns null
             coEvery { tapTool.execute(any()) } returns ok
             val params =
                 buildJsonObject {
@@ -151,8 +240,60 @@ class StepDispatcherTest {
                     )
                 }
             dispatcher.dispatch(step("tap", params))
-            coVerify(exactly = 0) { selectorResolver.resolve(any()) }
+            coVerify(exactly = 0) { waitForNodeTool.execute(any()) }
+            coVerify(exactly = 0) { clickNodeTool.execute(any()) }
             coVerify { tapTool.execute(any()) }
+        }
+
+    @Test
+    fun `tap with at discovers and returns a selector for the node under the point`() =
+        runTest {
+            val tappedNode =
+                AccessibilityNodeData(
+                    id = "n1",
+                    resourceId = "com.app:id/target",
+                    className = "android.widget.Button",
+                    bounds = BoundsData(0, 0, 100, 100),
+                    visible = true,
+                )
+            setUpSingleWindowTree(tappedNode)
+            coEvery { tapTool.execute(any()) } returns ok
+
+            val params =
+                buildJsonObject {
+                    put(
+                        "at",
+                        buildJsonObject {
+                            put("x", 10)
+                            put("y", 10)
+                        },
+                    )
+                }
+            val result = dispatcher.dispatch(step("tap", params)) as StepResult
+
+            val selector = result.output!!.jsonObject["selector"]!!.jsonObject
+            assertEquals("com.app:id/target", selector["resource_id"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `tap with at produces empty output when nothing is found at the point`() =
+        runTest {
+            coEvery { accessibilityServiceProvider.isReady() } returns true
+            coEvery { accessibilityServiceProvider.getAccessibilityWindows() } returns emptyList()
+            coEvery { accessibilityServiceProvider.getRootNode() } returns null
+            coEvery { tapTool.execute(any()) } returns ok
+            val params =
+                buildJsonObject {
+                    put(
+                        "at",
+                        buildJsonObject {
+                            put("x", 9999)
+                            put("y", 9999)
+                        },
+                    )
+                }
+            val result = dispatcher.dispatch(step("tap", params)) as StepResult
+            assertEquals(JsonObject(emptyMap()), result.output)
         }
 
     @Test
@@ -162,17 +303,42 @@ class StepDispatcherTest {
             assertEquals("InvalidParams", result.code)
         }
 
+    /** Wires the mocked accessibility stack to return a single window whose whole tree is [node]. */
+    private fun setUpSingleWindowTree(node: AccessibilityNodeData) {
+        every { mockWindowInfo.id } returns 0
+        every { mockWindowInfo.root } returns mockRootNode
+        every { mockWindowInfo.type } returns AccessibilityWindowInfo.TYPE_APPLICATION
+        every { mockWindowInfo.title } returns "Test"
+        every { mockWindowInfo.layer } returns 0
+        every { mockWindowInfo.isFocused } returns true
+        every { mockWindowInfo.recycle() } returns Unit
+        every { mockRootNode.refresh() } returns true
+        every { mockRootNode.packageName } returns "com.example"
+        every { accessibilityServiceProvider.isReady() } returns true
+        every { accessibilityServiceProvider.clearFrameworkNodeCache() } returns Unit
+        every { accessibilityServiceProvider.getAccessibilityWindows() } returns listOf(mockWindowInfo)
+        every { accessibilityServiceProvider.getCurrentPackageName() } returns "com.example"
+        every { accessibilityServiceProvider.getCurrentActivityName() } returns ".Main"
+        every { treeParser.parseTree(mockRootNode, "root_w0", any()) } returns node
+    }
+
+    // ── type_text ───────────────────────────────────────────────────────────
+
     @Test
-    fun `type_text without clear calls type_append_text with resolved node_id and text`() =
+    fun `type_text without clear auto-waits then calls type_append_text with the raw selector and text`() =
         runTest {
-            coEvery { selectorResolver.resolve(any()) } returns "node-1"
             coEvery { typeAppendTextTool.execute(any()) } returns ok
-            val params = selectorParams() + mapOf("text" to kotlinx.serialization.json.JsonPrimitive("hi"))
+            val params = selectorParams() + mapOf("text" to JsonPrimitive("hi"))
             dispatcher.dispatch(step("type_text", JsonObject(params)))
+            coVerify { waitForNodeTool.execute(any()) }
             coVerify {
                 typeAppendTextTool.execute(
                     match {
-                        it.get("node_id")?.jsonPrimitive?.content == "node-1" &&
+                        it["selector"]
+                            ?.jsonObject
+                            ?.get("resource_id")
+                            ?.jsonPrimitive
+                            ?.content == "com.app:id/x" &&
                             it["text"]?.jsonPrimitive?.content == "hi"
                     },
                 )
@@ -182,59 +348,69 @@ class StepDispatcherTest {
     @Test
     fun `type_text with clear true calls type_clear_text, text not required`() =
         runTest {
-            coEvery { selectorResolver.resolve(any()) } returns "node-1"
             coEvery { typeClearTextTool.execute(any()) } returns ok
-            val params = selectorParams() + mapOf("clear" to kotlinx.serialization.json.JsonPrimitive(true))
+            val params = selectorParams() + mapOf("clear" to JsonPrimitive(true))
             dispatcher.dispatch(step("type_text", JsonObject(params)))
             coVerify { typeClearTextTool.execute(any()) }
             coVerify(exactly = 0) { typeAppendTextTool.execute(any()) }
         }
 
     @Test
-    fun `scroll_find resolves immediately when selector already matches`() =
+    fun `type_text whose selector never appears fails without calling either type tool`() =
         runTest {
-            coEvery { selectorResolver.resolve(any()) } returns "node-9"
-            coEvery { scrollToNodeTool.execute(any()) } returns ok
-            dispatcher.dispatch(step("scroll_find", selectorParams()))
-            coVerify(exactly = 1) { selectorResolver.resolve(any()) }
-            coVerify(exactly = 0) { scrollTool.execute(any()) }
-            coVerify { scrollToNodeTool.execute(any()) }
-        }
-
-    @Test
-    fun `scroll_find blind-scrolls when selector doesn't resolve, then finds it`() =
-        runTest {
-            var call = 0
-            coEvery { selectorResolver.resolve(any()) } answers {
-                call++
-                if (call < 3) throw McpToolException.NodeNotFound("nope") else "node-9"
-            }
-            coEvery { scrollTool.execute(any()) } returns ok
-            coEvery { scrollToNodeTool.execute(any()) } returns ok
-            dispatcher.dispatch(step("scroll_find", selectorParams()))
-            coVerify(exactly = 2) { scrollTool.execute(any()) }
-            coVerify(exactly = 1) { scrollToNodeTool.execute(any()) }
-        }
-
-    @Test
-    fun `scroll_find exhausts max_scrolls and errors`() =
-        runTest {
-            coEvery { selectorResolver.resolve(any()) } throws McpToolException.NodeNotFound("nope")
-            coEvery { scrollTool.execute(any()) } returns ok
-            val params = selectorParams() + mapOf("max_scrolls" to kotlinx.serialization.json.JsonPrimitive(2))
-            val result = dispatcher.dispatch(step("scroll_find", JsonObject(params))) as StepError
+            val timeoutJson = """{"found":false,"elapsedMs":5000,"attempts":10,"message":"timed out"}"""
+            coEvery { waitForNodeTool.execute(any()) } returns
+                ToolResult(
+                    content = listOf(ToolContent.Text("${McpToolUtils.UNTRUSTED_CONTENT_WARNING}\n$timeoutJson")),
+                )
+            val params = selectorParams() + mapOf("text" to JsonPrimitive("hi"))
+            val result = dispatcher.dispatch(step("type_text", JsonObject(params))) as StepError
             assertEquals("NodeNotFound", result.code)
-            coVerify(exactly = 2) { scrollTool.execute(any()) }
+            coVerify(exactly = 0) { typeAppendTextTool.execute(any()) }
+            coVerify(exactly = 0) { typeClearTextTool.execute(any()) }
+        }
+
+    // ── scroll_find ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `scroll_find forwards selector, direction, and max_scrolls to scroll_to_node as-is`() =
+        runTest {
+            coEvery { scrollToNodeTool.execute(any()) } returns ok
+            val params =
+                selectorParams() +
+                    mapOf("direction" to JsonPrimitive("up"), "max_scrolls" to JsonPrimitive(3))
+            dispatcher.dispatch(step("scroll_find", JsonObject(params)))
+            coVerify {
+                scrollToNodeTool.execute(
+                    match {
+                        it["selector"]
+                            ?.jsonObject
+                            ?.get("resource_id")
+                            ?.jsonPrimitive
+                            ?.content == "com.app:id/x" &&
+                            it["direction"]?.jsonPrimitive?.content == "up" &&
+                            it["max_scrolls"]?.jsonPrimitive?.content == "3"
+                    },
+                )
+            }
         }
 
     @Test
-    fun `scroll_find propagates a non-NodeNotFound failure immediately instead of blind-scrolling`() =
+    fun `scroll_find without a selector produces InvalidParams`() =
         runTest {
-            coEvery { selectorResolver.resolve(any()) } throws McpToolException.PermissionDenied("no a11y")
-            val result = dispatcher.dispatch(step("scroll_find", selectorParams())) as StepError
-            assertEquals("PermissionDenied", result.code)
-            coVerify(exactly = 0) { scrollTool.execute(any()) }
+            val result = dispatcher.dispatch(step("scroll_find")) as StepError
+            assertEquals("InvalidParams", result.code)
         }
+
+    @Test
+    fun `scroll_find propagates scroll_to_node's own failure as this step's error`() =
+        runTest {
+            coEvery { scrollToNodeTool.execute(any()) } throws McpToolException.NodeNotFound("never resolved")
+            val result = dispatcher.dispatch(step("scroll_find", selectorParams())) as StepError
+            assertEquals("NodeNotFound", result.code)
+        }
+
+    // ── key / launch_app ─────────────────────────────────────────────────────
 
     @ParameterizedTest
     @CsvSource("back", "home", "recents", "dismiss_keyboard")
@@ -262,14 +438,34 @@ class StepDispatcherTest {
         }
 
     @Test
-    fun `launch_app maps package to package_id`() =
+    fun `launch_app maps package to package_id and defaults fresh to false`() =
         runTest {
             coEvery { openAppHandler.execute(any()) } returns ok
             dispatcher.dispatch(step("launch_app", buildJsonObject { put("package", "com.whatsapp") }))
             coVerify {
-                openAppHandler.execute(match { it.get("package_id")?.jsonPrimitive?.content == "com.whatsapp" })
+                openAppHandler.execute(
+                    match {
+                        it["package_id"]?.jsonPrimitive?.content == "com.whatsapp" &&
+                            it["fresh"]?.jsonPrimitive?.content == "false"
+                    },
+                )
             }
         }
+
+    @Test
+    fun `launch_app forwards fresh true`() =
+        runTest {
+            coEvery { openAppHandler.execute(any()) } returns ok
+            val params =
+                buildJsonObject {
+                    put("package", "com.whatsapp")
+                    put("fresh", true)
+                }
+            dispatcher.dispatch(step("launch_app", params))
+            coVerify { openAppHandler.execute(match { it["fresh"]?.jsonPrimitive?.content == "true" }) }
+        }
+
+    // ── wait_until ────────────────────────────────────────────────────────────
 
     @Test
     fun `wait_until requires timeout_ms`() =
@@ -283,10 +479,7 @@ class StepDispatcherTest {
         runTest {
             val params =
                 selectorParams() +
-                    mapOf(
-                        "timeout_ms" to kotlinx.serialization.json.JsonPrimitive(1000),
-                        "absent" to kotlinx.serialization.json.JsonPrimitive(true),
-                    )
+                    mapOf("timeout_ms" to JsonPrimitive(1000), "absent" to JsonPrimitive(true))
             val result = dispatcher.dispatch(step("wait_until", JsonObject(params))) as StepError
             assertEquals("InvalidParams", result.code)
         }
@@ -294,13 +487,12 @@ class StepDispatcherTest {
     @Test
     fun `wait_until forwards by, value, and timeout to wait_for_node`() =
         runTest {
-            coEvery { waitForNodeTool.execute(any()) } returns ok
-            val params = selectorParams() + mapOf("timeout_ms" to kotlinx.serialization.json.JsonPrimitive(5000))
+            val params = selectorParams() + mapOf("timeout_ms" to JsonPrimitive(5000))
             dispatcher.dispatch(step("wait_until", JsonObject(params)))
             coVerify {
                 waitForNodeTool.execute(
                     match {
-                        it.get("by")?.jsonPrimitive?.content == "resource_id" &&
+                        it["by"]?.jsonPrimitive?.content == "resource_id" &&
                             it["value"]?.jsonPrimitive?.content == "com.app:id/x" &&
                             it["timeout"]?.jsonPrimitive?.content == "5000"
                     },
@@ -315,7 +507,7 @@ class StepDispatcherTest {
                 """{"found":false,"elapsedMs":5000,"attempts":10,"message":"Operation timed out"}"""
             val text = "${McpToolUtils.UNTRUSTED_CONTENT_WARNING}\n$timeoutJson"
             coEvery { waitForNodeTool.execute(any()) } returns ToolResult(content = listOf(ToolContent.Text(text)))
-            val params = selectorParams() + mapOf("timeout_ms" to kotlinx.serialization.json.JsonPrimitive(5000))
+            val params = selectorParams() + mapOf("timeout_ms" to JsonPrimitive(5000))
             val result = dispatcher.dispatch(step("wait_until", JsonObject(params))) as StepError
             assertEquals("NodeNotFound", result.code)
         }
@@ -323,20 +515,37 @@ class StepDispatcherTest {
     @Test
     fun `wait_until with a found true result still succeeds`() =
         runTest {
-            val foundJson = """{"found":true,"elapsedMs":10,"attempts":1,"node":{}}"""
-            coEvery { waitForNodeTool.execute(any()) } returns
-                ToolResult(content = listOf(ToolContent.Text("${McpToolUtils.UNTRUSTED_CONTENT_WARNING}\n$foundJson")))
-            val params = selectorParams() + mapOf("timeout_ms" to kotlinx.serialization.json.JsonPrimitive(5000))
+            val params = selectorParams() + mapOf("timeout_ms" to JsonPrimitive(5000))
             val result = dispatcher.dispatch(step("wait_until", JsonObject(params)))
             assertTrue(result is StepResult)
         }
+
+    // ── post-action idle wait ──────────────────────────────────────────────
+
+    @Test
+    fun `every successful action waits for idle afterwards`() =
+        runTest {
+            coEvery { openAppHandler.execute(any()) } returns ok
+            dispatcher.dispatch(step("launch_app", buildJsonObject { put("package", "com.x") }))
+            coVerify(exactly = 1) { waitForIdleTool.execute(any()) }
+        }
+
+    @Test
+    fun `a failed action does not wait for idle`() =
+        runTest {
+            coEvery { openAppHandler.execute(any()) } throws McpToolException.ActionFailed("boom")
+            dispatcher.dispatch(step("launch_app", buildJsonObject { put("package", "com.x") }))
+            coVerify(exactly = 0) { waitForIdleTool.execute(any()) }
+        }
+
+    // ── error handling ──────────────────────────────────────────────────────
 
     @Test
     fun `dispatch rethrows CancellationException instead of turning it into a StepError`() =
         runTest {
             coEvery { openAppHandler.execute(any()) } throws kotlinx.coroutines.CancellationException("cancelled")
             val params = buildJsonObject { put("package", "com.x") }
-            org.junit.jupiter.api.assertThrows<kotlinx.coroutines.CancellationException> {
+            assertThrows<kotlinx.coroutines.CancellationException> {
                 dispatcher.dispatch(step("launch_app", params))
             }
         }

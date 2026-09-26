@@ -16,14 +16,18 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementF
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.FindBy
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.MultiWindowResult
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenInfo
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollAmount
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollDirection
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.resolveSelectorNodeId
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import javax.inject.Inject
@@ -104,20 +108,32 @@ class ClickNodeTool
     @Inject
     constructor(
         private val treeParser: AccessibilityTreeParser,
+        private val elementFinder: ElementFinder,
         private val actionExecutor: ActionExecutor,
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val nodeCache: AccessibilityNodeCache,
     ) {
+        /**
+         * Accepts either `selector` (preferred — resolved against this call's own fresh parse,
+         * immediately before acting, see [resolveSelectorNodeId]) or a caller-supplied `node_id`
+         * for backward compatibility. `StepDispatcher`'s `tap` op always sends `selector`.
+         */
         suspend fun execute(arguments: JsonObject?): ToolResult {
-            val nodeId =
-                arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
-                    ?: throw McpToolException.InvalidParams("Missing required parameter 'node_id'")
-
-            if (nodeId.isEmpty()) {
-                throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
+            val selector = arguments?.get("selector")?.jsonObject
+            val explicitNodeId = arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
+            if (selector == null) {
+                if (explicitNodeId == null) {
+                    throw McpToolException.InvalidParams("Missing required parameter 'selector' or 'node_id'")
+                }
+                if (explicitNodeId.isEmpty()) {
+                    throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
+                }
             }
 
             val multiWindowResult = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
+            val nodeId =
+                selector?.let { resolveSelectorNodeId(multiWindowResult.windows, elementFinder, it) }
+                    ?: explicitNodeId as String
 
             val result = actionExecutor.clickNode(nodeId, multiWindowResult.windows)
             result.onFailure { e -> mapNodeActionException(e, nodeId) }
@@ -272,18 +288,22 @@ class ScrollToNodeTool
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val nodeCache: AccessibilityNodeCache,
     ) {
+        /**
+         * Accepts either `selector` (preferred) or a caller-supplied `node_id`. With `selector`,
+         * the target may not even be in the tree yet (a virtualized list that hasn't rendered it
+         * at all) — this blind-scrolls (`direction`, default "down") and re-resolves the selector
+         * fresh each attempt, up to `max_scrolls` (clamped to [MAX_SCROLLS_HARD_CAP] regardless of
+         * what's requested, bounding worst-case latency), never trusting a `node_id` left over
+         * from an earlier attempt's parse (the M3 staleness bug — see [resolveSelectorNodeId]).
+         * Once the selector resolves, falls through to the original node_id-based scroll-into-view
+         * logic below, reusing that same parse.
+         */
         @Suppress("ThrowsCount", "LongMethod")
         suspend fun execute(arguments: JsonObject?): ToolResult {
-            val nodeId =
-                arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
-                    ?: throw McpToolException.InvalidParams("Missing required parameter 'node_id'")
-
-            if (nodeId.isEmpty()) {
-                throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
-            }
+            val (nodeId, result0) = resolveInitial(arguments)
 
             // Parse multi-window trees and find the node
-            var result = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
+            var result = result0
             var node =
                 elementFinder.findNodeById(result.windows, nodeId)
                     ?: throw McpToolException.NodeNotFound("Node '$nodeId' not found")
@@ -428,11 +448,77 @@ class ScrollToNodeTool
             return null
         }
 
+        /** Validates `selector`/`node_id` params and produces the initial `(nodeId, windows)` pair
+         *  either by delegating to [resolveBySearching] (selector) or a single fresh parse
+         *  (explicit `node_id`) — split out from [execute] purely to keep that function's
+         *  cyclomatic complexity down; no behaviour difference. */
+        @Suppress("ThrowsCount")
+        private suspend fun resolveInitial(arguments: JsonObject?): Pair<String, MultiWindowResult> {
+            val selector = arguments?.get("selector")?.jsonObject
+            val explicitNodeId = arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
+            if (selector != null) return resolveBySearching(selector, arguments)
+            if (explicitNodeId == null) {
+                throw McpToolException.InvalidParams("Missing required parameter 'selector' or 'node_id'")
+            }
+            if (explicitNodeId.isEmpty()) {
+                throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
+            }
+            return explicitNodeId to getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
+        }
+
+        /**
+         * Blind-scrolls and re-resolves [selector] from scratch each attempt until it matches
+         * something in the tree at all (not necessarily visible yet — the caller's existing
+         * scroll-into-view logic handles that next). Every attempt is its own fresh
+         * [getFreshWindows] call immediately followed by [resolveSelectorNodeId] against that same
+         * parse — no `node_id` ever survives past the parse that produced it.
+         */
+        @Suppress("SwallowedException") // NodeNotFound here means "keep blind-scrolling," not a real failure
+        private suspend fun resolveBySearching(
+            selector: JsonObject,
+            arguments: JsonObject?,
+        ): Pair<String, MultiWindowResult> {
+            val direction = parseDirection(arguments?.get("direction")?.jsonPrimitive?.contentOrNull)
+            val maxScrolls =
+                (arguments?.get("max_scrolls")?.jsonPrimitive?.intOrNull ?: DEFAULT_MAX_SCROLLS)
+                    .coerceIn(1, MAX_SCROLLS_HARD_CAP)
+
+            for (attempt in 0..maxScrolls) {
+                val fresh = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
+                val nodeId =
+                    try {
+                        resolveSelectorNodeId(fresh.windows, elementFinder, selector)
+                    } catch (e: McpToolException.NodeNotFound) {
+                        null
+                    }
+                if (nodeId != null) return nodeId to fresh
+                if (attempt == maxScrolls) break
+                actionExecutor.scroll(direction, ScrollAmount.MEDIUM)
+                kotlinx.coroutines.delay(SCROLL_SETTLE_DELAY_MS)
+            }
+            throw McpToolException.NodeNotFound(
+                "scroll_to_node: selector never resolved after $maxScrolls scroll(s)",
+            )
+        }
+
+        private fun parseDirection(value: String?): ScrollDirection =
+            when (value?.lowercase()) {
+                "up" -> ScrollDirection.UP
+
+                null, "down" -> ScrollDirection.DOWN
+
+                else -> throw McpToolException.InvalidParams(
+                    "Parameter 'direction' must be 'up' or 'down', got: '$value'",
+                )
+            }
+
         companion object {
             private const val TAG = "MCP:ScrollToNodeTool"
             const val TOOL_NAME = "scroll_to_node"
             private const val MAX_SCROLL_ATTEMPTS = 5
             private const val SCROLL_SETTLE_DELAY_MS = 300L
+            private const val DEFAULT_MAX_SCROLLS = 5
+            private const val MAX_SCROLLS_HARD_CAP = 25
         }
     }
 

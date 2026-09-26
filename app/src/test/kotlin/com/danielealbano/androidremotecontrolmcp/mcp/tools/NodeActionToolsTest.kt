@@ -15,8 +15,11 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementF
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementInfo
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.FindBy
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenInfo
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollAmount
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollDirection
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.unmockkAll
@@ -298,7 +301,13 @@ class NodeActionToolsTest {
     @DisplayName("ClickNodeTool")
     inner class ClickNodeToolTests {
         private val tool =
-            ClickNodeTool(mockTreeParser, mockActionExecutor, mockAccessibilityServiceProvider, mockNodeCache)
+            ClickNodeTool(
+                mockTreeParser,
+                mockElementFinder,
+                mockActionExecutor,
+                mockAccessibilityServiceProvider,
+                mockNodeCache,
+            )
 
         @Test
         fun `clicks node successfully`() =
@@ -309,6 +318,31 @@ class NodeActionToolsTest {
                 val result = tool.execute(params)
                 val text = extractTextContent(result)
                 assertTrue(text.contains("Click performed"))
+            }
+
+        @Test
+        fun `resolves selector against its own fresh parse and clicks the match`() =
+            runTest {
+                every {
+                    mockElementFinder.findElements(sampleWindows, FindBy.TEXT, "Submit", false)
+                } returns listOf(sampleElementInfo)
+                coEvery { mockActionExecutor.clickNode("node_abc", sampleWindows) } returns Result.success(Unit)
+                val params = buildJsonObject { put("selector", buildJsonObject { put("text", "Submit") }) }
+
+                val result = tool.execute(params)
+                val text = extractTextContent(result)
+                assertTrue(text.contains("Click performed"))
+            }
+
+        @Test
+        fun `throws NodeNotFound when selector matches nothing`() =
+            runTest {
+                every {
+                    mockElementFinder.findElements(sampleWindows, FindBy.TEXT, "Nope", false)
+                } returns emptyList()
+                val params = buildJsonObject { put("selector", buildJsonObject { put("text", "Nope") }) }
+
+                assertThrows<McpToolException.NodeNotFound> { tool.execute(params) }
             }
 
         @Test
@@ -638,6 +672,64 @@ class NodeActionToolsTest {
                 val params = buildJsonObject { put("node_id", "node_xyz") }
 
                 assertThrows<McpToolException.NodeNotFound> { tool.execute(params) }
+            }
+
+        @Test
+        fun `selector already visible in the tree resolves immediately, no blind scroll`() =
+            runTest {
+                val visibleNode = sampleTree.children[0] // visible = true, text "7"
+                every {
+                    mockElementFinder.findElements(sampleWindows, FindBy.TEXT, "7", false)
+                } returns listOf(sampleElementInfo)
+                every { mockElementFinder.findNodeById(sampleWindows, "node_abc") } returns visibleNode
+                val params = buildJsonObject { put("selector", buildJsonObject { put("text", "7") }) }
+
+                val result = tool.execute(params)
+
+                assertTrue(extractTextContent(result).contains("already visible"))
+                coVerify(exactly = 0) { mockActionExecutor.scroll(any(), any(), any()) }
+            }
+
+        @Test
+        fun `selector not yet in the tree blind-scrolls and re-resolves fresh each attempt`() =
+            runTest {
+                // Not present on the first two parses, present (and already visible) on the third —
+                // each attempt is its own fresh getFreshWindows() + resolveSelectorNodeId, never a
+                // node_id carried over from an earlier attempt (the M3 staleness fix).
+                var attempt = 0
+                every {
+                    mockElementFinder.findElements(sampleWindows, FindBy.TEXT, "Loaded", false)
+                } answers {
+                    attempt++
+                    if (attempt < 3) emptyList() else listOf(sampleElementInfo)
+                }
+                every { mockElementFinder.findNodeById(sampleWindows, "node_abc") } returns sampleTree.children[0]
+                coEvery { mockActionExecutor.scroll(ScrollDirection.DOWN, ScrollAmount.MEDIUM) } returns
+                    Result.success(Unit)
+                val params = buildJsonObject { put("selector", buildJsonObject { put("text", "Loaded") }) }
+
+                val result = tool.execute(params)
+
+                assertTrue(extractTextContent(result).contains("already visible"))
+                coVerify(exactly = 2) { mockActionExecutor.scroll(ScrollDirection.DOWN, ScrollAmount.MEDIUM) }
+            }
+
+        @Test
+        fun `selector never resolving throws NodeNotFound after max_scrolls`() =
+            runTest {
+                every {
+                    mockElementFinder.findElements(sampleWindows, FindBy.TEXT, "Never", false)
+                } returns emptyList()
+                coEvery { mockActionExecutor.scroll(ScrollDirection.DOWN, ScrollAmount.MEDIUM) } returns
+                    Result.success(Unit)
+                val params =
+                    buildJsonObject {
+                        put("selector", buildJsonObject { put("text", "Never") })
+                        put("max_scrolls", 2)
+                    }
+
+                assertThrows<McpToolException.NodeNotFound> { tool.execute(params) }
+                coVerify(exactly = 2) { mockActionExecutor.scroll(ScrollDirection.DOWN, ScrollAmount.MEDIUM) }
             }
 
         @Suppress("LongMethod")
