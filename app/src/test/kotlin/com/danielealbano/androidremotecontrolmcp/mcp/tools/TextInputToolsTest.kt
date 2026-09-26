@@ -13,6 +13,9 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.Accessib
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeParser
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionExecutor
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementFinder
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementInfo
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.FindBy
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.TypeInputController
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
 import io.mockk.coEvery
@@ -39,6 +42,7 @@ import org.junit.jupiter.api.assertThrows
 @DisplayName("TextInputTools")
 class TextInputToolsTest {
     private val mockTreeParser = mockk<AccessibilityTreeParser>()
+    private val mockElementFinder = mockk<ElementFinder>()
     private val mockActionExecutor = mockk<ActionExecutor>()
     private val mockAccessibilityServiceProvider = mockk<AccessibilityServiceProvider>()
     private val mockTypeInputController = mockk<TypeInputController>()
@@ -677,6 +681,7 @@ class TextInputToolsTest {
         private val tool =
             TypeAppendTextTool(
                 mockTreeParser,
+                mockElementFinder,
                 mockActionExecutor,
                 mockAccessibilityServiceProvider,
                 mockTypeInputController,
@@ -715,6 +720,32 @@ class TextInputToolsTest {
 
                 verify { mockTypeInputController.setSelection(8, 8) }
                 verify(exactly = 5) { mockTypeInputController.commitText(any(), 1) }
+            }
+
+        @Test
+        fun `resolves selector against its own fresh parse before focusing and typing`() =
+            runTest {
+                setupDefaultMocks()
+                every {
+                    mockElementFinder.findElements(sampleWindows, FindBy.RESOURCE_ID, "com.app:id/entry", true)
+                } returns
+                    listOf(
+                        ElementInfo(
+                            id = "node_edit",
+                            bounds = BoundsData(0, 0, 100, 100),
+                            editable = true,
+                            visible = true,
+                        ),
+                    )
+                val params =
+                    buildJsonObject {
+                        put("selector", buildJsonObject { put("resource_id", "com.app:id/entry") })
+                        put("text", "Hello")
+                    }
+
+                val result = tool.execute(params)
+                val text = extractTextContent(result)
+                assertTrue(text.contains("Typed 5 characters"))
             }
 
         @Test
@@ -1434,6 +1465,7 @@ class TextInputToolsTest {
         private val tool =
             TypeClearTextTool(
                 mockTreeParser,
+                mockElementFinder,
                 mockActionExecutor,
                 mockAccessibilityServiceProvider,
                 mockTypeInputController,
@@ -1463,6 +1495,39 @@ class TextInputToolsTest {
                 verify { mockTypeInputController.performContextMenuAction(android.R.id.selectAll) }
                 // Verify DELETE key events (KeyEvent is null in JVM tests, so use any())
                 verify(exactly = 2) { mockTypeInputController.sendKeyEvent(any()) }
+            }
+
+        @Test
+        fun `resolves selector against its own fresh parse before clearing`() =
+            runTest {
+                every {
+                    mockElementFinder.findElements(sampleWindows, FindBy.RESOURCE_ID, "com.app:id/entry", true)
+                } returns
+                    listOf(
+                        ElementInfo(
+                            id = "node_edit",
+                            bounds = BoundsData(0, 0, 100, 100),
+                            editable = true,
+                            visible = true,
+                        ),
+                    )
+                coEvery { mockActionExecutor.clickNode("node_edit", sampleWindows) } returns Result.success(Unit)
+                every { mockTypeInputController.isReady() } returns true
+                every { mockTypeInputController.performContextMenuAction(any()) } returns true
+                every { mockTypeInputController.sendKeyEvent(any()) } returns true
+                val beforeText = createMockSurroundingText("Hello")
+                val afterText = createMockSurroundingText("")
+                every {
+                    mockTypeInputController.getSurroundingText(any(), any(), any())
+                } returnsMany listOf(beforeText, afterText)
+
+                val params =
+                    buildJsonObject {
+                        put("selector", buildJsonObject { put("resource_id", "com.app:id/entry") })
+                    }
+
+                val result = tool.execute(params)
+                assertTrue(extractTextContent(result).contains("Text cleared"))
             }
 
         @Test

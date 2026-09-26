@@ -4,6 +4,8 @@ import android.util.Log
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,9 +31,10 @@ class OpenAppHandler
             if (packageId.isEmpty()) {
                 throw McpToolException.InvalidParams("Parameter 'package_id' must not be empty")
             }
+            val fresh = arguments?.get("fresh")?.jsonPrimitive?.booleanOrNull ?: false
 
-            Log.d(TAG, "Executing open_app for package: $packageId")
-            val result = appManager.openApp(packageId)
+            Log.d(TAG, "Executing open_app for package: $packageId (fresh=$fresh)")
+            val result = appManager.openApp(packageId, fresh)
             result.onFailure { e ->
                 throw McpToolException.ActionFailed("Failed to open application '$packageId': ${e.message}")
             }

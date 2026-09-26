@@ -145,7 +145,27 @@ class AppManagerTest {
                 // Assert
                 assertTrue(result.isSuccess)
                 verify { mockIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                verify(exactly = 0) { mockIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK) }
                 verify { mockContext.startActivity(mockIntent) }
+            }
+
+        @Test
+        fun `openApp with fresh=true also clears the existing task`() =
+            runTest {
+                // Arrange
+                val mockIntent = mockk<Intent>(relaxed = true)
+                every {
+                    mockPackageManager.getLaunchIntentForPackage("com.test.app")
+                } returns mockIntent
+                every { mockContext.startActivity(any()) } just Runs
+
+                // Act
+                val result = appManager.openApp("com.test.app", fresh = true)
+
+                // Assert
+                assertTrue(result.isSuccess)
+                verify { mockIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                verify { mockIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK) }
             }
 
         @Test

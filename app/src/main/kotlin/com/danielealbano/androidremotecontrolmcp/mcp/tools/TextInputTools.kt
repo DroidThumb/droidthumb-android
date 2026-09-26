@@ -12,12 +12,15 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.Accessib
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeLock
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeParser
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionExecutor
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ElementFinder
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.TypeInputController
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.resolveSelectorNodeId
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
@@ -349,21 +352,40 @@ internal fun readFieldContent(typeInputController: TypeInputController): String 
     return surroundingText.text.toString()
 }
 
+/** Shared by [TypeAppendTextTool]/[TypeClearTextTool]'s `selector`-or-`node_id` params — pulled out
+ *  purely to keep each `execute()` under this project's LongMethod limit, no behaviour change. */
+private fun requireSelectorOrExplicitNodeId(
+    selector: JsonObject?,
+    explicitNodeId: String?,
+) {
+    if (selector != null) return
+    if (explicitNodeId == null) {
+        throw McpToolException.InvalidParams("Missing required parameter 'selector' or 'node_id'")
+    }
+    if (explicitNodeId.isEmpty()) {
+        throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
+    }
+}
+
 class TypeAppendTextTool
     @Inject
     constructor(
         private val treeParser: AccessibilityTreeParser,
+        private val elementFinder: ElementFinder,
         private val actionExecutor: ActionExecutor,
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val typeInputController: TypeInputController,
         private val nodeCache: AccessibilityNodeCache,
     ) {
+        /**
+         * Accepts either `selector` (preferred — resolved inside the lock, against the same fresh
+         * parse used to focus the field, immediately before acting) or a caller-supplied `node_id`.
+         */
         @Suppress("ThrowsCount")
         suspend fun execute(arguments: JsonObject?): ToolResult {
-            val nodeId = McpToolUtils.requireString(arguments, "node_id")
-            if (nodeId.isEmpty()) {
-                throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
-            }
+            val selector = arguments?.get("selector")?.jsonObject
+            val explicitNodeId = arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
+            requireSelectorOrExplicitNodeId(selector, explicitNodeId)
 
             val text = McpToolUtils.requireString(arguments, "text")
             if (text.isEmpty()) {
@@ -373,10 +395,13 @@ class TypeAppendTextTool
 
             val (typingSpeed, typingSpeedVariance) = extractTypingParams(arguments)
 
-            val fieldContent =
+            val (nodeId, fieldContent) =
                 typeOperationMutex.withLock {
-                    // Click to focus
+                    // Resolve (if selector) and click to focus, from the same fresh parse
                     val result = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
+                    val nodeId =
+                        selector?.let { resolveSelectorNodeId(result.windows, elementFinder, it) }
+                            ?: explicitNodeId as String
                     val clickResult = actionExecutor.clickNode(nodeId, result.windows)
                     clickResult.onFailure { e -> mapNodeActionException(e, nodeId) }
 
@@ -408,7 +433,7 @@ class TypeAppendTextTool
                     typeCharByChar(text, typingSpeed, typingSpeedVariance, typeInputController)
 
                     // Read field content after operation for verification
-                    readFieldContent(typeInputController)
+                    nodeId to readFieldContent(typeInputController)
                 }
 
             Log.d(TAG, "type_append_text: typed ${text.length} chars on node '$nodeId'")
@@ -666,22 +691,29 @@ class TypeClearTextTool
     @Inject
     constructor(
         private val treeParser: AccessibilityTreeParser,
+        private val elementFinder: ElementFinder,
         private val actionExecutor: ActionExecutor,
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val typeInputController: TypeInputController,
         private val nodeCache: AccessibilityNodeCache,
     ) {
+        /**
+         * Accepts either `selector` (preferred — resolved inside the lock, against the same fresh
+         * parse used to focus the field, immediately before acting) or a caller-supplied `node_id`.
+         */
         @Suppress("ThrowsCount")
         suspend fun execute(arguments: JsonObject?): ToolResult {
-            val nodeId = McpToolUtils.requireString(arguments, "node_id")
-            if (nodeId.isEmpty()) {
-                throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
-            }
+            val selector = arguments?.get("selector")?.jsonObject
+            val explicitNodeId = arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
+            requireSelectorOrExplicitNodeId(selector, explicitNodeId)
 
-            val fieldContent =
+            val (nodeId, fieldContent) =
                 typeOperationMutex.withLock {
-                    // Click to focus
+                    // Resolve (if selector) and click to focus, from the same fresh parse
                     val result = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
+                    val nodeId =
+                        selector?.let { resolveSelectorNodeId(result.windows, elementFinder, it) }
+                            ?: explicitNodeId as String
                     val clickResult = actionExecutor.clickNode(nodeId, result.windows)
                     clickResult.onFailure { e -> mapNodeActionException(e, nodeId) }
 
@@ -729,7 +761,7 @@ class TypeClearTextTool
                     }
 
                     // Read field content after operation for verification
-                    readFieldContent(typeInputController)
+                    nodeId to readFieldContent(typeInputController)
                 }
 
             Log.d(TAG, "type_clear_text: cleared text on node '$nodeId'")
