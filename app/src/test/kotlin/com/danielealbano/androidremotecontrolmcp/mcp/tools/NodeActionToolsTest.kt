@@ -20,6 +20,7 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScrollDi
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.WindowData
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.unmockkAll
@@ -715,6 +716,63 @@ class NodeActionToolsTest {
             }
 
         @Test
+        fun `selector present but off-screen re-resolves the TARGET's own id fresh every attempt`() =
+            runTest {
+                // Part C round 1 regression: proven against a real device (redroid) that a
+                // RecyclerView recycles item Views on scroll, so the *target's own* node_id (not
+                // just its scrollable ancestor's) can stop existing in the very next parse even
+                // though the semantic row is still there — "About phone" resolved, one scroll
+                // succeeded, and by the following parse that exact id was gone from every window's
+                // tree. Simulated here with a different id each generation for both the item and
+                // its scrollable container.
+                val itemGen0 =
+                    AccessibilityNodeData(id = "item_gen0", bounds = BoundsData(0, 3000, 100, 3060), visible = false)
+                val itemGen1 =
+                    AccessibilityNodeData(id = "item_gen1", bounds = BoundsData(0, 3000, 100, 3060), visible = false)
+                val itemGen2 =
+                    AccessibilityNodeData(id = "item_gen2", bounds = BoundsData(0, 3000, 100, 3060), visible = true)
+                val gen0 = sampleTree.copy(id = "scrollable_gen0", scrollable = true, children = listOf(itemGen0))
+                val gen1 = sampleTree.copy(id = "scrollable_gen1", scrollable = true, children = listOf(itemGen1))
+                val gen2 = sampleTree.copy(id = "scrollable_gen2", scrollable = true, children = listOf(itemGen2))
+                val windowsPerGen = mapOf(1 to gen0, 2 to gen1, 3 to gen2)
+
+                var parseCount = 0
+                every { mockTreeParser.parseTree(mockRootNode, "root_w0", any()) } answers {
+                    parseCount++
+                    windowsPerGen.getValue(parseCount.coerceAtMost(3))
+                }
+                every {
+                    mockElementFinder.findElements(any<List<WindowData>>(), eq(FindBy.TEXT), eq("About"), eq(false))
+                } answers {
+                    val item = listOf(itemGen0, itemGen1, itemGen2)[parseCount.coerceAtMost(3) - 1]
+                    listOf(sampleElementInfo.copy(id = item.id))
+                }
+                every { mockElementFinder.findNodeById(any<List<WindowData>>(), any()) } answers {
+                    val id = secondArg<String>()
+                    listOf(itemGen0, itemGen1, itemGen2).firstOrNull { it.id == id }
+                }
+                every { mockElementFinder.findNodeById(gen0, any()) } answers {
+                    itemGen0.takeIf { it.id == secondArg<String>() }
+                }
+                every { mockElementFinder.findNodeById(gen1, any()) } answers {
+                    itemGen1.takeIf { it.id == secondArg<String>() }
+                }
+                every { mockElementFinder.findNodeById(gen2, any()) } answers {
+                    itemGen2.takeIf { it.id == secondArg<String>() }
+                }
+                coEvery { mockActionExecutor.scrollNode(any(), any(), any()) } returns Result.success(Unit)
+
+                val params = buildJsonObject { put("selector", buildJsonObject { put("text", "About") }) }
+                val result = tool.execute(params)
+
+                assertTrue(extractTextContent(result).contains("already visible"))
+                coVerifyOrder {
+                    mockActionExecutor.scrollNode("scrollable_gen0", any(), any())
+                    mockActionExecutor.scrollNode("scrollable_gen1", any(), any())
+                }
+            }
+
+        @Test
         fun `selector never resolving throws NodeNotFound after max_scrolls`() =
             runTest {
                 every {
@@ -808,6 +866,68 @@ class NodeActionToolsTest {
                     text.contains("Scrolled") || text.contains("scroll"),
                     "Expected scroll result but got: $text",
                 )
+            }
+
+        @Test
+        fun `re-resolves the scrollable ancestor fresh on every attempt, never reusing a stale id`() =
+            runTest {
+                // Part C round 1 regression: a re-parse between scroll attempts can regenerate a
+                // different id for the very same scrollable container (e.g. a RecyclerView holder
+                // recycling) — reusing the FIRST attempt's ancestor id on a LATER attempt is
+                // exactly the residual M3 staleness bug this test guards against.
+                val itemNotVisible =
+                    AccessibilityNodeData(id = "item_x", bounds = BoundsData(0, 3000, 100, 3060), visible = false)
+                val itemVisible = itemNotVisible.copy(visible = true)
+                val gen0 =
+                    sampleTree.copy(
+                        id = "scrollable_gen0",
+                        scrollable = true,
+                        children = listOf(itemNotVisible),
+                    )
+                val gen1 =
+                    sampleTree.copy(
+                        id = "scrollable_gen1",
+                        scrollable = true,
+                        children = listOf(itemNotVisible),
+                    )
+                val gen2 =
+                    sampleTree.copy(
+                        id = "scrollable_gen2",
+                        scrollable = true,
+                        children = listOf(itemVisible),
+                    )
+
+                var parseCount = 0
+                every { mockTreeParser.parseTree(mockRootNode, "root_w0", any()) } answers {
+                    parseCount++
+                    when (parseCount) {
+                        1 -> gen0
+                        2 -> gen1
+                        else -> gen2
+                    }
+                }
+                every { mockElementFinder.findNodeById(gen0, "item_x") } returns itemNotVisible
+                every { mockElementFinder.findNodeById(gen1, "item_x") } returns itemNotVisible
+                every { mockElementFinder.findNodeById(gen2, "item_x") } returns itemVisible
+                every {
+                    mockElementFinder.findNodeById(any<List<WindowData>>(), eq("item_x"))
+                } answers {
+                    when (parseCount) {
+                        1 -> itemNotVisible
+                        2 -> itemNotVisible
+                        else -> itemVisible
+                    }
+                }
+                coEvery { mockActionExecutor.scrollNode(any(), any(), any()) } returns Result.success(Unit)
+
+                val params = buildJsonObject { put("node_id", "item_x") }
+                val result = tool.execute(params)
+
+                assertTrue(extractTextContent(result).contains("Scrolled"))
+                coVerifyOrder {
+                    mockActionExecutor.scrollNode("scrollable_gen0", any(), any())
+                    mockActionExecutor.scrollNode("scrollable_gen1", any(), any())
+                }
             }
     }
 }

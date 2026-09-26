@@ -289,71 +289,136 @@ class ScrollToNodeTool
         private val nodeCache: AccessibilityNodeCache,
     ) {
         /**
-         * Accepts either `selector` (preferred) or a caller-supplied `node_id`. With `selector`,
-         * the target may not even be in the tree yet (a virtualized list that hasn't rendered it
-         * at all) — this blind-scrolls (`direction`, default "down") and re-resolves the selector
-         * fresh each attempt, up to `max_scrolls` (clamped to [MAX_SCROLLS_HARD_CAP] regardless of
-         * what's requested, bounding worst-case latency), never trusting a `node_id` left over
-         * from an earlier attempt's parse (the M3 staleness bug — see [resolveSelectorNodeId]).
-         * Once the selector resolves, falls through to the original node_id-based scroll-into-view
-         * logic below, reusing that same parse.
+         * Accepts either `selector` (preferred) or a caller-supplied `node_id`.
+         *
+         * With `selector`, [scrollToSelector] re-resolves the *target itself* — not just its
+         * scrollable ancestor — fresh from a new parse on every single attempt, never carrying a
+         * node_id across iterations at all. This is the real fix for the M3 staleness bug: it
+         * isn't only that a node_id can go stale between an earlier resolve and a later act (the
+         * original finding) — a RecyclerView-backed list recycles its item Views on scroll, so
+         * the *target's own* node_id (not just an ancestor's) can stop existing in the very next
+         * parse, even when nothing about the semantic content changed. Proven against a real
+         * device (droidthumb-server's decisions-log): `About phone`'s id existed in the parse that
+         * resolved it, scrolling once succeeded, but by the following parse that same id was gone
+         * from every window's tree — the row's View had been recycled for a different list item.
+         *
+         * With an explicit `node_id` (no selector — the caller already holds a resolved id and
+         * accepts the risk), [scrollToResolvedNode] keeps the older single-resolve-then-scroll
+         * behaviour; there's no selector left to re-resolve against.
          */
-        @Suppress("ThrowsCount", "LongMethod")
         suspend fun execute(arguments: JsonObject?): ToolResult {
-            val (nodeId, result0) = resolveInitial(arguments)
+            val selector = arguments?.get("selector")?.jsonObject
+            val explicitNodeId = arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
+            if (selector != null) return scrollToSelector(selector, arguments)
+            if (explicitNodeId == null) {
+                throw McpToolException.InvalidParams("Missing required parameter 'selector' or 'node_id'")
+            }
+            if (explicitNodeId.isEmpty()) {
+                throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
+            }
+            val fresh = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
+            return scrollToResolvedNode(explicitNodeId, fresh)
+        }
 
-            // Parse multi-window trees and find the node
+        /**
+         * One unified loop, budgeted by `max_scrolls` (clamped to [MAX_SCROLLS_HARD_CAP]) whether
+         * the target isn't in the tree at all yet (a virtualized list that hasn't rendered it) or
+         * is present but off-screen — both cases re-resolve [selector] against a brand new parse
+         * every attempt, so no id (target's or ancestor's) ever survives past the parse that
+         * produced it.
+         */
+        @Suppress("ThrowsCount", "SwallowedException") // NodeNotFound below means "keep scrolling," not a real failure
+        private suspend fun scrollToSelector(
+            selector: JsonObject,
+            arguments: JsonObject?,
+        ): ToolResult {
+            val direction = parseDirection(arguments?.get("direction")?.jsonPrimitive?.contentOrNull)
+            val maxScrolls =
+                (arguments?.get("max_scrolls")?.jsonPrimitive?.intOrNull ?: DEFAULT_MAX_SCROLLS)
+                    .coerceIn(1, MAX_SCROLLS_HARD_CAP)
+
+            for (attempt in 0..maxScrolls) {
+                val fresh = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
+                val nodeId =
+                    try {
+                        resolveSelectorNodeId(fresh.windows, elementFinder, selector)
+                    } catch (e: McpToolException.NodeNotFound) {
+                        null
+                    }
+                if (nodeId != null) {
+                    val node =
+                        elementFinder.findNodeById(fresh.windows, nodeId)
+                            ?: throw McpToolException.NodeNotFound("Node '$nodeId' not found")
+                    if (node.visible) {
+                        Log.d(TAG, "scroll_to_node: selector resolved to '$nodeId', already visible")
+                        return McpToolUtils.textResult("Node '$nodeId' is already visible")
+                    }
+                    scrollTowards(nodeId, fresh.windows, direction)
+                } else if (attempt < maxScrolls) {
+                    actionExecutor.scroll(direction, ScrollAmount.MEDIUM)
+                }
+                if (attempt < maxScrolls) {
+                    kotlinx.coroutines.delay(SCROLL_SETTLE_DELAY_MS)
+                }
+            }
+            throw McpToolException.NodeNotFound(
+                "scroll_to_node: selector never became visible after $maxScrolls scroll(s)",
+            )
+        }
+
+        /** Scrolls [nodeId]'s nearest scrollable ancestor (resolved from [windows], the same
+         *  parse [nodeId] itself came from) one step in [direction]. Throws on any device-level
+         *  scroll failure — the caller's loop is what re-resolves and retries, not this. */
+        @Suppress("ThrowsCount")
+        private suspend fun scrollTowards(
+            nodeId: String,
+            windows: List<WindowData>,
+            direction: ScrollDirection,
+        ) {
+            val containingTree =
+                findContainingTree(windows, nodeId)
+                    ?: throw McpToolException.ActionFailed("Node '$nodeId' not found in any window tree")
+            val scrollableAncestorId =
+                findScrollableAncestor(containingTree, nodeId)
+                    ?: throw McpToolException.ActionFailed("No scrollable container found for node '$nodeId'")
+            val scrollResult = actionExecutor.scrollNode(scrollableAncestorId, direction, windows)
+            if (scrollResult.isFailure) {
+                throw McpToolException.ActionFailed(
+                    "Scroll failed on ancestor '$scrollableAncestorId': ${scrollResult.exceptionOrNull()?.message}",
+                )
+            }
+        }
+
+        /** Original node_id-based path: a single resolve, then scroll-into-view, trying the
+         *  node's primary direction (by on-screen position) then the opposite if needed. Kept
+         *  only for an explicit caller-supplied `node_id`, which has no selector to re-resolve. */
+        @Suppress("ThrowsCount", "LongMethod")
+        private suspend fun scrollToResolvedNode(
+            nodeId: String,
+            result0: MultiWindowResult,
+        ): ToolResult {
             var result = result0
             var node =
                 elementFinder.findNodeById(result.windows, nodeId)
                     ?: throw McpToolException.NodeNotFound("Node '$nodeId' not found")
 
-            // If already visible, return immediately
             if (node.visible) {
                 Log.d(TAG, "scroll_to_node: node '$nodeId' already visible")
                 return McpToolUtils.textResult("Node '$nodeId' is already visible")
             }
 
-            // Find the window tree containing the target node
-            val containingTree =
-                findContainingTree(result.windows, nodeId)
-                    ?: throw McpToolException.ActionFailed(
-                        "Node '$nodeId' not found in any window tree",
-                    )
-
-            // Find nearest scrollable ancestor within the same window tree
-            val scrollableAncestorId =
-                findScrollableAncestor(containingTree, nodeId)
-                    ?: throw McpToolException.ActionFailed(
-                        "No scrollable container found for node '$nodeId'",
-                    )
-
-            // Determine initial scroll direction from the node's position relative to
-            // the screen. Nodes above the viewport (bounds.bottom <= 0) need UP scrolling;
-            // nodes below or at unknown positions default to DOWN.
             val screenInfo = accessibilityServiceProvider.getScreenInfo()
             val primaryDirection = determineScrollDirection(node, screenInfo)
             val oppositeDirection =
                 if (primaryDirection == ScrollDirection.DOWN) ScrollDirection.UP else ScrollDirection.DOWN
 
-            // Try primary direction first, then opposite if node not found
             var totalAttempts = 0
             for (direction in listOf(primaryDirection, oppositeDirection)) {
                 while (totalAttempts < MAX_SCROLL_ATTEMPTS) {
                     totalAttempts++
-                    val scrollResult =
-                        actionExecutor.scrollNode(scrollableAncestorId, direction, result.windows)
-                    if (scrollResult.isFailure) {
-                        throw McpToolException.ActionFailed(
-                            "Scroll failed on ancestor '$scrollableAncestorId': " +
-                                "${scrollResult.exceptionOrNull()?.message}",
-                        )
-                    }
-
-                    // Small delay to let UI settle after scroll
+                    scrollTowards(nodeId, result.windows, direction)
                     kotlinx.coroutines.delay(SCROLL_SETTLE_DELAY_MS)
 
-                    // Re-parse and check visibility
                     result = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
                     node = elementFinder.findNodeById(result.windows, nodeId) ?: continue
 
@@ -446,59 +511,6 @@ class ScrollToNodeTool
                 }
             }
             return null
-        }
-
-        /** Validates `selector`/`node_id` params and produces the initial `(nodeId, windows)` pair
-         *  either by delegating to [resolveBySearching] (selector) or a single fresh parse
-         *  (explicit `node_id`) — split out from [execute] purely to keep that function's
-         *  cyclomatic complexity down; no behaviour difference. */
-        @Suppress("ThrowsCount")
-        private suspend fun resolveInitial(arguments: JsonObject?): Pair<String, MultiWindowResult> {
-            val selector = arguments?.get("selector")?.jsonObject
-            val explicitNodeId = arguments?.get("node_id")?.jsonPrimitive?.contentOrNull
-            if (selector != null) return resolveBySearching(selector, arguments)
-            if (explicitNodeId == null) {
-                throw McpToolException.InvalidParams("Missing required parameter 'selector' or 'node_id'")
-            }
-            if (explicitNodeId.isEmpty()) {
-                throw McpToolException.InvalidParams("Parameter 'node_id' must be non-empty")
-            }
-            return explicitNodeId to getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
-        }
-
-        /**
-         * Blind-scrolls and re-resolves [selector] from scratch each attempt until it matches
-         * something in the tree at all (not necessarily visible yet — the caller's existing
-         * scroll-into-view logic handles that next). Every attempt is its own fresh
-         * [getFreshWindows] call immediately followed by [resolveSelectorNodeId] against that same
-         * parse — no `node_id` ever survives past the parse that produced it.
-         */
-        @Suppress("SwallowedException") // NodeNotFound here means "keep blind-scrolling," not a real failure
-        private suspend fun resolveBySearching(
-            selector: JsonObject,
-            arguments: JsonObject?,
-        ): Pair<String, MultiWindowResult> {
-            val direction = parseDirection(arguments?.get("direction")?.jsonPrimitive?.contentOrNull)
-            val maxScrolls =
-                (arguments?.get("max_scrolls")?.jsonPrimitive?.intOrNull ?: DEFAULT_MAX_SCROLLS)
-                    .coerceIn(1, MAX_SCROLLS_HARD_CAP)
-
-            for (attempt in 0..maxScrolls) {
-                val fresh = getFreshWindows(treeParser, accessibilityServiceProvider, nodeCache)
-                val nodeId =
-                    try {
-                        resolveSelectorNodeId(fresh.windows, elementFinder, selector)
-                    } catch (e: McpToolException.NodeNotFound) {
-                        null
-                    }
-                if (nodeId != null) return nodeId to fresh
-                if (attempt == maxScrolls) break
-                actionExecutor.scroll(direction, ScrollAmount.MEDIUM)
-                kotlinx.coroutines.delay(SCROLL_SETTLE_DELAY_MS)
-            }
-            throw McpToolException.NodeNotFound(
-                "scroll_to_node: selector never resolved after $maxScrolls scroll(s)",
-            )
         }
 
         private fun parseDirection(value: String?): ScrollDirection =
