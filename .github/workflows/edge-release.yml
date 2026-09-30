@@ -45,7 +45,7 @@ concurrency:
 jobs:
   gate:
     name: Gate on CI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     outputs:
       publish: ${{ steps.decide.outputs.publish }}
@@ -108,7 +108,7 @@ jobs:
     name: Update Edge Release
     needs: gate
     if: needs.gate.outputs.publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:
       # ── 1. Checkout with full history (versionName/versionCode are git-derived) ──
