@@ -133,6 +133,10 @@ When implementing a plan (git workflow):
   1. Push any remaining unpushed commits
   2. Create the PR via `gh pr create` following the PR convention in TOOLS.md
 - You MUST report the PR URL to the user when done
+- **You MUST NOT merge the PR yourself** (droidthumb-server plan 03 milestone 1 onward). CI builds
+  and attaches a debug APK to the PR (`.github/workflows/ci.yml`'s `build-release` job, commented
+  with a link to the run); the founder tests against it and `droidthumb-server`'s matching staging
+  deploy, then merges. Report what CI produced and stop there.
 
 When performing ad-hoc code changes (outside of plan workflows):
 - After completing the code changes, you SHOULD spawn the `code-reviewer` subagent to audit the changes.
