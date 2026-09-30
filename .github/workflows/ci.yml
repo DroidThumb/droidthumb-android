@@ -125,3 +125,15 @@ jobs:
           name: app-release
           path: app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 30
+
+      # droidthumb-server's plan 03 milestone 1: every PR (either repo) should have a debug APK
+      # readily reachable to test against that PR's staging deploy. The APK itself was already
+      # built and uploaded above (has been since before this milestone) — this just makes it easy
+      # to find from the PR itself instead of only from the Actions tab.
+      - name: Comment debug APK link on the PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: debug-apk
+          message: |
+            Debug APK for this PR: see the **app-debug** artifact on [this workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
