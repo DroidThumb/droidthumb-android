@@ -90,6 +90,11 @@ jobs:
     name: Build Release
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Job-level override of the workflow's contents:read default — this job alone needs to post
+    # the debug-APK-link PR comment (marocchino/sticky-pull-request-comment, below).
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
