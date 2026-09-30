@@ -16,7 +16,7 @@ concurrency:
 jobs:
   release:
     name: Create Draft Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:
       # ── 1. Checkout with full history (needed for tag comparison) ──
