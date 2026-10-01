@@ -15,11 +15,14 @@ data class TransportConfig(
     val enabled: Boolean = false,
     val host: String = "",
     val port: Int = DEFAULT_PORT,
+    val tls: Boolean = false,
     val deviceId: String = "",
 ) {
     companion object {
-        /** Matches `droidthumb-server`'s `DEVICE_PORT` default (`src/config.ts`). */
-        const val DEFAULT_PORT = 4001
+        /** Matches `droidthumb-server`'s single-listener default (`src/config.ts`'s `mcpPort`) —
+         *  MCP, events, device registration and the device WebSocket are all on this one port now
+         *  (no more separate device-relay port). */
+        const val DEFAULT_PORT = 4000
 
         fun fromJson(json: String): TransportConfig = transportJson.decodeFromString(serializer(), json)
 

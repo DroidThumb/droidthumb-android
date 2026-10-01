@@ -65,6 +65,13 @@ class TransportSettingsImpl
             }
         }
 
+        override suspend fun updateTransportTls(tls: Boolean) {
+            val (old, new) = updateConfig { it.copy(tls = tls) }
+            settingsChangeLogger.submit("transport_tls", old.tls.toString(), new.tls.toString()) { _, n ->
+                "Remote control TLS ${if (n.toBoolean()) "enabled" else "disabled"}"
+            }
+        }
+
         private companion object {
             private val TRANSPORT_CONFIG_KEY = stringPreferencesKey("transport_config")
         }

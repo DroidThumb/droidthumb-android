@@ -27,4 +27,9 @@ interface TransportSettings {
 
     /** Updates the server port. */
     suspend fun updateTransportPort(port: Int)
+
+    /** Updates whether the transport connects over TLS (wss vs ws) — the same scheme covers the
+     *  WebSocket handshake and the one-time registration call, since both are the same single
+     *  listener behind Caddy's TLS termination on the public hostname. */
+    suspend fun updateTransportTls(tls: Boolean)
 }
