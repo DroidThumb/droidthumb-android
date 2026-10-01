@@ -144,8 +144,10 @@ class DeviceTransportClientImpl
         @Volatile
         private var pendingRegenerate: CompletableDeferred<String>? = null
 
-        private fun currentDeviceId(): String =
-            deriveDeviceId(Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64()))
+        private fun currentDeviceId(): String {
+            val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
+            return deriveDeviceId(publicKeyDer)
+        }
 
         override fun start(
             host: String,

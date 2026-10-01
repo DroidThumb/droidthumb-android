@@ -84,6 +84,25 @@ class DeviceTransportClientTest {
             connectorUrlSettings,
         )
 
+    /**
+     * Waits until `client.status` matches [T], returning that exact snapshot — never re-reading
+     * `client.status.value` afterward. Several fake-server handlers below return immediately after
+     * sending `Welcome` (closing the connection from the server side), which sends the real client
+     * straight back into `Reconnecting`/`Connecting` on the very next loop iteration with no delay;
+     * a plain `while (status !is X) yield()` followed by a second read is a TOCTOU race against that
+     * transition, found live (not theoretical) once `ensureRegistered()`'s extra suspension point
+     * per loop iteration shifted the scheduling enough to make it flaky under `:app:test`'s full run.
+     */
+    private suspend inline fun <reified T : TransportStatus> awaitStatus(client: DeviceTransportClientImpl): T =
+        withTimeout(15.seconds) {
+            var captured: T? = null
+            while (captured == null) {
+                val current = client.status.value
+                if (current is T) captured = current else kotlinx.coroutines.yield()
+            }
+            captured
+        }
+
     private suspend fun <T> withFakeServer(
         handler: suspend io.ktor.server.websocket.DefaultWebSocketServerSession.() -> Unit,
         block: suspend (port: Int) -> T,
@@ -123,10 +142,8 @@ class DeviceTransportClientTest {
             ) { port ->
                 val client = newClient()
                 client.start("127.0.0.1", port, tls = false)
-                withTimeout(15.seconds) {
-                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
-                }
-                assertEquals(TransportStatus.Connected(1), client.status.value)
+                val connected = awaitStatus<TransportStatus.Connected>(client)
+                assertEquals(TransportStatus.Connected(1), connected)
                 client.stop()
             }
         }
@@ -142,10 +159,9 @@ class DeviceTransportClientTest {
             ) { port ->
                 val client = newClient()
                 client.start("127.0.0.1", port, tls = false)
-                withTimeout(15.seconds) {
-                    while (client.status.value !is TransportStatus.Rejected) kotlinx.coroutines.yield()
-                }
-                val rejected = client.status.value as TransportStatus.Rejected
+                // Rejected is transient here — the reconnect loop flips straight to Reconnecting
+                // right after, with no delay before that write on the very first retry.
+                val rejected = awaitStatus<TransportStatus.Rejected>(client)
                 assertEquals(4001.toShort(), rejected.closeCode)
                 client.stop()
             }
@@ -269,10 +285,8 @@ class DeviceTransportClientTest {
             ) { port ->
                 val client = newClient()
                 client.start("127.0.0.1", port, tls = false)
-                withTimeout(15.seconds) {
-                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
-                }
-                assertEquals(TransportStatus.Connected(1), client.status.value)
+                val connected = awaitStatus<TransportStatus.Connected>(client)
+                assertEquals(TransportStatus.Connected(1), connected)
                 client.stop()
             }
         }
@@ -509,6 +523,7 @@ class DeviceTransportClientTest {
     fun `the connector URL never reaches Logger`() {
         mockkObject(Logger)
         val capturedMessages = mutableListOf<String>()
+        every { Logger.d(any(), any()) } answers { capturedMessages.add(secondArg<String>()) }
         every { Logger.i(any(), any()) } answers { capturedMessages.add(secondArg<String>()) }
         every { Logger.w(any(), any(), any()) } answers { capturedMessages.add(secondArg<String>()) }
         every { Logger.e(any(), any(), any()) } answers { capturedMessages.add(secondArg<String>()) }
