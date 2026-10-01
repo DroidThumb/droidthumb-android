@@ -42,6 +42,8 @@ import com.danielealbano.androidremotecontrolmcp.services.screencapture.ApiLevel
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.DefaultApiLevelProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProviderImpl
+import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceRegistrationClient
+import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceRegistrationClientImpl
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClientImpl
 import dagger.Binds
@@ -173,4 +175,8 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindConnectorSecretCrypto(impl: ConnectorSecretCryptoImpl): ConnectorSecretCrypto
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceRegistrationClient(impl: DeviceRegistrationClientImpl): DeviceRegistrationClient
 }
