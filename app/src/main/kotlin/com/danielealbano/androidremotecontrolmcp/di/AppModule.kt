@@ -26,6 +26,10 @@ import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManagerImpl
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcherImpl
+import com.danielealbano.androidremotecontrolmcp.services.identity.DefaultDeviceInfoProvider
+import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
+import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStoreImpl
+import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcherImpl
 import com.danielealbano.androidremotecontrolmcp.services.power.BatteryOptimizationManager
@@ -148,4 +152,12 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindDeviceTransportClient(impl: DeviceTransportClientImpl): DeviceTransportClient
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceIdentityKeyStore(impl: DeviceIdentityKeyStoreImpl): DeviceIdentityKeyStore
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceInfoProvider(impl: DefaultDeviceInfoProvider): DeviceInfoProvider
 }
