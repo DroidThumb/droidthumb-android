@@ -20,10 +20,10 @@ class EventChannelServiceTest {
     @DisplayName("events URL derivation")
     inner class EventsUrlDerivation {
         @Test
-        fun `eventsUrlFromConnectorUrl replaces the last path segment`() {
+        fun `eventChannelOriginFromConnectorUrl drops the mcp path segment`() {
             assertEquals(
-                "https://host/d/dtk_x/events",
-                eventsUrlFromConnectorUrl("https://host/d/dtk_x/mcp"),
+                "https://host/d/dtk_x",
+                eventChannelOriginFromConnectorUrl("https://host/d/dtk_x/mcp"),
             )
         }
     }

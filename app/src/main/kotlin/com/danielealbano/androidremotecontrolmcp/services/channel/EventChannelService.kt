@@ -74,14 +74,14 @@ class EventChannelService : Service() {
                 return@launch
             }
 
-            val eventsUrl = eventsUrlFromConnectorUrl(connectorUrl)
-            eventDispatcher.start(eventsUrl, authToken = "")
+            val eventsOrigin = eventChannelOriginFromConnectorUrl(connectorUrl)
+            eventDispatcher.start(eventsOrigin, authToken = "")
             startLogged = true
-            // channelStartedLogMessage takes the HOST only, never the full URL: eventsUrl carries the
-            // same per-device secret as the connector URL (.../d/<secret>/events) and this log is
-            // persisted to disk and rendered in the app's own Logs screen (ServerLogRepository) — never
-            // log the secret path itself, at any level.
-            val eventsHost = Uri.parse(eventsUrl).host ?: "unknown host"
+            // channelStartedLogMessage takes the HOST only, never the full URL: eventsOrigin carries the
+            // same per-device secret as the connector URL (.../d/<secret>) and this log is persisted to
+            // disk and rendered in the app's own Logs screen (ServerLogRepository) — never log the secret
+            // path itself, at any level.
+            val eventsHost = Uri.parse(eventsOrigin).host ?: "unknown host"
             serverLogRepository.log(ServerLogEntry.Type.CHANNEL, channelStartedLogMessage(eventsHost))
 
             // Immediate health check on start
@@ -189,9 +189,11 @@ class EventChannelService : Service() {
 
 internal fun channelStartedLogMessage(host: String): String = "Event channel started (host: $host)"
 
-/** `https://host/d/<secret>/mcp` -> `https://host/d/<secret>/events` — same secret path, sibling
- *  route (server#16 item 6). */
-internal fun eventsUrlFromConnectorUrl(connectorUrl: String): String = "${connectorUrl.substringBeforeLast('/')}/events"
+/** `https://host/d/<secret>/mcp` -> `https://host/d/<secret>` — the per-device secret path with
+ *  the `/mcp` suffix dropped, which is the base [EventDispatcher.start] expects: it appends
+ *  `/events`/`/health` itself (`EventDispatcherImpl`, pre-existing contract this plan doesn't
+ *  change), giving `/d/<secret>/events` — droidthumb-server's actual route (server#16 item 6). */
+internal fun eventChannelOriginFromConnectorUrl(connectorUrl: String): String = connectorUrl.substringBeforeLast('/')
 
 internal const val CHANNEL_STOPPED_LOG_MESSAGE = "Event channel stopped"
 
