@@ -7,8 +7,9 @@ private val transportJson = Json { ignoreUnknownKeys = true }
 
 /**
  * The device WebSocket transport's settings (M2): where the server is (`host`/`port` — the podman
- * gateway when pointed at redroid, plan 01 §0/§0.1; a real relay address later), whether the
- * connection should be held open, and this device's stable identity (`hello.device_id`).
+ * gateway when pointed at redroid, plan 01 §0/§0.1; a real relay address later), whether TLS is
+ * used, and whether the connection should be held open. `hello.device_id` is not stored here — it's
+ * derived on demand from the Keystore public key (services/identity/DeviceId.kt).
  */
 @Serializable
 data class TransportConfig(
@@ -16,7 +17,6 @@ data class TransportConfig(
     val host: String = "",
     val port: Int = DEFAULT_PORT,
     val tls: Boolean = false,
-    val deviceId: String = "",
 ) {
     companion object {
         /** Matches `droidthumb-server`'s single-listener default (`src/config.ts`'s `mcpPort`) —

@@ -8,7 +8,6 @@ import com.danielealbano.androidremotecontrolmcp.data.model.TransportConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import java.util.UUID
 import javax.inject.Inject
 
 private typealias ConfigChange = Pair<TransportConfig, TransportConfig>
@@ -27,15 +26,7 @@ class TransportSettingsImpl
                 TransportConfig.fromJsonOrDefault(json)
             }
 
-        override suspend fun getTransportConfig(): TransportConfig {
-            val current = transportConfig.first()
-            if (current.deviceId.isNotEmpty()) return current
-            // First-ever read: mint and persist a stable device id so hello.device_id survives
-            // restarts rather than regenerating (and thus looking like a new device) every launch.
-            val withDeviceId = current.copy(deviceId = UUID.randomUUID().toString())
-            dataStore.edit { prefs -> prefs[TRANSPORT_CONFIG_KEY] = withDeviceId.toJson() }
-            return withDeviceId
-        }
+        override suspend fun getTransportConfig(): TransportConfig = transportConfig.first()
 
         private suspend fun updateConfig(transform: (TransportConfig) -> TransportConfig): ConfigChange {
             val current = getTransportConfig()

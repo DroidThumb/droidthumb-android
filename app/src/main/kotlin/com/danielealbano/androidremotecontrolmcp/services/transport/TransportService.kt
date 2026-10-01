@@ -66,7 +66,7 @@ class TransportService : Service() {
                 return@launch
             }
 
-            transportClient.start(config.host, config.port, config.deviceId)
+            transportClient.start(config.host, config.port, config.tls)
             Logger.i(TAG, "Transport started, target=${config.host}:${config.port}")
 
             serviceScope.launch {
@@ -78,8 +78,8 @@ class TransportService : Service() {
                     handleStop()
                     return@collect
                 }
-                if (newConfig.host != config.host || newConfig.port != config.port) {
-                    transportClient.start(newConfig.host, newConfig.port, newConfig.deviceId)
+                if (newConfig.host != config.host || newConfig.port != config.port || newConfig.tls != config.tls) {
+                    transportClient.start(newConfig.host, newConfig.port, newConfig.tls)
                 }
             }
         }
