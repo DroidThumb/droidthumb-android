@@ -73,7 +73,8 @@ class TransportViewModel
             _regenerateState.value = RegenerateSecretState.IN_PROGRESS
             viewModelScope.launch(ioDispatcher) {
                 val succeeded = transportClient.regenerateSecret()
-                _regenerateState.value = if (succeeded) RegenerateSecretState.SUCCEEDED else RegenerateSecretState.TIMED_OUT
+                _regenerateState.value =
+                    if (succeeded) RegenerateSecretState.SUCCEEDED else RegenerateSecretState.TIMED_OUT
             }
         }
 

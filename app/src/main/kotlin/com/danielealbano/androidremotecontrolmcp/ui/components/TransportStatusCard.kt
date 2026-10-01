@@ -86,7 +86,16 @@ fun TransportStatusCard(
         Column(modifier = Modifier.padding(16.dp)) {
             TransportStatusRow(label, statusText, animatedColor, enabled, startEnabled, onStartClick, onStopClick)
             Spacer(modifier = Modifier.width(8.dp))
-            TransportAddressFields(host, port, portError, onHostChange, onPortChange, tls, onTlsChange, fieldsEnabled = !enabled)
+            TransportAddressFields(
+                host,
+                port,
+                portError,
+                onHostChange,
+                onPortChange,
+                tls,
+                onTlsChange,
+                fieldsEnabled = !enabled,
+            )
             if (connectorUrl != null) {
                 Spacer(modifier = Modifier.height(12.dp))
                 ConnectorUrlSection(
@@ -230,16 +239,22 @@ private fun ConnectorUrlSection(
                 Text("Regenerate")
             }
             when (regenerateState) {
-                TransportViewModel.RegenerateSecretState.IN_PROGRESS ->
+                TransportViewModel.RegenerateSecretState.IN_PROGRESS -> {
                     Text("Regenerating…", style = MaterialTheme.typography.bodySmall)
-                TransportViewModel.RegenerateSecretState.SUCCEEDED ->
+                }
+
+                TransportViewModel.RegenerateSecretState.SUCCEEDED -> {
                     Text("Done", style = MaterialTheme.typography.bodySmall)
-                TransportViewModel.RegenerateSecretState.TIMED_OUT ->
+                }
+
+                TransportViewModel.RegenerateSecretState.TIMED_OUT -> {
                     Text(
                         "No response — try again later",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
+                }
+
                 TransportViewModel.RegenerateSecretState.IDLE -> {}
             }
         }

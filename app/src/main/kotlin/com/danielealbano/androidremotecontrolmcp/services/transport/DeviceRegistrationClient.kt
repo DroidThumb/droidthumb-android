@@ -45,7 +45,7 @@ interface DeviceRegistrationClient {
      *  the device's first WebSocket connection (D-27). Sends only `public_key`; the server derives
      *  and returns `device_id` (server#16 item 2 — the deprecated, optional request `device_id`
      *  field is never sent). Same host/port/tls as the WS transport: both are the single listener,
-     *  unaffected by milestone 3's `/d/<secret>/*` routing. */
+     *  unaffected by the per-secret `/d/<secret>/...` routes milestone 3 added. */
     suspend fun register(
         host: String,
         port: Int,
@@ -104,11 +104,16 @@ class DeviceRegistrationClientImpl
                             val body = response.body<RegisterResponseBody>()
                             DeviceRegistrationResult.Success(body.deviceId, body.connectorUrl)
                         }
-                        HttpStatusCode.TooManyRequests ->
+
+                        HttpStatusCode.TooManyRequests -> {
                             DeviceRegistrationResult.RateLimited(
                                 response.headers[HttpHeaders.RetryAfter]?.toIntOrNull(),
                             )
-                        else -> DeviceRegistrationResult.Failed("HTTP ${response.status.value}")
+                        }
+
+                        else -> {
+                            DeviceRegistrationResult.Failed("HTTP ${response.status.value}")
+                        }
                     }
                 } catch (e: Exception) {
                     DeviceRegistrationResult.Failed(e.message ?: "registration failed")

@@ -1,6 +1,5 @@
 package com.danielealbano.androidremotecontrolmcp.services.transport
 
-import android.util.Base64
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
@@ -19,6 +18,7 @@ import com.danielealbano.androidremotecontrolmcp.wireprotocol.WireMessage
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.wireJson
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.header
@@ -44,6 +44,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -144,7 +145,7 @@ class DeviceTransportClientImpl
         private var pendingRegenerate: CompletableDeferred<String>? = null
 
         private fun currentDeviceId(): String =
-            deriveDeviceId(Base64.decode(deviceIdentityKeyStore.ensurePublicKeyBase64(), Base64.NO_WRAP))
+            deriveDeviceId(Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64()))
 
         override fun start(
             host: String,
@@ -190,10 +191,13 @@ class DeviceTransportClientImpl
                     result.connectorUrl?.let { connectorUrlSettings.updateConnectorUrl(it) }
                 }
 
-                is DeviceRegistrationResult.RateLimited ->
+                is DeviceRegistrationResult.RateLimited -> {
                     Logger.w(TAG, "Registration rate-limited, retry-after=${result.retryAfterSeconds}")
+                }
 
-                is DeviceRegistrationResult.Failed -> Logger.w(TAG, "Registration failed: ${result.message}")
+                is DeviceRegistrationResult.Failed -> {
+                    Logger.w(TAG, "Registration failed: ${result.message}")
+                }
             }
         }
 
@@ -219,6 +223,7 @@ class DeviceTransportClientImpl
                 ) {
                     val outbox = Channel<WireMessage>(Channel.BUFFERED)
                     currentOutbox = outbox
+
                     try {
                         send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), helloFor())))
                         launch {
@@ -228,45 +233,7 @@ class DeviceTransportClientImpl
                         }
                         for (frame in incoming) {
                             val message = decodeOrNull(frame) ?: continue
-                            when (message) {
-                                is Challenge -> {
-                                    val signature = deviceIdentityKeyStore.signNonce(message.nonce)
-                                    send(
-                                        Frame.Text(
-                                            wireJson.encodeToString(
-                                                WireMessage.serializer(),
-                                                ChallengeResponse(signature),
-                                            ),
-                                        ),
-                                    )
-                                }
-
-                                is Welcome -> {
-                                    welcomed = true
-                                    Logger.i(TAG, "Connected: protocol_version=${message.protocolVersion}")
-                                    _updateInfo.value =
-                                        UpdateInfo(
-                                            message.latestAppVersion,
-                                            message.minimumSupportedAppVersion,
-                                            message.downloadUrl,
-                                        )
-                                    _status.value = TransportStatus.Connected(message.protocolVersion)
-                                }
-
-                                is Step -> {
-                                    val reply = stepDispatcher.dispatch(message)
-                                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), reply)))
-                                }
-
-                                is SecretRegenerated -> {
-                                    connectorUrlSettings.updateConnectorUrl(message.connectorUrl)
-                                    pendingRegenerate?.complete(message.connectorUrl)
-                                }
-
-                                // Hello/ChallengeResponse/RegenerateSecret/StepResult/StepError never
-                                // arrive server -> device
-                                else -> {}
-                            }
+                            if (handleIncomingMessage(message)) welcomed = true
                         }
                         // `incoming` completed — the server closed the connection. This is the ONLY
                         // place a 4000-4003 close is observable (Ktor's client WS doesn't throw for a
@@ -292,6 +259,43 @@ class DeviceTransportClientImpl
                 Logger.w(TAG, "Transport session ended: ${e.message}")
             }
             return welcomed
+        }
+
+        /** Handles one decoded inbound message for the current session. Returns `true` iff
+         *  `message` was [Welcome] — `runSession` uses that to set its own `welcomed` flag, since
+         *  this is a separate function (not a local one) specifically so detekt's per-function
+         *  complexity/length limits measure it apart from `runSession`'s own connection-lifecycle
+         *  logic. */
+        private suspend fun DefaultClientWebSocketSession.handleIncomingMessage(message: WireMessage): Boolean {
+            when (message) {
+                is Challenge -> {
+                    val signature = deviceIdentityKeyStore.signNonce(message.nonce)
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), ChallengeResponse(signature))))
+                }
+
+                is Welcome -> {
+                    Logger.i(TAG, "Connected: protocol_version=${message.protocolVersion}")
+                    _updateInfo.value =
+                        UpdateInfo(message.latestAppVersion, message.minimumSupportedAppVersion, message.downloadUrl)
+                    _status.value = TransportStatus.Connected(message.protocolVersion)
+                    return true
+                }
+
+                is Step -> {
+                    val reply = stepDispatcher.dispatch(message)
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), reply)))
+                }
+
+                is SecretRegenerated -> {
+                    connectorUrlSettings.updateConnectorUrl(message.connectorUrl)
+                    pendingRegenerate?.complete(message.connectorUrl)
+                }
+
+                // Hello/ChallengeResponse/RegenerateSecret/StepResult/StepError never arrive
+                // server -> device
+                else -> {}
+            }
+            return false
         }
 
         override suspend fun regenerateSecret(): Boolean =

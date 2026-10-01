@@ -58,6 +58,7 @@ class SettingsRepositoryLoggingTest {
         val identityCrypto =
             object : ConnectorSecretCrypto {
                 override fun encrypt(plaintext: String) = plaintext
+
                 override fun decrypt(ciphertext: String) = ciphertext
             }
         repository =

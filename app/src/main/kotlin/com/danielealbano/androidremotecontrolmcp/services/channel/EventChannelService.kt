@@ -81,7 +81,8 @@ class EventChannelService : Service() {
             // same per-device secret as the connector URL (.../d/<secret>/events) and this log is
             // persisted to disk and rendered in the app's own Logs screen (ServerLogRepository) — never
             // log the secret path itself, at any level.
-            serverLogRepository.log(ServerLogEntry.Type.CHANNEL, channelStartedLogMessage(Uri.parse(eventsUrl).host ?: "unknown host"))
+            val eventsHost = Uri.parse(eventsUrl).host ?: "unknown host"
+            serverLogRepository.log(ServerLogEntry.Type.CHANNEL, channelStartedLogMessage(eventsHost))
 
             // Immediate health check on start
             eventDispatcher.healthCheck()
@@ -190,8 +191,7 @@ internal fun channelStartedLogMessage(host: String): String = "Event channel sta
 
 /** `https://host/d/<secret>/mcp` -> `https://host/d/<secret>/events` — same secret path, sibling
  *  route (server#16 item 6). */
-internal fun eventsUrlFromConnectorUrl(connectorUrl: String): String =
-    "${connectorUrl.substringBeforeLast('/')}/events"
+internal fun eventsUrlFromConnectorUrl(connectorUrl: String): String = "${connectorUrl.substringBeforeLast('/')}/events"
 
 internal const val CHANNEL_STOPPED_LOG_MESSAGE = "Event channel stopped"
 

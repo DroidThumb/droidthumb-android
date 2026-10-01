@@ -1,6 +1,7 @@
 package com.danielealbano.androidremotecontrolmcp.ui.viewmodels
 
 import android.content.Context
+import app.cash.turbine.test
 import com.danielealbano.androidremotecontrolmcp.data.model.TransportConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
@@ -70,10 +71,12 @@ class TransportViewModelTest {
         @Test
         fun `connectorUrl reflects the repository's flow`() =
             runTest {
-                advanceUntilIdle()
-                connectorUrlFlow.value = "https://h/d/x/mcp"
-                advanceUntilIdle()
-                assertEquals("https://h/d/x/mcp", viewModel.connectorUrl.value)
+                viewModel.connectorUrl.test {
+                    assertEquals(null, awaitItem())
+                    connectorUrlFlow.value = "https://h/d/x/mcp"
+                    assertEquals("https://h/d/x/mcp", awaitItem())
+                    cancelAndIgnoreRemainingEvents()
+                }
             }
     }
 

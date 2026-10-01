@@ -22,7 +22,8 @@ import kotlinx.serialization.modules.polymorphic
 @Serializable
 sealed interface WireMessage
 
-/** device -> server, sent once per connection to open the handshake. */
+/** device -> server, sent once per connection to open the handshake. `device_id` is derived from
+ *  the Keystore public key (services/identity/DeviceId.kt), never stored or chosen. */
 @Serializable
 @SerialName("hello")
 data class Hello(
@@ -32,6 +33,8 @@ data class Hello(
     val capabilities: List<String> = emptyList(),
     val mode: String,
     @SerialName("flow_manifest") val flowManifest: List<FlowManifestEntry> = emptyList(),
+    @SerialName("android_version") val androidVersion: Int? = null,
+    @SerialName("device_model") val deviceModel: String? = null,
 ) : WireMessage
 
 @Serializable

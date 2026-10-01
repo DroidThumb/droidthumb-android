@@ -30,7 +30,6 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
-import io.mockk.secondArg
 import io.mockk.unmockkObject
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -77,7 +76,13 @@ class DeviceTransportClientTest {
             },
         connectorUrlSettings: ConnectorUrlSettings = mockk(relaxed = true),
     ): DeviceTransportClientImpl =
-        DeviceTransportClientImpl(dispatcher, identityKeyStore, deviceInfoProvider, registrationClient, connectorUrlSettings)
+        DeviceTransportClientImpl(
+            dispatcher,
+            identityKeyStore,
+            deviceInfoProvider,
+            registrationClient,
+            connectorUrlSettings,
+        )
 
     private suspend fun <T> withFakeServer(
         handler: suspend io.ktor.server.websocket.DefaultWebSocketServerSession.() -> Unit,
@@ -340,7 +345,8 @@ class DeviceTransportClientTest {
                     send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
                 },
             ) { port ->
-                val client = newClient(registrationClient = registrationClient, connectorUrlSettings = connectorUrlSettings)
+                val client =
+                    newClient(registrationClient = registrationClient, connectorUrlSettings = connectorUrlSettings)
                 client.start("127.0.0.1", port, tls = false)
                 withTimeout(15.seconds) {
                     while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
@@ -367,7 +373,8 @@ class DeviceTransportClientTest {
                     connectionCount.incrementAndGet()
                 },
             ) { port ->
-                val client = newClient(registrationClient = registrationClient, connectorUrlSettings = connectorUrlSettings)
+                val client =
+                    newClient(registrationClient = registrationClient, connectorUrlSettings = connectorUrlSettings)
                 client.start("127.0.0.1", port, tls = false)
                 withTimeout(15.seconds) {
                     while (connectionCount.get() < 2) kotlinx.coroutines.yield()
@@ -539,8 +546,9 @@ class DeviceTransportClientTest {
                 }
             }
             for (message in capturedMessages) {
-                assertFalse(message.contains("https://h/d/x/mcp"), "Logger message leaked the connector URL: $message")
-                assertFalse(message.contains("https://h/d/new/mcp"), "Logger message leaked the connector URL: $message")
+                val leakMessage = "Logger message leaked the connector URL: $message"
+                assertFalse(message.contains("https://h/d/x/mcp"), leakMessage)
+                assertFalse(message.contains("https://h/d/new/mcp"), leakMessage)
             }
         } finally {
             unmockkObject(Logger)
