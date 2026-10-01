@@ -1,0 +1,9 @@
+{
+  "type": "welcome",
+  "accepted": true,
+  "protocol_version": 1,
+  "latest_app_version": "1.3.0",
+  "minimum_supported_app_version": "1.0.0",
+  "download_url": "https://github.com/DroidThumb/droidthumb-android/releases/latest",
+  "settings": { "default_step_timeout_ms": 30000 }
+}

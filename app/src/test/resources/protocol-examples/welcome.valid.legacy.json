@@ -1,0 +1,6 @@
+{
+  "type": "welcome",
+  "accepted": true,
+  "protocol_version": 1,
+  "settings": { "default_step_timeout_ms": 30000 }
+}
