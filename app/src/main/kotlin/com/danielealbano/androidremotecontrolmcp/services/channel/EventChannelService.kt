@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.IBinder
 import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.data.model.ChannelConnectionStatus
@@ -65,16 +66,22 @@ class EventChannelService : Service() {
 
         serviceScope.launch {
             val config = settingsRepository.getEventChannelConfig()
-            if (config.endpointUrl.isBlank()) {
-                Logger.e(TAG, "Cannot start: endpoint URL is empty")
+            val connectorUrl = settingsRepository.getConnectorUrl()
+            if (connectorUrl == null) {
+                Logger.e(TAG, "Cannot start: no connector URL yet")
                 serverLogRepository.log(ServerLogEntry.Type.CHANNEL, CHANNEL_START_FAILED_LOG_MESSAGE)
                 stopSelf()
                 return@launch
             }
 
-            eventDispatcher.start(config.endpointUrl, config.authToken)
+            val eventsUrl = eventsUrlFromConnectorUrl(connectorUrl)
+            eventDispatcher.start(eventsUrl, authToken = "")
             startLogged = true
-            serverLogRepository.log(ServerLogEntry.Type.CHANNEL, channelStartedLogMessage(config.endpointUrl))
+            // channelStartedLogMessage takes the HOST only, never the full URL: eventsUrl carries the
+            // same per-device secret as the connector URL (.../d/<secret>/events) and this log is
+            // persisted to disk and rendered in the app's own Logs screen (ServerLogRepository) — never
+            // log the secret path itself, at any level.
+            serverLogRepository.log(ServerLogEntry.Type.CHANNEL, channelStartedLogMessage(Uri.parse(eventsUrl).host ?: "unknown host"))
 
             // Immediate health check on start
             eventDispatcher.healthCheck()
@@ -179,8 +186,13 @@ class EventChannelService : Service() {
     }
 }
 
-internal fun channelStartedLogMessage(endpointUrl: String): String = "Event channel started (endpoint: $endpointUrl)"
+internal fun channelStartedLogMessage(host: String): String = "Event channel started (host: $host)"
+
+/** `https://host/d/<secret>/mcp` -> `https://host/d/<secret>/events` — same secret path, sibling
+ *  route (server#16 item 6). */
+internal fun eventsUrlFromConnectorUrl(connectorUrl: String): String =
+    "${connectorUrl.substringBeforeLast('/')}/events"
 
 internal const val CHANNEL_STOPPED_LOG_MESSAGE = "Event channel stopped"
 
-internal const val CHANNEL_START_FAILED_LOG_MESSAGE = "Event channel failed to start: endpoint URL is empty"
+internal const val CHANNEL_START_FAILED_LOG_MESSAGE = "Event channel failed to start: no connector URL yet"

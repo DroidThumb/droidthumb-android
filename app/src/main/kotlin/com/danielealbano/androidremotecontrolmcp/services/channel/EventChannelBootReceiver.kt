@@ -44,7 +44,8 @@ class EventChannelBootReceiver : BroadcastReceiver() {
             try {
                 withTimeout(SETTINGS_READ_TIMEOUT_MS) {
                     val channelConfig = settingsRepository.getEventChannelConfig()
-                    if (shouldAutoStart(channelConfig)) {
+                    val hasConnectorUrl = settingsRepository.getConnectorUrl() != null
+                    if (shouldAutoStart(channelConfig, hasConnectorUrl)) {
                         val channelIntent =
                             Intent(context, EventChannelService::class.java).apply {
                                 action = EventChannelService.ACTION_START
@@ -76,5 +77,8 @@ class EventChannelBootReceiver : BroadcastReceiver() {
     }
 }
 
-/** The channel auto-starts on boot only when it is enabled and has an endpoint to send to. */
-internal fun shouldAutoStart(config: EventChannelConfig): Boolean = config.enabled && config.endpointUrl.isNotBlank()
+/** The channel auto-starts on boot only when it is enabled and has a connector URL to send to. */
+internal fun shouldAutoStart(
+    config: EventChannelConfig,
+    hasConnectorUrl: Boolean,
+): Boolean = config.enabled && hasConnectorUrl

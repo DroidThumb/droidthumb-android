@@ -78,11 +78,11 @@ class SettingsRepositoryLoggingTest {
     @Test
     fun `no-op write logs nothing`() =
         testScope.runTest {
-            repository.updateEventChannelEndpointUrl("http://same:1")
+            repository.updateTransportHost("same-host")
             advanceUntilIdle()
             serverLog.clear()
 
-            repository.updateEventChannelEndpointUrl("http://same:1")
+            repository.updateTransportHost("same-host")
             advanceUntilIdle()
             assertTrue(settingsMessages().isEmpty())
         }
@@ -100,16 +100,16 @@ class SettingsRepositoryLoggingTest {
         }
 
     @Test
-    fun `event channel endpoint logs old to new`() =
+    fun `transport host logs old to new`() =
         testScope.runTest {
-            repository.updateEventChannelEndpointUrl("http://old:1")
+            repository.updateTransportHost("old-host")
             advanceUntilIdle()
             serverLog.clear()
 
-            repository.updateEventChannelEndpointUrl("http://new:2")
+            repository.updateTransportHost("new-host")
             advanceUntilIdle()
             assertEquals(
-                "Event channel endpoint changed http://old:1 → http://new:2",
+                "Remote control server host changed old-host → new-host",
                 settingsMessages().single(),
             )
         }

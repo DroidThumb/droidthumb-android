@@ -97,7 +97,7 @@ fun ServerScreen(
                 channelStatus = channelStatus,
                 channelEnabled = channelConfig.enabled,
                 onStartClick = {
-                    if (channelConfig.endpointUrl.isBlank()) {
+                    if (connectorUrl == null) {
                         showChannelNotConfiguredDialog = true
                     } else {
                         channelViewModel.startChannel()

@@ -24,7 +24,7 @@ class SettingsRepositoryImplTest {
     @Test
     fun `eventChannelConfig is the slice's flow`() =
         runTest {
-            val config = EventChannelConfig(enabled = true, endpointUrl = "http://localhost:9090")
+            val config = EventChannelConfig(enabled = true)
             every { eventChannelSettings.eventChannelConfig } returns flowOf(config)
 
             assertEquals(config, repository.eventChannelConfig.first())
@@ -42,10 +42,8 @@ class SettingsRepositoryImplTest {
     @Test
     fun `updates delegate to the slice`() =
         runTest {
-            repository.updateEventChannelEndpointUrl("http://localhost:9090")
             repository.updateNotificationChannelEnabled(true)
 
-            coVerify { eventChannelSettings.updateEventChannelEndpointUrl("http://localhost:9090") }
             coVerify { eventChannelSettings.updateNotificationChannelEnabled(true) }
         }
 

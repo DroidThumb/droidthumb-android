@@ -19,18 +19,6 @@ class EventChannelConfigTest {
         }
 
         @Test
-        fun `default config has empty endpoint url`() {
-            val config = EventChannelConfig()
-            assertEquals("", config.endpointUrl)
-        }
-
-        @Test
-        fun `default config has empty auth token`() {
-            val config = EventChannelConfig()
-            assertEquals("", config.authToken)
-        }
-
-        @Test
         fun `default notification config has ALL filter mode`() {
             val config = EventChannelConfig()
             assertEquals(NotificationFilterMode.ALL, config.notifications.filterMode)
@@ -45,8 +33,6 @@ class EventChannelConfigTest {
             val config =
                 EventChannelConfig(
                     enabled = true,
-                    endpointUrl = "http://localhost:9090",
-                    authToken = "test-token",
                     notifications =
                         NotificationChannelConfig(
                             enabled = true,
@@ -61,12 +47,11 @@ class EventChannelConfigTest {
         }
 
         @Test
-        fun `fromJson ignores the removed wifi section of previously stored configs`() {
+        fun `decoding a legacy config JSON with leftover endpointUrl and wifi keys ignores them`() {
             val json =
-                """{"enabled":true,"endpointUrl":"http://localhost:9090","wifi":{"enabled":true,"ssids":["MyWiFi"]}}"""
+                """{"enabled":true,"endpointUrl":"http://old","authToken":"x","wifi":{"enabled":true,"ssids":["MyWiFi"]}}"""
             val config = EventChannelConfig.fromJson(json)
             assertTrue(config.enabled)
-            assertEquals("http://localhost:9090", config.endpointUrl)
         }
 
         @Test

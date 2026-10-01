@@ -7,17 +7,17 @@ import org.junit.jupiter.api.Test
 
 class EventChannelBootReceiverTest {
     @Test
-    fun `auto-starts when enabled with an endpoint`() {
-        assertTrue(shouldAutoStart(EventChannelConfig(enabled = true, endpointUrl = "http://localhost:9090")))
+    fun `auto-starts when enabled with a connector url`() {
+        assertTrue(shouldAutoStart(EventChannelConfig(enabled = true), hasConnectorUrl = true))
     }
 
     @Test
     fun `does not auto-start when disabled`() {
-        assertFalse(shouldAutoStart(EventChannelConfig(enabled = false, endpointUrl = "http://localhost:9090")))
+        assertFalse(shouldAutoStart(EventChannelConfig(enabled = false), hasConnectorUrl = true))
     }
 
     @Test
-    fun `does not auto-start without an endpoint`() {
-        assertFalse(shouldAutoStart(EventChannelConfig(enabled = true, endpointUrl = "  ")))
+    fun `does not auto-start without a connector url`() {
+        assertFalse(shouldAutoStart(EventChannelConfig(enabled = true), hasConnectorUrl = false))
     }
 }
