@@ -63,6 +63,9 @@ fun ServerScreen(
     val hostInput by transportViewModel.hostInput.collectAsStateWithLifecycle()
     val portInput by transportViewModel.portInput.collectAsStateWithLifecycle()
     val portError by transportViewModel.portError.collectAsStateWithLifecycle()
+    val connectorUrl by transportViewModel.connectorUrl.collectAsStateWithLifecycle()
+    val tlsInput by transportViewModel.tlsInput.collectAsStateWithLifecycle()
+    val regenerateState by transportViewModel.regenerateState.collectAsStateWithLifecycle()
 
     var showChannelNotConfiguredDialog by remember { mutableStateOf(false) }
 
@@ -117,6 +120,11 @@ fun ServerScreen(
                 onStartClick = { transportViewModel.start() },
                 onStopClick = { transportViewModel.stop() },
                 startEnabled = isAccessibilityEnabled && hostInput.isNotBlank(),
+                tls = tlsInput,
+                onTlsChange = transportViewModel::updateTls,
+                connectorUrl = connectorUrl,
+                regenerateState = regenerateState,
+                onRegenerateClick = transportViewModel::regenerateSecret,
             )
 
             Spacer(Modifier.height(16.dp))
