@@ -18,7 +18,8 @@ import org.junit.jupiter.api.Test
 class SettingsRepositoryImplTest {
     private val eventChannelSettings = mockk<EventChannelSettings>(relaxed = true)
     private val transportSettings = mockk<TransportSettings>(relaxed = true)
-    private val repository = SettingsRepositoryImpl(eventChannelSettings, transportSettings)
+    private val connectorUrlSettings = mockk<ConnectorUrlSettings>(relaxed = true)
+    private val repository = SettingsRepositoryImpl(eventChannelSettings, transportSettings, connectorUrlSettings)
 
     @Test
     fun `eventChannelConfig is the slice's flow`() =
@@ -46,5 +47,13 @@ class SettingsRepositoryImplTest {
 
             coVerify { eventChannelSettings.updateEventChannelEndpointUrl("http://localhost:9090") }
             coVerify { eventChannelSettings.updateNotificationChannelEnabled(true) }
+        }
+
+    @Test
+    fun `updateConnectorUrl delegates to the slice`() =
+        runTest {
+            repository.updateConnectorUrl("https://h/d/x/mcp")
+
+            coVerify { connectorUrlSettings.updateConnectorUrl("https://h/d/x/mcp") }
         }
 }

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
+import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepository
@@ -26,6 +28,8 @@ import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManagerImpl
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcherImpl
+import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCrypto
+import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCryptoImpl
 import com.danielealbano.androidremotecontrolmcp.services.identity.DefaultDeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStoreImpl
@@ -99,6 +103,11 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindServerLogRepository(impl: ServerLogRepositoryImpl): ServerLogRepository
+
+    /** Binds the M3 connector-URL settings slice that [SettingsRepositoryImpl] delegates to. */
+    @Binds
+    @Singleton
+    abstract fun bindConnectorUrlSettings(impl: ConnectorUrlSettingsImpl): ConnectorUrlSettings
 }
 
 @Module
@@ -160,4 +169,8 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindDeviceInfoProvider(impl: DefaultDeviceInfoProvider): DeviceInfoProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindConnectorSecretCrypto(impl: ConnectorSecretCryptoImpl): ConnectorSecretCrypto
 }

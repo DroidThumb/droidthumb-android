@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerLogEntry
+import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCrypto
 import com.danielealbano.androidremotecontrolmcp.testutil.RecordingServerLogRepository
 import io.mockk.every
 import io.mockk.mockkStatic
@@ -54,10 +55,16 @@ class SettingsRepositoryLoggingTest {
                 produceFile = { File(tempDir, "logging_settings_$fileCounter.preferences_pb") },
             )
         val changeLogger = SettingsChangeLogger(serverLog, testDispatcher, WINDOW)
+        val identityCrypto =
+            object : ConnectorSecretCrypto {
+                override fun encrypt(plaintext: String) = plaintext
+                override fun decrypt(ciphertext: String) = ciphertext
+            }
         repository =
             SettingsRepositoryImpl(
                 EventChannelSettingsImpl(dataStore, changeLogger),
                 TransportSettingsImpl(dataStore, changeLogger),
+                ConnectorUrlSettingsImpl(dataStore, identityCrypto, changeLogger),
             )
     }
 
