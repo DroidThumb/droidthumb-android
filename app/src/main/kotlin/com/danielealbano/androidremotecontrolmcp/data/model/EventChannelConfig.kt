@@ -8,13 +8,9 @@ private val eventChannelJson = Json { ignoreUnknownKeys = true }
 @Serializable
 data class EventChannelConfig(
     val enabled: Boolean = false,
-    val endpointUrl: String = "",
-    val authToken: String = "",
     val notifications: NotificationChannelConfig = NotificationChannelConfig(),
 ) {
     companion object {
-        const val DEFAULT_ENDPOINT_URL = "http://localhost:9090"
-
         fun fromJson(json: String): EventChannelConfig = eventChannelJson.decodeFromString(serializer(), json)
 
         fun fromJsonOrDefault(json: String): EventChannelConfig =

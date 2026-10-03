@@ -22,7 +22,8 @@ import kotlinx.serialization.modules.polymorphic
 @Serializable
 sealed interface WireMessage
 
-/** device -> server, sent once per connection to open the handshake. */
+/** device -> server, sent once per connection to open the handshake. `device_id` is derived from
+ *  the Keystore public key (services/identity/DeviceId.kt), never stored or chosen. */
 @Serializable
 @SerialName("hello")
 data class Hello(
@@ -32,6 +33,8 @@ data class Hello(
     val capabilities: List<String> = emptyList(),
     val mode: String,
     @SerialName("flow_manifest") val flowManifest: List<FlowManifestEntry> = emptyList(),
+    @SerialName("android_version") val androidVersion: Int? = null,
+    @SerialName("device_model") val deviceModel: String? = null,
 ) : WireMessage
 
 @Serializable
@@ -40,6 +43,25 @@ data class FlowManifestEntry(
     val version: Int,
 )
 
+/** server -> device, sent right after a schema-valid hello for a device_id with a registered public
+ *  key — signed by the device's Keystore key and answered with [ChallengeResponse] before [Welcome]
+ *  can arrive (D-27; not sent at all for an unknown device_id, which closes the connection instead —
+ *  droidthumb-server's ws-server.ts `CLOSE_UNKNOWN_DEVICE`). */
+@Serializable
+@SerialName("challenge")
+data class Challenge(
+    val nonce: String,
+) : WireMessage
+
+/** device -> server, reply to [Challenge]. `signature` is the base64 ASN.1 DER ECDSA signature
+ *  (SHA256withECDSA) over the raw bytes of `nonce` after base64-decoding it — not over the nonce's
+ *  base64 text (challenge-response.schema.json). */
+@Serializable
+@SerialName("challenge_response")
+data class ChallengeResponse(
+    val signature: String,
+) : WireMessage
+
 /** server -> device, replies to `hello` once the connection is accepted. */
 @Serializable
 @SerialName("welcome")
@@ -47,6 +69,9 @@ data class Welcome(
     val accepted: Boolean,
     @SerialName("protocol_version") val protocolVersion: Int,
     val settings: WelcomeSettings? = null,
+    @SerialName("latest_app_version") val latestAppVersion: String? = null,
+    @SerialName("minimum_supported_app_version") val minimumSupportedAppVersion: String? = null,
+    @SerialName("download_url") val downloadUrl: String? = null,
 ) : WireMessage
 
 @Serializable
@@ -80,6 +105,20 @@ data class StepError(
     @SerialName("step_id") val stepId: String,
     val code: String,
     val message: String,
+) : WireMessage
+
+/** device -> server, sent on the already-challenge-authenticated connection to mint a new connector
+ *  URL when the current one was lost (D-29). No fields. Rate-limited (10/hour/device) server-side
+ *  with NO reply at all when over the limit — the caller must time out (~5s), not wait for an error. */
+@Serializable
+@SerialName("regenerate_secret")
+data object RegenerateSecret : WireMessage
+
+/** server -> device, reply to [RegenerateSecret]. */
+@Serializable
+@SerialName("secret_regenerated")
+data class SecretRegenerated(
+    @SerialName("connector_url") val connectorUrl: String,
 ) : WireMessage
 
 /**
@@ -130,14 +169,27 @@ val wireJson =
         // caught by this package's own round-trip tests, which don't validate against the real
         // JSON Schema).
         encodeDefaults = true
+        // A nullable field whose value is actually null (hello.android_version/device_model when
+        // the provider has nothing to report, result.output when a step produced none) is omitted
+        // from the wire entirely rather than encoded as literal `null` — hello's schema types those
+        // two fields as plain integer/string (not nullable), so a literal null would be rejected and
+        // the connection closed with 4000. This is wireJson-wide, not scoped to one message type;
+        // every other nullable field this app actually encodes (result.output) has an unconstrained
+        // schema (`{}`), so omitting instead of nulling it is equally valid, not a behavior change
+        // that risks anything.
+        explicitNulls = false
         serializersModule =
             SerializersModule {
                 polymorphic(WireMessage::class) {
                     subclass(Hello::class, Hello.serializer())
+                    subclass(Challenge::class, Challenge.serializer())
+                    subclass(ChallengeResponse::class, ChallengeResponse.serializer())
                     subclass(Welcome::class, Welcome.serializer())
                     subclass(Step::class, Step.serializer())
                     subclass(StepResult::class, StepResult.serializer())
                     subclass(StepError::class, StepError.serializer())
+                    subclass(RegenerateSecret::class, RegenerateSecret.serializer())
+                    subclass(SecretRegenerated::class, SecretRegenerated.serializer())
                 }
             }
     }

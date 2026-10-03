@@ -1,0 +1,17 @@
+{
+  "algorithm": "device_id = \"dt_\" + lowercase hex of SHA-256 over the DER bytes of the public key (X.509 SubjectPublicKeyInfo, EC P-256), i.e. the bytes that base64-decode from public_key. Not a choice the device makes: the server derives the same value and refuses any other.",
+  "vectors": [
+    {
+      "public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaLYBkdZrrs2nrNpdnPkFSS4F00NwONoA5e6B4Q6pB/5Oaxi6NUPTW7pJ80l8L+0Aaxt1V/87nXFRb83soCH0Sw==",
+      "device_id": "dt_1d5aaa900ef5ffb98ae91a05932113643681ebc96ed43bdd084195ce34a9b09e"
+    },
+    {
+      "public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEch5ryDL73l9Sw9jowm0vxZWvIf3rS4X3nSbzXOGq+ll6uIhkVDUmdDWm/ugBvcsjNyv0cSGCWJrxmrlkH//YDw==",
+      "device_id": "dt_6dbd54ada60a4fcb2504de0db84c73687445530e1c2b89fa5fe7a7e509d6903b"
+    },
+    {
+      "public_key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3Smsc00+NxdCZpw0ZncYBFhdAVhaHtFAS01LhNSlnDtXgV67pL1xRVCan8zjmoxg6BSbq9PjQxoawtA4Nz5/8w==",
+      "device_id": "dt_ed4ce18ef7b35245fc7f858801cabe1ddb10de71f057387c277ca71cd14015d4"
+    }
+  ]
+}

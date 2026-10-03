@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import com.danielealbano.androidremotecontrolmcp.data.model.ServerLogEntry
+import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCrypto
 import com.danielealbano.androidremotecontrolmcp.testutil.RecordingServerLogRepository
 import io.mockk.every
 import io.mockk.mockkStatic
@@ -54,10 +55,17 @@ class SettingsRepositoryLoggingTest {
                 produceFile = { File(tempDir, "logging_settings_$fileCounter.preferences_pb") },
             )
         val changeLogger = SettingsChangeLogger(serverLog, testDispatcher, WINDOW)
+        val identityCrypto =
+            object : ConnectorSecretCrypto {
+                override fun encrypt(plaintext: String) = plaintext
+
+                override fun decrypt(ciphertext: String) = ciphertext
+            }
         repository =
             SettingsRepositoryImpl(
                 EventChannelSettingsImpl(dataStore, changeLogger),
                 TransportSettingsImpl(dataStore, changeLogger),
+                ConnectorUrlSettingsImpl(dataStore, identityCrypto, changeLogger),
             )
     }
 
@@ -71,11 +79,11 @@ class SettingsRepositoryLoggingTest {
     @Test
     fun `no-op write logs nothing`() =
         testScope.runTest {
-            repository.updateEventChannelEndpointUrl("http://same:1")
+            repository.updateTransportHost("same-host")
             advanceUntilIdle()
             serverLog.clear()
 
-            repository.updateEventChannelEndpointUrl("http://same:1")
+            repository.updateTransportHost("same-host")
             advanceUntilIdle()
             assertTrue(settingsMessages().isEmpty())
         }
@@ -93,16 +101,16 @@ class SettingsRepositoryLoggingTest {
         }
 
     @Test
-    fun `event channel endpoint logs old to new`() =
+    fun `transport host logs old to new`() =
         testScope.runTest {
-            repository.updateEventChannelEndpointUrl("http://old:1")
+            repository.updateTransportHost("old-host")
             advanceUntilIdle()
             serverLog.clear()
 
-            repository.updateEventChannelEndpointUrl("http://new:2")
+            repository.updateTransportHost("new-host")
             advanceUntilIdle()
             assertEquals(
-                "Event channel endpoint changed http://old:1 → http://new:2",
+                "Remote control server host changed old-host → new-host",
                 settingsMessages().single(),
             )
         }

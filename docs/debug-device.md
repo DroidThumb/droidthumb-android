@@ -253,6 +253,21 @@ the demolition pass. Its replacement, a fake-relay harness, comes with the outbo
 (plan 66, US-9). For the record, its last run on this host (2026-09-25, before the demolition) was
 92 tests, 78 passed, 0 failed, 14 skipped, with this persistent container running alongside.
 
+## Compatibility across APK versions
+
+`scripts/redroid-compat.sh <staging|production|host:port> <apk-path> [apk-path ...]` installs each
+APK in turn on the connected redroid device and checks it completes the device-identity handshake
+against the target, reporting pass/fail per APK. It does **not** configure the app's server
+host/port/TLS — do that once via the UI first (same setup as any other manual redroid check above);
+`adb install -r -d` preserves app data (including the Keystore identity and that config) across every
+APK in the list, so the same phone identity connects under every version tested, exactly like a real
+phone upgrading through app versions.
+
+Currently useful with exactly one APK per run in practice (there is no APK archive yet — plan 03
+milestone 5's release pipeline is what will produce a real "last N released versions" list; until
+then, pass whatever local builds you have, e.g. `app/build/outputs/apk/debug/app-debug.apk` after
+`make build`).
+
 ## Limits — what this device cannot tell you
 
 - **No Doze, no OEM power management.** redroid doesn't implement Android's power-management

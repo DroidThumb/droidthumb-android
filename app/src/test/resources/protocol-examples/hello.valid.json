@@ -1,0 +1,11 @@
+{
+  "type": "hello",
+  "protocol_version": 1,
+  "apk_version": "1.2.3",
+  "android_version": 34,
+  "device_model": "Google Pixel 8",
+  "device_id": "pixel-8-abc123",
+  "capabilities": ["a11y_tree"],
+  "mode": "live",
+  "flow_manifest": [{ "id": "flow-1", "version": 2 }]
+}

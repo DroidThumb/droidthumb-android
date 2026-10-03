@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.danielealbano.androidremotecontrolmcp.data.model.TransportConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.di.IoDispatcher
+import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
 import com.danielealbano.androidremotecontrolmcp.services.transport.TransportService
 import com.danielealbano.androidremotecontrolmcp.services.transport.TransportStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,14 +26,21 @@ class TransportViewModel
     @Inject
     constructor(
         private val settingsRepository: SettingsRepository,
+        private val transportClient: DeviceTransportClient,
         @ApplicationContext private val appContext: Context,
         @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     ) : ViewModel() {
+        enum class RegenerateSecretState { IDLE, IN_PROGRESS, SUCCEEDED, TIMED_OUT }
+
         val transportConfig: StateFlow<TransportConfig> =
             settingsRepository.transportConfig
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), TransportConfig())
 
         val transportStatus: StateFlow<TransportStatus> = TransportService.serviceStatus
+
+        val connectorUrl: StateFlow<String?> =
+            settingsRepository.connectorUrl
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
 
         private val _hostInput = MutableStateFlow("")
         val hostInput: StateFlow<String> = _hostInput.asStateFlow()
@@ -40,13 +48,33 @@ class TransportViewModel
         val portInput: StateFlow<String> = _portInput.asStateFlow()
         private val _portError = MutableStateFlow<String?>(null)
         val portError: StateFlow<String?> = _portError.asStateFlow()
+        private val _tlsInput = MutableStateFlow(false)
+        val tlsInput: StateFlow<Boolean> = _tlsInput.asStateFlow()
+
+        private val _regenerateState = MutableStateFlow(RegenerateSecretState.IDLE)
+        val regenerateState: StateFlow<RegenerateSecretState> = _regenerateState.asStateFlow()
 
         init {
             viewModelScope.launch {
                 transportConfig.collect { config ->
                     _hostInput.value = config.host
                     _portInput.value = config.port.toString()
+                    _tlsInput.value = config.tls
                 }
+            }
+        }
+
+        fun updateTls(tls: Boolean) {
+            _tlsInput.value = tls
+            viewModelScope.launch(ioDispatcher) { settingsRepository.updateTransportTls(tls) }
+        }
+
+        fun regenerateSecret() {
+            _regenerateState.value = RegenerateSecretState.IN_PROGRESS
+            viewModelScope.launch(ioDispatcher) {
+                val succeeded = transportClient.regenerateSecret()
+                _regenerateState.value =
+                    if (succeeded) RegenerateSecretState.SUCCEEDED else RegenerateSecretState.TIMED_OUT
             }
         }
 

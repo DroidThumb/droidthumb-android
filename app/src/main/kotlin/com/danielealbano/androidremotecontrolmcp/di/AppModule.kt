@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
+import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepository
@@ -26,6 +28,12 @@ import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManagerImpl
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcherImpl
+import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCrypto
+import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCryptoImpl
+import com.danielealbano.androidremotecontrolmcp.services.identity.DefaultDeviceInfoProvider
+import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
+import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStoreImpl
+import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcherImpl
 import com.danielealbano.androidremotecontrolmcp.services.power.BatteryOptimizationManager
@@ -34,6 +42,8 @@ import com.danielealbano.androidremotecontrolmcp.services.screencapture.ApiLevel
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.DefaultApiLevelProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProviderImpl
+import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceRegistrationClient
+import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceRegistrationClientImpl
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClientImpl
 import dagger.Binds
@@ -95,6 +105,11 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindServerLogRepository(impl: ServerLogRepositoryImpl): ServerLogRepository
+
+    /** Binds the M3 connector-URL settings slice that [SettingsRepositoryImpl] delegates to. */
+    @Binds
+    @Singleton
+    abstract fun bindConnectorUrlSettings(impl: ConnectorUrlSettingsImpl): ConnectorUrlSettings
 }
 
 @Module
@@ -148,4 +163,20 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindDeviceTransportClient(impl: DeviceTransportClientImpl): DeviceTransportClient
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceIdentityKeyStore(impl: DeviceIdentityKeyStoreImpl): DeviceIdentityKeyStore
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceInfoProvider(impl: DefaultDeviceInfoProvider): DeviceInfoProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindConnectorSecretCrypto(impl: ConnectorSecretCryptoImpl): ConnectorSecretCrypto
+
+    @Binds
+    @Singleton
+    abstract fun bindDeviceRegistrationClient(impl: DeviceRegistrationClientImpl): DeviceRegistrationClient
 }

@@ -9,8 +9,6 @@ import com.danielealbano.androidremotecontrolmcp.data.model.NotificationFilterMo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import java.net.URL
-import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -19,7 +17,6 @@ import javax.inject.Inject
  * secrets (auth token) log as "changed" with no value, and set-valued settings are compared
  * losslessly so a count-preserving membership swap is never dropped as a no-op.
  */
-@Suppress("TooManyFunctions")
 class EventChannelSettingsImpl
     @Inject
     constructor(
@@ -57,44 +54,6 @@ class EventChannelSettingsImpl
         override suspend fun updateEventChannelEnabled(enabled: Boolean) {
             val (old, new) = updateConfig { it.copy(enabled = enabled) }
             logToggle("channel_enabled", old.enabled, new.enabled, "Event channel")
-        }
-
-        override suspend fun updateEventChannelEndpointUrl(url: String) {
-            val (old, new) = updateConfig { it.copy(endpointUrl = url) }
-            settingsChangeLogger.submit("channel_endpoint", old.endpointUrl, new.endpointUrl) { o, n ->
-                "Event channel endpoint changed $o → $n"
-            }
-        }
-
-        override suspend fun updateEventChannelAuthToken(token: String) {
-            val (old, new) = updateConfig { it.copy(authToken = token) }
-            settingsChangeLogger.submit("channel_auth_token", old.authToken, new.authToken) { _, _ ->
-                "Event channel auth token changed"
-            }
-        }
-
-        override suspend fun generateNewEventChannelAuthToken(): String {
-            val token = UUID.randomUUID().toString()
-            updateEventChannelAuthToken(token)
-            return token
-        }
-
-        override fun validateEndpointUrl(url: String): Result<String> {
-            if (url.isBlank()) {
-                return Result.failure(IllegalArgumentException("Endpoint URL cannot be empty"))
-            }
-            return try {
-                val parsed = URL(url)
-                if (parsed.protocol != "http" && parsed.protocol != "https") {
-                    Result.failure(IllegalArgumentException("URL must use http or https protocol"))
-                } else {
-                    Result.success(url)
-                }
-            } catch (
-                @Suppress("TooGenericExceptionCaught") e: Exception,
-            ) {
-                Result.failure(IllegalArgumentException("Invalid URL format: ${e.message}"))
-            }
         }
 
         override suspend fun updateNotificationChannelEnabled(enabled: Boolean) {

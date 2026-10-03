@@ -12,11 +12,7 @@ interface TransportSettings {
     /** Observes the current transport configuration. */
     val transportConfig: Flow<TransportConfig>
 
-    /**
-     * Returns the current transport configuration as a one-shot read. On first-ever read (no
-     * `deviceId` persisted yet), generates and persists a stable device id — `hello.device_id`
-     * must survive process/app restarts, not regenerate on every launch.
-     */
+    /** Returns the current transport configuration as a one-shot read. */
     suspend fun getTransportConfig(): TransportConfig
 
     /** Updates the transport enabled toggle. */
@@ -27,4 +23,9 @@ interface TransportSettings {
 
     /** Updates the server port. */
     suspend fun updateTransportPort(port: Int)
+
+    /** Updates whether the transport connects over TLS (wss vs ws) — the same scheme covers the
+     *  WebSocket handshake and the one-time registration call, since both are the same single
+     *  listener behind Caddy's TLS termination on the public hostname. */
+    suspend fun updateTransportTls(tls: Boolean)
 }

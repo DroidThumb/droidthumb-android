@@ -48,22 +48,6 @@ class ChannelViewModel
         private val _appIcons = MutableStateFlow<Map<String, Bitmap>>(emptyMap())
         val appIcons: StateFlow<Map<String, Bitmap>> = _appIcons.asStateFlow()
 
-        private val _endpointUrlInput = MutableStateFlow("")
-        val endpointUrlInput: StateFlow<String> = _endpointUrlInput.asStateFlow()
-        private val _endpointUrlError = MutableStateFlow<String?>(null)
-        val endpointUrlError: StateFlow<String?> = _endpointUrlError.asStateFlow()
-        private val _authTokenInput = MutableStateFlow("")
-        val authTokenInput: StateFlow<String> = _authTokenInput.asStateFlow()
-
-        init {
-            viewModelScope.launch {
-                eventChannelConfig.collect { config ->
-                    _endpointUrlInput.value = config.endpointUrl
-                    _authTokenInput.value = config.authToken
-                }
-            }
-        }
-
         fun updateChannelEnabled(enabled: Boolean) {
             viewModelScope.launch(ioDispatcher) {
                 settingsRepository.updateEventChannelEnabled(enabled)
@@ -82,32 +66,6 @@ class ChannelViewModel
                 settingsRepository.updateEventChannelEnabled(false)
             }
             stopChannelService()
-        }
-
-        fun updateEndpointUrl(url: String) {
-            _endpointUrlInput.value = url
-            val result = settingsRepository.validateEndpointUrl(url)
-            if (result.isSuccess) {
-                _endpointUrlError.value = null
-                viewModelScope.launch(ioDispatcher) {
-                    settingsRepository.updateEventChannelEndpointUrl(url)
-                }
-            } else {
-                _endpointUrlError.value = result.exceptionOrNull()?.message
-            }
-        }
-
-        fun updateAuthToken(token: String) {
-            _authTokenInput.value = token
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.updateEventChannelAuthToken(token)
-            }
-        }
-
-        fun generateNewAuthToken() {
-            viewModelScope.launch(ioDispatcher) {
-                settingsRepository.generateNewEventChannelAuthToken()
-            }
         }
 
         // Notification settings

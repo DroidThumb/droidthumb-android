@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.Flow
  * single unified settings API and [SettingsRepositoryImpl] delegates these members to
  * [EventChannelSettingsImpl].
  */
-@Suppress("TooManyFunctions")
 interface EventChannelSettings {
     /** Observes the current event channel configuration. */
     val eventChannelConfig: Flow<EventChannelConfig>
@@ -21,25 +20,6 @@ interface EventChannelSettings {
 
     /** Updates the event channel enabled toggle. */
     suspend fun updateEventChannelEnabled(enabled: Boolean)
-
-    /** Updates the event channel endpoint URL. */
-    suspend fun updateEventChannelEndpointUrl(url: String)
-
-    /** Updates the event channel auth token. */
-    suspend fun updateEventChannelAuthToken(token: String)
-
-    /** Generates a new random event channel auth token (UUID), persists it, and returns it. */
-    suspend fun generateNewEventChannelAuthToken(): String
-
-    /**
-     * Validates an endpoint URL.
-     *
-     * This is a pure validation function with no I/O; it is intentionally
-     * non-suspending so callers are not forced into a coroutine context.
-     *
-     * @return [Result.success] with the validated URL, or [Result.failure] with an [IllegalArgumentException].
-     */
-    fun validateEndpointUrl(url: String): Result<String>
 
     /** Updates the notification channel enabled toggle. */
     suspend fun updateNotificationChannelEnabled(enabled: Boolean)

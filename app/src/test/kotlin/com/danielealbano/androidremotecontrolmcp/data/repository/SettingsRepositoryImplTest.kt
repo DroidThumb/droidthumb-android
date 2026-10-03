@@ -18,12 +18,13 @@ import org.junit.jupiter.api.Test
 class SettingsRepositoryImplTest {
     private val eventChannelSettings = mockk<EventChannelSettings>(relaxed = true)
     private val transportSettings = mockk<TransportSettings>(relaxed = true)
-    private val repository = SettingsRepositoryImpl(eventChannelSettings, transportSettings)
+    private val connectorUrlSettings = mockk<ConnectorUrlSettings>(relaxed = true)
+    private val repository = SettingsRepositoryImpl(eventChannelSettings, transportSettings, connectorUrlSettings)
 
     @Test
     fun `eventChannelConfig is the slice's flow`() =
         runTest {
-            val config = EventChannelConfig(enabled = true, endpointUrl = "http://localhost:9090")
+            val config = EventChannelConfig(enabled = true)
             every { eventChannelSettings.eventChannelConfig } returns flowOf(config)
 
             assertEquals(config, repository.eventChannelConfig.first())
@@ -41,10 +42,16 @@ class SettingsRepositoryImplTest {
     @Test
     fun `updates delegate to the slice`() =
         runTest {
-            repository.updateEventChannelEndpointUrl("http://localhost:9090")
             repository.updateNotificationChannelEnabled(true)
 
-            coVerify { eventChannelSettings.updateEventChannelEndpointUrl("http://localhost:9090") }
             coVerify { eventChannelSettings.updateNotificationChannelEnabled(true) }
+        }
+
+    @Test
+    fun `updateConnectorUrl delegates to the slice`() =
+        runTest {
+            repository.updateConnectorUrl("https://h/d/x/mcp")
+
+            coVerify { connectorUrlSettings.updateConnectorUrl("https://h/d/x/mcp") }
         }
 }

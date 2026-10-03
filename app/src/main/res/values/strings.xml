@@ -65,8 +65,8 @@
     <string name="server_logs_type_settings">Settings</string>
 
     <!-- Event Channel — start/stop dialogs -->
-    <string name="channel_not_configured_dialog_title">Endpoint URL not set</string>
-    <string name="channel_not_configured_dialog_body">Configure the event channel endpoint URL in Settings → Event Channel before starting the service. The auth token is optional and can be left empty if your endpoint does not require it.</string>
+    <string name="channel_not_configured_dialog_title">Not registered with a server yet</string>
+    <string name="channel_not_configured_dialog_body">Set up the connector on the Server tab before starting the event channel.</string>
     <string name="channel_not_configured_dialog_ok">OK</string>
 
     <!-- On-device approval -->

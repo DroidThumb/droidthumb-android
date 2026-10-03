@@ -9,36 +9,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
@@ -51,11 +38,6 @@ fun ChannelSettingsScreen(
     onNavigateBack: () -> Unit,
 ) {
     val config by viewModel.eventChannelConfig.collectAsStateWithLifecycle()
-    val endpointUrlInput by viewModel.endpointUrlInput.collectAsStateWithLifecycle()
-    val endpointUrlError by viewModel.endpointUrlError.collectAsStateWithLifecycle()
-    val authTokenInput by viewModel.authTokenInput.collectAsStateWithLifecycle()
-    var tokenVisible by rememberSaveable { mutableStateOf(false) }
-    val clipboardManager = LocalClipboardManager.current
 
     Scaffold(
         topBar = {
@@ -73,54 +55,10 @@ fun ChannelSettingsScreen(
             modifier = Modifier.padding(padding),
         ) {
             item {
-                OutlinedTextField(
-                    value = endpointUrlInput,
-                    onValueChange = { viewModel.updateEndpointUrl(it) },
-                    label = { Text("Endpoint URL") },
-                    isError = endpointUrlError != null,
-                    supportingText = endpointUrlError?.let { { Text(it) } },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    singleLine = true,
-                )
-            }
-            item {
-                OutlinedTextField(
-                    value = authTokenInput,
-                    onValueChange = { viewModel.updateAuthToken(it) },
-                    label = { Text("Auth Token") },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    singleLine = true,
-                    keyboardOptions =
-                        KeyboardOptions(
-                            keyboardType = KeyboardType.Password,
-                            autoCorrectEnabled = false,
-                        ),
-                    visualTransformation =
-                        if (tokenVisible) {
-                            VisualTransformation.None
-                        } else {
-                            PasswordVisualTransformation()
-                        },
-                    trailingIcon = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { tokenVisible = !tokenVisible }) {
-                                Icon(
-                                    if (tokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (tokenVisible) "Hide" else "Show",
-                                )
-                            }
-                            IconButton(
-                                onClick = { clipboardManager.setText(AnnotatedString(authTokenInput)) },
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
-                            }
-                            IconButton(
-                                onClick = { viewModel.generateNewAuthToken() },
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Generate new")
-                            }
-                        }
-                    },
+                Text(
+                    "Events are sent to your connector URL automatically — see the Server tab.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
             item {
