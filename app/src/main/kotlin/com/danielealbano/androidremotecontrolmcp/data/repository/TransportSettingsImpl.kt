@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.data.model.TransportConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -11,6 +12,17 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 private typealias ConfigChange = Pair<TransportConfig, TransportConfig>
+
+/** The out-of-the-box server (design doc D-33/§8.8): staging for debug builds, production for
+ *  release — the user is never asked to type a host/port/TLS. An existing install with no saved
+ *  value yet (a fresh install, or one from before this default existed) picks this up the same way
+ *  a brand-new one does, since it's exactly what [transportConfig] below falls back to. */
+private val DEFAULT_TRANSPORT_CONFIG =
+    TransportConfig(
+        host = BuildConfig.DEFAULT_SERVER_HOST,
+        port = BuildConfig.DEFAULT_SERVER_PORT,
+        tls = BuildConfig.DEFAULT_SERVER_TLS,
+    )
 
 /** [TransportSettings] backed by the same Preferences DataStore as [SettingsRepositoryImpl] (which
  *  delegates these members here), same pattern as [EventChannelSettingsImpl]. */
@@ -22,8 +34,11 @@ class TransportSettingsImpl
     ) : TransportSettings {
         override val transportConfig: Flow<TransportConfig> =
             dataStore.data.map { prefs ->
-                val json = prefs[TRANSPORT_CONFIG_KEY] ?: return@map TransportConfig()
-                TransportConfig.fromJsonOrDefault(json)
+                val json = prefs[TRANSPORT_CONFIG_KEY] ?: return@map DEFAULT_TRANSPORT_CONFIG
+                // A corrupted/unparseable saved value is just as "nothing usable was saved" as no
+                // value at all - falls back to the same build-aware default, not the bare one
+                // fromJsonOrDefault's own signature can't know about.
+                runCatching { TransportConfig.fromJson(json) }.getOrDefault(DEFAULT_TRANSPORT_CONFIG)
             }
 
         override suspend fun getTransportConfig(): TransportConfig = transportConfig.first()

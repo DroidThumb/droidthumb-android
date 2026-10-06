@@ -82,20 +82,31 @@ fun TransportStatusCard(
         label = "transportStatusColor",
     )
 
+    var advancedExpanded by remember { mutableStateOf(false) }
+
     ElevatedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             TransportStatusRow(label, statusText, animatedColor, enabled, startEnabled, onStartClick, onStopClick)
             Spacer(modifier = Modifier.width(8.dp))
-            TransportAddressFields(
-                host,
-                port,
-                portError,
-                onHostChange,
-                onPortChange,
-                tls,
-                onTlsChange,
-                fieldsEnabled = !enabled,
-            )
+            // Host/port/TLS are self-hosting-only (design doc D-33/§8.8): the app connects to the
+            // right server out of the box (staging for a debug build, production for release), so
+            // nobody signing in normally ever needs to see these fields, let alone edit them —
+            // collapsed by default, not removed, since a self-hoster still needs to change them.
+            TextButton(onClick = { advancedExpanded = !advancedExpanded }) {
+                Text(if (advancedExpanded) "Hide advanced" else "Advanced (self-hosting)")
+            }
+            if (advancedExpanded) {
+                TransportAddressFields(
+                    host,
+                    port,
+                    portError,
+                    onHostChange,
+                    onPortChange,
+                    tls,
+                    onTlsChange,
+                    fieldsEnabled = !enabled,
+                )
+            }
             if (connectorUrl != null) {
                 Spacer(modifier = Modifier.height(12.dp))
                 ConnectorUrlSection(

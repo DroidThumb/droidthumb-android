@@ -223,10 +223,24 @@ android {
         // Manager's GetGoogleIdOption needs this as its serverClientId so a minted Google id_token's
         // `aud` claim matches what the server verifies against (design doc D-33); a different
         // client here makes every sign-in fail server-side verification. Public, not secret - the
-        // same value already embedded in every browser-based OAuth flow's own client_id parameter.
-        // No hardcoded fallback: an empty value fails loudly at sign-in time (GoogleSignInClient),
-        // not silently with a wrong one.
-        buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"${project.findProperty("GOOGLE_SERVER_CLIENT_ID") ?: ""}\"")
+        // same value every browser-based OAuth flow already sends as its own client_id parameter,
+        // extracted directly from staging's own redirect to Google (curl, not guessed) rather than
+        // asked for. Committed so every build (CI debug and release alike) has it with no manual
+        // step; `-PGOOGLE_SERVER_CLIENT_ID=...` still overrides it if the client ever changes.
+        buildConfigField(
+            "String",
+            "GOOGLE_SERVER_CLIENT_ID",
+            "\"${
+                project.findProperty("GOOGLE_SERVER_CLIENT_ID")
+                    ?: "981523234665-9c90qjbcalops8pvsnmfdl76v8csq4fa.apps.googleusercontent.com"
+            }\"",
+        )
+        // The MCP server address the app connects to out of the box (design doc D-33/§8.8) - the
+        // user is never asked to type a host/port/TLS; those move under an "Advanced" disclosure
+        // for self-hosting only (ServerScreen). Port and TLS are the same for both build types
+        // (Caddy's public HTTPS listener); only the host differs, set per build type below.
+        buildConfigField("int", "DEFAULT_SERVER_PORT", "443")
+        buildConfigField("boolean", "DEFAULT_SERVER_TLS", "true")
     }
 
     // Release signing configuration (optional, uses keystore.properties if present)
@@ -252,10 +266,12 @@ android {
             applicationIdSuffix = ".debug"
             isDebuggable = true
             isMinifyEnabled = false
+            buildConfigField("String", "DEFAULT_SERVER_HOST", "\"staging.droidthumb.com\"")
         }
         release {
             isDebuggable = false
             isMinifyEnabled = false
+            buildConfigField("String", "DEFAULT_SERVER_HOST", "\"mcp.droidthumb.com\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
