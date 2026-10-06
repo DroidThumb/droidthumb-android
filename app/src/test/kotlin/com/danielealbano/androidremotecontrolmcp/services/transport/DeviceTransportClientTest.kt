@@ -6,6 +6,9 @@ import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoPro
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Challenge
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ChallengeResponse
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimAccount
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.Claimed
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimRejected
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Hello
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.RegenerateSecret
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SecretRegenerated
@@ -487,6 +490,82 @@ class DeviceTransportClientTest {
             val client = newClient()
             val result = client.regenerateSecret()
             assertFalse(result)
+        }
+
+    @Test
+    fun `claimAccount sends claim_account and completes on claimed`() =
+        runBlocking {
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    val next = incoming.receive() as Frame.Text
+                    val message = wireJson.decodeFromString(WireMessage.serializer(), next.readText())
+                    check(message is ClaimAccount)
+                    assertEquals("clt_abc123", message.accountToken)
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Claimed("acc_1"))))
+                },
+            ) { port ->
+                val client = newClient()
+                client.start("127.0.0.1", port, tls = false)
+                withTimeout(15.seconds) {
+                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
+                }
+                val result = withTimeout(8.seconds) { client.claimAccount("clt_abc123") }
+                assertEquals(ClaimResult.Claimed("acc_1"), result)
+                client.stop()
+            }
+        }
+
+    @Test
+    fun `claimAccount completes with Rejected on claim_rejected`() =
+        runBlocking {
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    incoming.receive() // claim_account
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), ClaimRejected("already_claimed"))))
+                },
+            ) { port ->
+                val client = newClient()
+                client.start("127.0.0.1", port, tls = false)
+                withTimeout(15.seconds) {
+                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
+                }
+                val result = withTimeout(8.seconds) { client.claimAccount("clt_abc123") }
+                assertEquals(ClaimResult.Rejected("already_claimed"), result)
+                client.stop()
+            }
+        }
+
+    @Test
+    fun `claimAccount times out when the server sends no reply`() =
+        runBlocking {
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    incoming.receive() // claim_account, deliberately never answered
+                },
+            ) { port ->
+                val client = newClient()
+                client.start("127.0.0.1", port, tls = false)
+                withTimeout(15.seconds) {
+                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
+                }
+                val result = withTimeout(8.seconds) { client.claimAccount("clt_abc123") }
+                assertEquals(ClaimResult.TimedOut, result)
+                client.stop()
+            }
+        }
+
+    @Test
+    fun `claimAccount returns NotConnected immediately when never connected`() =
+        runBlocking {
+            val client = newClient()
+            val result = client.claimAccount("clt_abc123")
+            assertEquals(ClaimResult.NotConnected, result)
         }
 
     @Test

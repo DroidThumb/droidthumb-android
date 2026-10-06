@@ -18,21 +18,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.R
+import com.danielealbano.androidremotecontrolmcp.ui.components.AccountCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.BatteryOptimizationCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.CalloutCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.EventChannelStatusCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ServerLogsSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.TransportStatusCard
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountClaimState
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.LogsViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
@@ -47,8 +52,10 @@ fun ServerScreen(
     viewModel: MainViewModel = hiltViewModel(),
     channelViewModel: ChannelViewModel = hiltViewModel(),
     transportViewModel: TransportViewModel = hiltViewModel(),
+    accountViewModel: AccountViewModel = hiltViewModel(),
 ) {
     val logsViewModel: LogsViewModel = hiltViewModel()
+    val context = LocalContext.current
 
     val recentServerLogs by logsViewModel.recentServerLogs.collectAsStateWithLifecycle()
 
@@ -66,6 +73,19 @@ fun ServerScreen(
     val connectorUrl by transportViewModel.connectorUrl.collectAsStateWithLifecycle()
     val tlsInput by transportViewModel.tlsInput.collectAsStateWithLifecycle()
     val regenerateState by transportViewModel.regenerateState.collectAsStateWithLifecycle()
+
+    val accountId by accountViewModel.accountId.collectAsStateWithLifecycle()
+    val claimState by accountViewModel.claimState.collectAsStateWithLifecycle()
+    val connectionsState by accountViewModel.connectionsState.collectAsStateWithLifecycle()
+
+    // Loads the connections list once this device already has a claimed account (a fresh claim
+    // triggers its own load right after succeeding, in the view model) - covers reopening the app
+    // on a device that was claimed in an earlier session.
+    LaunchedEffect(accountId) {
+        if (accountId != null && claimState !is AccountClaimState.Claimed) {
+            accountViewModel.loadConnections(context)
+        }
+    }
 
     var showChannelNotConfiguredDialog by remember { mutableStateOf(false) }
 
@@ -92,6 +112,17 @@ fun ServerScreen(
                 )
                 Spacer(Modifier.height(16.dp))
             }
+
+            AccountCard(
+                accountId = accountId,
+                claimState = claimState,
+                connectionsState = connectionsState,
+                onSignInClick = { accountViewModel.signInAndClaim(context) },
+                onRetryConnectionsClick = { accountViewModel.loadConnections(context) },
+                onRevokeConnection = { clientId, _ -> accountViewModel.revokeConnection(context, clientId) },
+            )
+
+            Spacer(Modifier.height(16.dp))
 
             EventChannelStatusCard(
                 channelStatus = channelStatus,

@@ -8,6 +8,9 @@ import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceI
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Challenge
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ChallengeResponse
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimAccount
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.Claimed
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimRejected
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Hello
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.RegenerateSecret
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SecretRegenerated
@@ -81,6 +84,24 @@ data class UpdateInfo(
     val downloadUrl: String?,
 )
 
+/** Reply to [DeviceTransportClient.claimAccount] — mirrors the wire's own [Claimed]/[ClaimRejected]
+ *  shape, plus [TimedOut] for the same "no reply within the bound" case [regenerateSecret] handles
+ *  by returning `false`. */
+sealed interface ClaimResult {
+    data class Claimed(
+        val accountId: String,
+    ) : ClaimResult
+
+    data class Rejected(
+        val reason: String,
+    ) : ClaimResult
+
+    data object TimedOut : ClaimResult
+
+    /** Not currently [TransportStatus.Connected] — nothing was sent, no wait occurred. */
+    data object NotConnected : ClaimResult
+}
+
 interface DeviceTransportClient {
     val status: StateFlow<TransportStatus>
     val updateInfo: StateFlow<UpdateInfo?>
@@ -98,6 +119,11 @@ interface DeviceTransportClient {
      *  exceeded, so a bounded wait is the only way to detect that (server#16). Returns `false`
      *  immediately, with no wait, when not currently `Connected`. */
     suspend fun regenerateSecret(): Boolean
+
+    /** Sends `claim_account { account_token }` on the current connection and awaits `claimed` or
+     *  `claim_rejected`, up to a 5s timeout (design doc D-33) — `accountToken` is the short-lived,
+     *  single-use token from `POST /v1/accounts/claim-token`, not the raw Google/OAuth token. */
+    suspend fun claimAccount(accountToken: String): ClaimResult
 }
 
 /**
@@ -143,6 +169,11 @@ class DeviceTransportClientImpl
 
         @Volatile
         private var pendingRegenerate: CompletableDeferred<String>? = null
+
+        private val claimMutex = Mutex()
+
+        @Volatile
+        private var pendingClaim: CompletableDeferred<ClaimResult>? = null
 
         private fun currentDeviceId(): String {
             val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
@@ -293,8 +324,16 @@ class DeviceTransportClientImpl
                     pendingRegenerate?.complete(message.connectorUrl)
                 }
 
-                // Hello/ChallengeResponse/RegenerateSecret/StepResult/StepError never arrive
-                // server -> device
+                is Claimed -> {
+                    pendingClaim?.complete(ClaimResult.Claimed(message.accountId))
+                }
+
+                is ClaimRejected -> {
+                    pendingClaim?.complete(ClaimResult.Rejected(message.reason))
+                }
+
+                // Hello/ChallengeResponse/RegenerateSecret/ClaimAccount/StepResult/StepError never
+                // arrive server -> device
                 else -> {}
             }
             return false
@@ -317,6 +356,24 @@ class DeviceTransportClientImpl
                 val result = withTimeoutOrNull(REGENERATE_TIMEOUT_MS) { deferred.await() }
                 pendingRegenerate = null
                 result != null
+            }
+
+        override suspend fun claimAccount(accountToken: String): ClaimResult =
+            claimMutex.withLock {
+                if (_status.value !is TransportStatus.Connected) return@withLock ClaimResult.NotConnected
+                val outbox = currentOutbox ?: return@withLock ClaimResult.NotConnected
+                val deferred = CompletableDeferred<ClaimResult>()
+                pendingClaim = deferred
+                // Same narrow session-teardown race regenerateSecret() guards against: checked
+                // explicitly so a send that never actually went out fails fast instead of waiting
+                // out the full timeout.
+                if (!outbox.trySend(ClaimAccount(accountToken)).isSuccess) {
+                    pendingClaim = null
+                    return@withLock ClaimResult.NotConnected
+                }
+                val result = withTimeoutOrNull(CLAIM_TIMEOUT_MS) { deferred.await() }
+                pendingClaim = null
+                result ?: ClaimResult.TimedOut
             }
 
         /** Decodes one inbound frame, or null for a non-text frame or a malformed payload (logged
@@ -349,6 +406,7 @@ class DeviceTransportClientImpl
             job = null
             currentOutbox = null
             pendingRegenerate = null
+            pendingClaim = null
             _status.value = TransportStatus.Idle
         }
 
@@ -361,6 +419,7 @@ class DeviceTransportClientImpl
             private const val TAG = "MCP:DeviceTransport"
             const val SUBPROTOCOL = "droidthumb.v1"
             private const val REGENERATE_TIMEOUT_MS = 5_000L
+            private const val CLAIM_TIMEOUT_MS = 5_000L
             private val BACKOFF_SCHEDULE_MS = listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L)
         }
     }

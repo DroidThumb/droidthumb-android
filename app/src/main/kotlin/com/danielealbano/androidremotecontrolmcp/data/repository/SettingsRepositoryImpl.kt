@@ -4,8 +4,8 @@ import javax.inject.Inject
 
 /**
  * DataStore-backed [SettingsRepository]. Every member is delegated to its feature slice
- * ([EventChannelSettingsImpl], [TransportSettingsImpl], [ConnectorUrlSettingsImpl]), which share
- * the same Preferences DataStore.
+ * ([EventChannelSettingsImpl], [TransportSettingsImpl], [ConnectorUrlSettingsImpl],
+ * [AccountSettingsImpl]), which share the same Preferences DataStore.
  */
 class SettingsRepositoryImpl
     @Inject
@@ -13,7 +13,9 @@ class SettingsRepositoryImpl
         eventChannelSettings: EventChannelSettings,
         transportSettings: TransportSettings,
         connectorUrlSettings: ConnectorUrlSettings,
+        accountSettings: AccountSettings,
     ) : SettingsRepository,
         EventChannelSettings by eventChannelSettings,
         TransportSettings by transportSettings,
-        ConnectorUrlSettings by connectorUrlSettings
+        ConnectorUrlSettings by connectorUrlSettings,
+        AccountSettings by accountSettings

@@ -267,4 +267,52 @@ class MessagesTest {
             decoded.connectorUrl,
         )
     }
+
+    @Test
+    fun `claim_account round-trips`() {
+        val message = ClaimAccount(accountToken = "clt_abc123")
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        assertTrue(decoded is ClaimAccount)
+    }
+
+    @Test
+    fun `claimed round-trips`() {
+        val message = Claimed(accountId = "acc_01J8Q7K2X9ABCDEFGHJKMNPQRS")
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        assertTrue(decoded is Claimed)
+    }
+
+    @Test
+    fun `claim_rejected round-trips`() {
+        val message = ClaimRejected(reason = "invalid_token")
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        assertTrue(decoded is ClaimRejected)
+    }
+
+    @Test
+    fun `decodes the protocol repo's claim-account valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("claim-account.valid.json"))
+        check(decoded is ClaimAccount)
+        assertEquals("clt_0123456789abcdefghijklmnopqrstuvwxyz", decoded.accountToken)
+    }
+
+    @Test
+    fun `decodes the protocol repo's claimed valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("claimed.valid.json"))
+        check(decoded is Claimed)
+        assertEquals("acc_01J8Q7K2X9ABCDEFGHJKMNPQRS", decoded.accountId)
+    }
+
+    @Test
+    fun `decodes the protocol repo's claim-rejected valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("claim-rejected.valid.json"))
+        check(decoded is ClaimRejected)
+        assertEquals("already_claimed", decoded.reason)
+    }
 }

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettings
+import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettings
@@ -42,6 +44,10 @@ import com.danielealbano.androidremotecontrolmcp.services.screencapture.ApiLevel
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.DefaultApiLevelProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProvider
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ScreenCaptureProviderImpl
+import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClient
+import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClientImpl
+import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClient
+import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClientImpl
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceRegistrationClient
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceRegistrationClientImpl
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
@@ -110,6 +116,11 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindConnectorUrlSettings(impl: ConnectorUrlSettingsImpl): ConnectorUrlSettings
+
+    /** Binds the account settings slice (D-33) that [SettingsRepositoryImpl] delegates to. */
+    @Binds
+    @Singleton
+    abstract fun bindAccountSettings(impl: AccountSettingsImpl): AccountSettings
 }
 
 @Module
@@ -179,4 +190,12 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindDeviceRegistrationClient(impl: DeviceRegistrationClientImpl): DeviceRegistrationClient
+
+    @Binds
+    @Singleton
+    abstract fun bindGoogleSignInClient(impl: GoogleSignInClientImpl): GoogleSignInClient
+
+    @Binds
+    @Singleton
+    abstract fun bindAccountApiClient(impl: AccountApiClientImpl): AccountApiClient
 }

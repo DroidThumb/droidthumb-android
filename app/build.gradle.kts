@@ -219,6 +219,14 @@ android {
         targetSdk = 34
         versionCode = versionCodeProp
         versionName = versionNameProp
+        // droidthumb-server's own Web OAuth client id (GOOGLE_CLIENT_ID there) - Credential
+        // Manager's GetGoogleIdOption needs this as its serverClientId so a minted Google id_token's
+        // `aud` claim matches what the server verifies against (design doc D-33); a different
+        // client here makes every sign-in fail server-side verification. Public, not secret - the
+        // same value already embedded in every browser-based OAuth flow's own client_id parameter.
+        // No hardcoded fallback: an empty value fails loudly at sign-in time (GoogleSignInClient),
+        // not silently with a wrong one.
+        buildConfigField("String", "GOOGLE_SERVER_CLIENT_ID", "\"${project.findProperty("GOOGLE_SERVER_CLIENT_ID") ?: ""}\"")
     }
 
     // Release signing configuration (optional, uses keystore.properties if present)
@@ -340,6 +348,11 @@ dependencies {
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
+
+    // Credential Manager (Google sign-in, design doc D-33)
+    implementation(libs.credentials)
+    implementation(libs.credentials.play.services.auth)
+    implementation(libs.googleid)
 
     // Unit Testing
     testImplementation(platform(libs.junit.bom))
