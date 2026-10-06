@@ -259,6 +259,25 @@ android {
         }
     }
 
+    // A shared, checked-in debug keystore (debug keys aren't secret - Android's own standard
+    // convention) so every debug build, local or CI, is signed with the SAME key and therefore
+    // carries the SAME SHA-1. Without this, AGP's default debug signing config auto-generates a
+    // throwaway `~/.android/debug.keystore` the first time it's needed, so CI (a fresh runner
+    // every time) mints a brand-new, different key on every run - never matching the debug
+    // fingerprint registered with the Android OAuth client in Google Cloud, so Google Sign-In
+    // fails on every CI-built debug APK with "No credentials available" (confirmed: the CI
+    // app-debug artifact's signer SHA-1 was 59:E4:E5:3F:..., not the registered
+    // 19:7B:14:13:5D:42:BF:A8:7A:AF:85:AE:21:0D:5E:45:20:83:A9:C6). `debug.keystore`'s password,
+    // alias and key password are AGP's own standard debug-keystore defaults.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             // `.debug` suffix so the debug build (`…droidthumb.debug`) installs alongside a release
