@@ -78,7 +78,7 @@ class GoogleSignInClientImpl
             }
         }
 
-        @Suppress("TooGenericExceptionCaught")
+        @Suppress("TooGenericExceptionCaught", "SwallowedException")
         override suspend fun signOut(context: Context) {
             try {
                 CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest())

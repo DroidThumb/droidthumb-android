@@ -7,8 +7,8 @@ import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Challenge
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ChallengeResponse
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimAccount
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.Claimed
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimRejected
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.Claimed
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Hello
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.RegenerateSecret
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SecretRegenerated
@@ -525,7 +525,8 @@ class DeviceTransportClientTest {
                     incoming.receive() // hello
                     send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
                     incoming.receive() // claim_account
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), ClaimRejected("already_claimed"))))
+                    val rejected = ClaimRejected("already_claimed")
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), rejected)))
                 },
             ) { port ->
                 val client = newClient()

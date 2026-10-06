@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material3.AlertDialog
@@ -131,10 +132,15 @@ private fun ConnectionsBody(
     Text(text = stringResource(R.string.account_connections_title), style = MaterialTheme.typography.labelLarge)
     Spacer(Modifier.height(8.dp))
     when (connectionsState) {
-        is ConnectionsState.Loading -> CircularProgressIndicator(modifier = Modifier.height(20.dp))
+        is ConnectionsState.Loading -> {
+            CircularProgressIndicator(modifier = Modifier.height(20.dp))
+        }
 
         is ConnectionsState.Failed -> {
-            Text(text = stringResource(R.string.account_connections_load_failed), color = MaterialTheme.colorScheme.error)
+            Text(
+                text = stringResource(R.string.account_connections_load_failed),
+                color = MaterialTheme.colorScheme.error,
+            )
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = onRetryClick) { Text(stringResource(R.string.account_connections_retry)) }
         }
@@ -145,13 +151,18 @@ private fun ConnectionsBody(
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     connectionsState.connections.forEach { connection ->
-                        ConnectionRow(connection = connection, onRevokeClick = { onRevokeConnection(connection.clientId, connection.clientName) })
+                        ConnectionRow(
+                            connection = connection,
+                            onRevokeClick = { onRevokeConnection(connection.clientId, connection.clientName) },
+                        )
                     }
                 }
             }
         }
 
-        is ConnectionsState.Idle -> Unit
+        is ConnectionsState.Idle -> {
+            Unit
+        }
     }
 }
 

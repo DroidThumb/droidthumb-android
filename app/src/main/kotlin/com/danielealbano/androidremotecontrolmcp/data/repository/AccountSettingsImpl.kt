@@ -26,7 +26,11 @@ class AccountSettingsImpl
             val hadPrevious = getAccountId() != null
             dataStore.edit { prefs -> prefs[ACCOUNT_ID_KEY] = accountId }
             settingsChangeLogger.submit("account_id", "", "x") { _, _ ->
-                if (hadPrevious) "Device re-claimed for the signed-in account" else "Device claimed for the signed-in account"
+                if (hadPrevious) {
+                    "Device re-claimed for the signed-in account"
+                } else {
+                    "Device claimed for the signed-in account"
+                }
             }
         }
 

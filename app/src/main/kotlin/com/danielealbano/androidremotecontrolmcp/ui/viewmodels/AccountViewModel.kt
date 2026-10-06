@@ -86,11 +86,15 @@ class AccountViewModel
                 _claimState.value = AccountClaimState.SigningIn
                 val idToken =
                     when (val result = googleSignInClient.signIn(context, filterByAuthorizedAccounts = false)) {
-                        is GoogleSignInResult.Success -> result.idToken
+                        is GoogleSignInResult.Success -> {
+                            result.idToken
+                        }
+
                         is GoogleSignInResult.NoCredential -> {
                             _claimState.value = AccountClaimState.Failed("No Google account was selected")
                             return@launch
                         }
+
                         is GoogleSignInResult.Failed -> {
                             _claimState.value = AccountClaimState.Failed(result.message)
                             return@launch
@@ -100,7 +104,10 @@ class AccountViewModel
                 val config = settingsRepository.getTransportConfig()
                 val claimToken =
                     when (val result = accountApiClient.mintClaimToken(config.host, config.port, config.tls, idToken)) {
-                        is ClaimTokenResult.Success -> result.claimToken
+                        is ClaimTokenResult.Success -> {
+                            result.claimToken
+                        }
+
                         is ClaimTokenResult.Failed -> {
                             _claimState.value = AccountClaimState.Failed(result.message)
                             return@launch
@@ -114,15 +121,23 @@ class AccountViewModel
                         _claimState.value = AccountClaimState.Claimed(result.accountId)
                         loadConnections(context)
                     }
-                    is ClaimResult.Rejected ->
+
+                    is ClaimResult.Rejected -> {
                         _claimState.value =
                             if (result.reason == "already_claimed") {
                                 AccountClaimState.AlreadyClaimedByOther
                             } else {
                                 AccountClaimState.Failed("Sign-in link expired — try again")
                             }
-                    is ClaimResult.TimedOut -> _claimState.value = AccountClaimState.Failed("No response from the server")
-                    is ClaimResult.NotConnected -> _claimState.value = AccountClaimState.Failed("Not connected to the server")
+                    }
+
+                    is ClaimResult.TimedOut -> {
+                        _claimState.value = AccountClaimState.Failed("No response from the server")
+                    }
+
+                    is ClaimResult.NotConnected -> {
+                        _claimState.value = AccountClaimState.Failed("Not connected to the server")
+                    }
                 }
             }
         }
@@ -139,8 +154,13 @@ class AccountViewModel
                 }
                 val config = settingsRepository.getTransportConfig()
                 when (val result = accountApiClient.listConnections(config.host, config.port, config.tls, idToken)) {
-                    is ConnectionsResult.Success -> _connectionsState.value = ConnectionsState.Loaded(result.connections)
-                    is ConnectionsResult.Failed -> _connectionsState.value = ConnectionsState.Failed(result.message)
+                    is ConnectionsResult.Success -> {
+                        _connectionsState.value = ConnectionsState.Loaded(result.connections)
+                    }
+
+                    is ConnectionsResult.Failed -> {
+                        _connectionsState.value = ConnectionsState.Failed(result.message)
+                    }
                 }
             }
         }
@@ -162,7 +182,10 @@ class AccountViewModel
                                 ConnectionsState.Loaded(current.connections.filterNot { it.clientId == clientId })
                         }
                     }
-                    is RevokeResult.Failed -> Unit // leave the list as-is; the row's own retry is the recovery path
+
+                    is RevokeResult.Failed -> {
+                        Unit
+                    } // leave the list as-is; the row's own retry is the recovery path
                 }
             }
         }

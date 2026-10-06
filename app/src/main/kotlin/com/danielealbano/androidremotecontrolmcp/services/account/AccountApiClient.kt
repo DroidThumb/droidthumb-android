@@ -158,7 +158,10 @@ class AccountApiClientImpl
                             val body = response.body<ClaimTokenResponseBody>()
                             ClaimTokenResult.Success(body.claimToken, body.accountId)
                         }
-                        else -> ClaimTokenResult.Failed("HTTP ${response.status.value}")
+
+                        else -> {
+                            ClaimTokenResult.Failed("HTTP ${response.status.value}")
+                        }
                     }
                 } catch (e: Exception) {
                     ClaimTokenResult.Failed(e.message ?: "claim-token request failed")
@@ -192,7 +195,10 @@ class AccountApiClientImpl
                                 body.connections.map { AccountConnection(it.clientId, it.clientName, it.connectedAt) },
                             )
                         }
-                        else -> ConnectionsResult.Failed("HTTP ${response.status.value}")
+
+                        else -> {
+                            ConnectionsResult.Failed("HTTP ${response.status.value}")
+                        }
                     }
                 } catch (e: Exception) {
                     ConnectionsResult.Failed(e.message ?: "connections request failed")

@@ -19,7 +19,9 @@ class SettingsRepositoryImplTest {
     private val eventChannelSettings = mockk<EventChannelSettings>(relaxed = true)
     private val transportSettings = mockk<TransportSettings>(relaxed = true)
     private val connectorUrlSettings = mockk<ConnectorUrlSettings>(relaxed = true)
-    private val repository = SettingsRepositoryImpl(eventChannelSettings, transportSettings, connectorUrlSettings)
+    private val accountSettings = mockk<AccountSettings>(relaxed = true)
+    private val repository =
+        SettingsRepositoryImpl(eventChannelSettings, transportSettings, connectorUrlSettings, accountSettings)
 
     @Test
     fun `eventChannelConfig is the slice's flow`() =

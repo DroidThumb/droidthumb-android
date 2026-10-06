@@ -51,7 +51,8 @@ class AccountViewModelTest {
         Dispatchers.setMain(testDispatcher)
         every { settingsRepository.accountId } returns accountIdFlow
         coEvery { settingsRepository.getTransportConfig() } returns transportConfig
-        viewModel = AccountViewModel(settingsRepository, googleSignInClient, accountApiClient, transportClient, testDispatcher)
+        viewModel =
+            AccountViewModel(settingsRepository, googleSignInClient, accountApiClient, transportClient, testDispatcher)
     }
 
     @AfterEach
@@ -71,7 +72,8 @@ class AccountViewModelTest {
             coEvery { accountApiClient.mintClaimToken("h", 1, false, "id-token") } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
             coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.Claimed("acc_1")
-            coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns ConnectionsResult.Success(emptyList())
+            coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
+                ConnectionsResult.Success(emptyList())
 
             viewModel.signInAndClaim(context)
             advanceUntilIdle()
@@ -120,7 +122,8 @@ class AccountViewModelTest {
             viewModel.loadConnections(context)
             advanceUntilIdle()
 
-            assertEquals(ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "2026-10-01"))), viewModel.connectionsState.value)
+            val expected = ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "2026-10-01")))
+            assertEquals(expected, viewModel.connectionsState.value)
             coVerify(exactly = 0) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) }
         }
 
