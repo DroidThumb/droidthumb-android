@@ -160,6 +160,19 @@ Plan <N>: <Short descriptive title>
 - `Plan 2: Data layer, settings repository, and utilities`
 - `Plan 7: Screen introspection and system action MCP tools`
 
+### Sequencing — No Stacking, Docs With Code
+
+- **Never start new feature work while an earlier PR in this repo is still unmerged, unless the
+  user asks for it.** Finish and merge what's open first. If asked to work ahead anyway, say so
+  explicitly rather than silently stacking.
+- **No stacked PRs (a branch based on another open PR's branch) unless the user asks.** A stacked
+  PR has no base to merge into until the one below it merges, and CI workflows that trigger only on
+  PRs to `main` won't even run for it — found live, 2026-10-06, in the companion `droidthumb-server`
+  repo, after a stacked PR's base branch got accidentally merged into instead of `main`.
+- **Design-doc and decisions-log changes (both live in `droidthumb-server`) land in the same PR as
+  the code they describe, not a separate PR** — splitting them risks the two drifting apart across
+  branches that merge in a different order than planned.
+
 ---
 
 ## Release Workflow
