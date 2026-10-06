@@ -5,8 +5,10 @@ import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import javax.inject.Inject
@@ -48,7 +50,6 @@ interface GoogleSignInClient {
 class GoogleSignInClientImpl
     @Inject
     constructor() : GoogleSignInClient {
-        @Suppress("TooGenericExceptionCaught")
         override suspend fun signIn(
             context: Context,
             filterByAuthorizedAccounts: Boolean,
@@ -67,16 +68,50 @@ class GoogleSignInClientImpl
                 val response = CredentialManager.create(context).getCredential(context, request)
                 val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(response.credential.data)
                 GoogleSignInResult.Success(googleIdTokenCredential.idToken)
+            } catch (_: NoCredentialException) {
+                when {
+                    filterByAuthorizedAccounts -> GoogleSignInResult.NoCredential
+
+                    // The unrestricted (account-picker) attempt still found nothing - Google's own
+                    // Credential Manager guidance treats the explicit "Sign in with Google" button
+                    // option as the guaranteed-to-render final step: unlike GetGoogleIdOption, it
+                    // isn't gated on any prior authorized-account relationship, so it still works for
+                    // a genuine first-time sign-in that GetGoogleIdOption alone could not satisfy.
+                    else -> signInWithGoogleButton(context)
+                }
             } catch (e: GetCredentialException) {
                 if (filterByAuthorizedAccounts) {
                     GoogleSignInResult.NoCredential
                 } else {
-                    GoogleSignInResult.Failed(e.message ?: "sign-in failed")
+                    GoogleSignInResult.Failed(readableMessage(e))
                 }
             } catch (e: GoogleIdTokenParsingException) {
                 GoogleSignInResult.Failed(e.message ?: "could not parse the Google id_token")
             }
         }
+
+        private suspend fun signInWithGoogleButton(context: Context): GoogleSignInResult {
+            val option = GetSignInWithGoogleOption.Builder(BuildConfig.GOOGLE_SERVER_CLIENT_ID).build()
+            val request = GetCredentialRequest.Builder().addCredentialOption(option).build()
+            return try {
+                val response = CredentialManager.create(context).getCredential(context, request)
+                val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(response.credential.data)
+                GoogleSignInResult.Success(googleIdTokenCredential.idToken)
+            } catch (e: GetCredentialException) {
+                GoogleSignInResult.Failed(readableMessage(e))
+            } catch (e: GoogleIdTokenParsingException) {
+                GoogleSignInResult.Failed(e.message ?: "could not parse the Google id_token")
+            }
+        }
+
+        /** [GetCredentialException]'s own `message` is a platform/debug string (e.g. raw
+         *  `NoCredentialException` text) never meant for a user-facing screen - mapped to something
+         *  readable instead of surfaced verbatim. */
+        private fun readableMessage(e: GetCredentialException): String =
+            when (e) {
+                is NoCredentialException -> "No Google account is available to sign in with on this device"
+                else -> "Google sign-in failed - please try again"
+            }
 
         @Suppress("TooGenericExceptionCaught", "SwallowedException")
         override suspend fun signOut(context: Context) {
