@@ -10,6 +10,8 @@ import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSet
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettingsImpl
+import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
+import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepository
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepositoryImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
@@ -121,6 +123,12 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindAccountSettings(impl: AccountSettingsImpl): AccountSettings
+
+    /** Binds the pause settings slice (design doc §8.8 revision) that [SettingsRepositoryImpl]
+     *  delegates to. */
+    @Binds
+    @Singleton
+    abstract fun bindPauseSettings(impl: PauseSettingsImpl): PauseSettings
 }
 
 @Module

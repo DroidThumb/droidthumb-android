@@ -2,9 +2,11 @@ package com.danielealbano.androidremotecontrolmcp.ui.viewmodels
 
 import android.content.Context
 import app.cash.turbine.test
+import com.danielealbano.androidremotecontrolmcp.data.model.PauseState
 import com.danielealbano.androidremotecontrolmcp.data.model.TransportConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
+import com.danielealbano.androidremotecontrolmcp.services.transport.TransportAutoStart
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -30,10 +32,12 @@ class TransportViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private val settingsRepository = mockk<SettingsRepository>(relaxed = true)
     private val transportClient = mockk<DeviceTransportClient>(relaxed = true)
+    private val transportAutoStart = mockk<TransportAutoStart>(relaxed = true)
     private val appContext = mockk<Context>(relaxed = true)
 
     private val transportConfigFlow = MutableStateFlow(TransportConfig())
     private val connectorUrlFlow = MutableStateFlow<String?>(null)
+    private val pauseStateFlow = MutableStateFlow(PauseState())
 
     private lateinit var viewModel: TransportViewModel
 
@@ -42,8 +46,10 @@ class TransportViewModelTest {
         Dispatchers.setMain(testDispatcher)
         every { settingsRepository.transportConfig } returns transportConfigFlow
         every { settingsRepository.connectorUrl } returns connectorUrlFlow
+        every { settingsRepository.pauseState } returns pauseStateFlow
         coEvery { settingsRepository.getTransportConfig() } answers { transportConfigFlow.value }
-        viewModel = TransportViewModel(settingsRepository, transportClient, appContext, testDispatcher)
+        viewModel =
+            TransportViewModel(settingsRepository, transportClient, transportAutoStart, appContext, testDispatcher)
     }
 
     @AfterEach
@@ -106,5 +112,47 @@ class TransportViewModelTest {
                 advanceUntilIdle()
                 assertEquals(TransportViewModel.RegenerateSecretState.TIMED_OUT, viewModel.regenerateState.value)
             }
+    }
+
+    @Nested
+    @DisplayName("pause")
+    inner class Pause {
+        @Test
+        fun `pauseFor1Hour persists a resumeAt roughly one hour out`() =
+            runTest {
+                val before = System.currentTimeMillis()
+                viewModel.pauseFor1Hour()
+                advanceUntilIdle()
+
+                coVerify {
+                    settingsRepository.pauseUntil(
+                        match { it in (before + ONE_HOUR_MS)..(before + ONE_HOUR_MS + SLACK_MS) },
+                    )
+                }
+            }
+
+        @Test
+        fun `pauseIndefinitely persists a null resumeAt`() =
+            runTest {
+                viewModel.pauseIndefinitely()
+                advanceUntilIdle()
+
+                coVerify { settingsRepository.pauseUntil(null) }
+            }
+
+        @Test
+        fun `resume delegates to the repository and re-runs the auto-start check`() =
+            runTest {
+                viewModel.resume()
+                advanceUntilIdle()
+
+                coVerify { settingsRepository.resume() }
+                coVerify { transportAutoStart.maybeStart(appContext) }
+            }
+    }
+
+    private companion object {
+        private const val ONE_HOUR_MS = 60 * 60 * 1000L
+        private const val SLACK_MS = 5_000L
     }
 }

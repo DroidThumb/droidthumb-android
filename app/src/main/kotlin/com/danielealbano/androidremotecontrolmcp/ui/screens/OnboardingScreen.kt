@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,39 +78,45 @@ fun OnboardingScreen(
     }
 
     LaunchedEffect(claimState) {
-        if (claimState is AccountClaimState.Claimed) onboardingViewModel.markSignedIn()
+        if (claimState is AccountClaimState.Claimed) onboardingViewModel.markSignedIn(context)
     }
 
-    Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        when (step) {
-            OnboardingStep.LOADING, OnboardingStep.DONE -> {
-                Unit
-            }
+    // Without this Surface, Text here falls back to Compose's hard-coded default content color
+    // (black) instead of the theme's onBackground - MainScreen gets this for free from its own
+    // Scaffold, which this screen has none of (found live: near-black text on the dark Google
+    // Sign-In step, PR #8 phone feedback).
+    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            when (step) {
+                OnboardingStep.LOADING, OnboardingStep.DONE -> {
+                    Unit
+                }
 
-            OnboardingStep.RESTRICTED_SETTINGS -> {
-                RestrictedSettingsStep(
-                    onContinue = { onboardingViewModel.acknowledgeRestrictedSettings(context, accountId) },
-                )
-            }
+                OnboardingStep.RESTRICTED_SETTINGS -> {
+                    RestrictedSettingsStep(
+                        onContinue = { onboardingViewModel.acknowledgeRestrictedSettings(context, accountId) },
+                    )
+                }
 
-            OnboardingStep.ACCESSIBILITY -> {
-                AccessibilityStep()
-            }
+                OnboardingStep.ACCESSIBILITY -> {
+                    AccessibilityStep()
+                }
 
-            OnboardingStep.BATTERY -> {
-                BatteryStep(onAllowClick = { mainViewModel.requestBatteryOptimizationExemption() })
-            }
+                OnboardingStep.BATTERY -> {
+                    BatteryStep(onAllowClick = { mainViewModel.requestBatteryOptimizationExemption() })
+                }
 
-            OnboardingStep.GOOGLE_SIGN_IN -> {
-                GoogleSignInStep(
-                    claimState = claimState,
-                    onSignInClick = { accountViewModel.signInAndClaim(context) },
-                    onSkipClick = { onboardingViewModel.skipSignIn() },
-                )
+                OnboardingStep.GOOGLE_SIGN_IN -> {
+                    GoogleSignInStep(
+                        claimState = claimState,
+                        onSignInClick = { accountViewModel.signInAndClaim(context) },
+                        onSkipClick = { onboardingViewModel.skipSignIn() },
+                    )
+                }
             }
         }
     }

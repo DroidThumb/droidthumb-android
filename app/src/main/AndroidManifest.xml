@@ -94,6 +94,29 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Holds an outbound WebSocket connection to a user-configured DroidThumb server" />
         </service>
+
+        <!-- Device transport auto-start on boot (design doc §8.8 revision: no manual Start/Stop) -->
+        <receiver
+            android:name=".services.transport.TransportBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Device transport auto-start after an app update -->
+        <receiver
+            android:name=".services.transport.TransportPackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Pause action buttons on the persistent "Remote control" notification -->
+        <receiver
+            android:name=".services.transport.TransportPauseActionReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

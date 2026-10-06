@@ -2,6 +2,7 @@ package com.danielealbano.androidremotecontrolmcp.services.transport
 
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
+import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
@@ -16,6 +17,7 @@ import com.danielealbano.androidremotecontrolmcp.wireprotocol.RegenerateSecret
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SecretRegenerated
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Step
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepDispatcher
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepError
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Welcome
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.WireMessage
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.wireJson
@@ -151,6 +153,7 @@ class DeviceTransportClientImpl
         private val deviceInfoProvider: DeviceInfoProvider,
         private val registrationClient: DeviceRegistrationClient,
         private val connectorUrlSettings: ConnectorUrlSettings,
+        private val pauseSettings: PauseSettings,
     ) : DeviceTransportClient {
         private val _status = MutableStateFlow<TransportStatus>(TransportStatus.Idle)
         override val status: StateFlow<TransportStatus> = _status.asStateFlow()
@@ -315,7 +318,12 @@ class DeviceTransportClientImpl
                 }
 
                 is Step -> {
-                    val reply = stepDispatcher.dispatch(message)
+                    val reply =
+                        if (pauseSettings.getPauseState().isEffectivePause(System.currentTimeMillis())) {
+                            StepError(message.stepId, code = "device_paused", message = PAUSED_STEP_MESSAGE)
+                        } else {
+                            stepDispatcher.dispatch(message)
+                        }
                     send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), reply)))
                 }
 
@@ -420,6 +428,11 @@ class DeviceTransportClientImpl
             const val SUBPROTOCOL = "droidthumb.v1"
             private const val REGENERATE_TIMEOUT_MS = 5_000L
             private const val CLAIM_TIMEOUT_MS = 5_000L
+
+            /** Reply to every `step` while paused (design doc §8.8 revision) — the connection stays
+             *  up and replies immediately, so an AI client sees a clear, fast rejection instead of
+             *  the step timing out as if the device had simply gone unresponsive. */
+            const val PAUSED_STEP_MESSAGE = "This device was paused by its owner"
             private val BACKOFF_SCHEDULE_MS = listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L)
         }
     }

@@ -65,8 +65,8 @@ fun ServerScreen(
     val channelConfig by channelViewModel.eventChannelConfig.collectAsStateWithLifecycle()
     val channelStatus by channelViewModel.channelConnectionStatus.collectAsStateWithLifecycle()
 
-    val transportConfig by transportViewModel.transportConfig.collectAsStateWithLifecycle()
     val transportStatus by transportViewModel.transportStatus.collectAsStateWithLifecycle()
+    val pauseState by transportViewModel.pauseState.collectAsStateWithLifecycle()
     val hostInput by transportViewModel.hostInput.collectAsStateWithLifecycle()
     val portInput by transportViewModel.portInput.collectAsStateWithLifecycle()
     val portError by transportViewModel.portError.collectAsStateWithLifecycle()
@@ -142,20 +142,21 @@ fun ServerScreen(
 
             TransportStatusCard(
                 status = transportStatus,
-                enabled = transportConfig.enabled,
+                pauseState = pauseState,
                 host = hostInput,
                 port = portInput,
                 portError = portError,
                 onHostChange = transportViewModel::updateHost,
                 onPortChange = transportViewModel::updatePort,
-                onStartClick = { transportViewModel.start() },
-                onStopClick = { transportViewModel.stop() },
-                startEnabled = isAccessibilityEnabled && hostInput.isNotBlank(),
                 tls = tlsInput,
                 onTlsChange = transportViewModel::updateTls,
                 connectorUrl = connectorUrl,
                 regenerateState = regenerateState,
                 onRegenerateClick = transportViewModel::regenerateSecret,
+                onPauseFor1Hour = transportViewModel::pauseFor1Hour,
+                onPauseUntilTomorrow = transportViewModel::pauseUntilTomorrow,
+                onPauseIndefinitely = transportViewModel::pauseIndefinitely,
+                onResumeClick = transportViewModel::resume,
             )
 
             Spacer(Modifier.height(16.dp))
