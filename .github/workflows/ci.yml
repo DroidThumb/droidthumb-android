@@ -5,6 +5,20 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual self-host builds only (plan 70 US2): server host is build-time-only, with no in-app UI.
+  # `gh workflow run ci.yml -f server_host_release=my-self-host.example.com` produces a release APK
+  # pointed at a self-hosted server; leave both inputs blank for the normal staging/production
+  # defaults. A manual dispatch only runs build-release — lint/test-unit skip (see their `if:` below).
+  workflow_dispatch:
+    inputs:
+      server_host_debug:
+        description: 'Self-host override for the debug build''s DEFAULT_SERVER_HOST (blank = staging.droidthumb.com)'
+        required: false
+        type: string
+      server_host_release:
+        description: 'Self-host override for the release build''s DEFAULT_SERVER_HOST (blank = mcp.droidthumb.com)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -21,6 +35,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    if: github.event_name != 'workflow_dispatch'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -48,6 +63,7 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    if: github.event_name != 'workflow_dispatch'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -115,7 +131,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       - name: Build debug + release APKs
-        run: ./gradlew assembleDebug assembleRelease
+        env:
+          SERVER_HOST_DEBUG: ${{ inputs.server_host_debug }}
+          SERVER_HOST_RELEASE: ${{ inputs.server_host_release }}
+        run: |
+          ARGS=()
+          if [ -n "$SERVER_HOST_DEBUG" ]; then
+            ARGS+=("-PDEFAULT_SERVER_HOST_DEBUG=$SERVER_HOST_DEBUG")
+          fi
+          if [ -n "$SERVER_HOST_RELEASE" ]; then
+            ARGS+=("-PDEFAULT_SERVER_HOST_RELEASE=$SERVER_HOST_RELEASE")
+          fi
+          ./gradlew assembleDebug assembleRelease "${ARGS[@]}"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7

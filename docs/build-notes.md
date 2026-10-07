@@ -179,3 +179,23 @@ All 14 skips are `E2ECameraTest`, gated by `Assumptions.assumeTrue(...)` in the 
 So: run it now, while it's green, to catch any regression from tunnel removal or the applicationId-propagation fixes above — but expect it to need a real redesign, not incremental patching, once D-19's on-device-server removal lands.
 
 Also worth noting: **Play Integrity fails on emulators** (per the design doc's Appendix B), so any real device-facing behaviour that depends on Play Integrity cannot be validated on this AVD — only on a real device, which is explicitly the founder's own responsibility per B-15/§11.5 of the design doc.
+
+## Self-host builds (plan 70 US2, 2026-10-07)
+
+The server host the app connects to has no in-app UI any more — it's build-time only, defaulting
+to `staging.droidthumb.com` (debug) / `mcp.droidthumb.com` (release). A self-host build overrides
+that default with a Gradle property:
+
+```bash
+./gradlew assembleRelease -PDEFAULT_SERVER_HOST_RELEASE=my-self-host.example.com
+```
+
+(`-PDEFAULT_SERVER_HOST_DEBUG=...` for a debug build.) From CI, with no local checkout:
+
+```bash
+gh workflow run ci.yml -f server_host_release=my-self-host.example.com
+```
+
+Leave the input blank for the normal staging/production default. A manual `workflow_dispatch` run
+only runs the `build-release` job (lint/test-unit skip for it) and uploads the same `app-debug`/
+`app-release` artifacts a push/PR build does.

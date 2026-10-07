@@ -57,12 +57,6 @@ fun ServerScreen(
 
     val transportStatus by transportViewModel.transportStatus.collectAsStateWithLifecycle()
     val pauseState by transportViewModel.pauseState.collectAsStateWithLifecycle()
-    val hostInput by transportViewModel.hostInput.collectAsStateWithLifecycle()
-    val portInput by transportViewModel.portInput.collectAsStateWithLifecycle()
-    val portError by transportViewModel.portError.collectAsStateWithLifecycle()
-    val connectorUrl by transportViewModel.connectorUrl.collectAsStateWithLifecycle()
-    val tlsInput by transportViewModel.tlsInput.collectAsStateWithLifecycle()
-    val regenerateState by transportViewModel.regenerateState.collectAsStateWithLifecycle()
 
     val accountId by accountViewModel.accountId.collectAsStateWithLifecycle()
     val claimState by accountViewModel.claimState.collectAsStateWithLifecycle()
@@ -120,16 +114,6 @@ fun ServerScreen(
             TransportStatusCard(
                 status = transportStatus,
                 pauseState = pauseState,
-                host = hostInput,
-                port = portInput,
-                portError = portError,
-                onHostChange = transportViewModel::updateHost,
-                onPortChange = transportViewModel::updatePort,
-                tls = tlsInput,
-                onTlsChange = transportViewModel::updateTls,
-                connectorUrl = connectorUrl,
-                regenerateState = regenerateState,
-                onRegenerateClick = transportViewModel::regenerateSecret,
                 onPauseFor1Hour = transportViewModel::pauseFor1Hour,
                 onPauseUntilTomorrow = transportViewModel::pauseUntilTomorrow,
                 onPauseIndefinitely = transportViewModel::pauseIndefinitely,
