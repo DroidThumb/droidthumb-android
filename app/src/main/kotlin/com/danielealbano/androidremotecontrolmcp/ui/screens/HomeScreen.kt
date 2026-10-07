@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming", "LongMethod", "MagicNumber")
+@file:Suppress("FunctionNaming", "LongMethod", "LongParameterList")
 
 package com.danielealbano.androidremotecontrolmcp.ui.screens
 
@@ -26,31 +26,38 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.R
-import com.danielealbano.androidremotecontrolmcp.ui.components.AccountCard
+import com.danielealbano.androidremotecontrolmcp.ui.components.AccountAvatarMenu
+import com.danielealbano.androidremotecontrolmcp.ui.components.AiClientsSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.BatteryOptimizationCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.CalloutCard
-import com.danielealbano.androidremotecontrolmcp.ui.components.ServerLogsSection
-import com.danielealbano.androidremotecontrolmcp.ui.components.TransportStatusCard
+import com.danielealbano.androidremotecontrolmcp.ui.components.HomeStatusIndicator
+import com.danielealbano.androidremotecontrolmcp.ui.components.SavedFlowsSection
+import com.danielealbano.androidremotecontrolmcp.ui.components.ThisDeviceSection
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountClaimState
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
-import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.LogsViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewModel
 
+/**
+ * The Home tab's main screen (plan 70 US3) — replaces the old "Server" tab's card stack with a
+ * single status indicator plus the account-centric sections the approved mockup's `Main.dc.html`
+ * shows (AI clients, Saved flows, This device). The permission/battery warning cards aren't in
+ * the mockup (which only depicts the already-set-up happy path) but stay, above the status
+ * indicator, same as before — losing visibility into a revoked permission would be a real
+ * regression the mockup simply didn't need to depict.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServerScreen(
+fun HomeScreen(
     onNavigateToPermissions: () -> Unit,
-    onShowAllLogs: () -> Unit,
+    onNavigateToClientDetail: (clientId: String) -> Unit,
+    onNavigateToAddClient: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel(),
     transportViewModel: TransportViewModel = hiltViewModel(),
     accountViewModel: AccountViewModel = hiltViewModel(),
 ) {
-    val logsViewModel: LogsViewModel = hiltViewModel()
     val context = LocalContext.current
-
-    val recentServerLogs by logsViewModel.recentServerLogs.collectAsStateWithLifecycle()
 
     val isAccessibilityEnabled by viewModel.isAccessibilityEnabled.collectAsStateWithLifecycle()
     val isBatteryOptimizationIgnored by viewModel.isBatteryOptimizationIgnored.collectAsStateWithLifecycle()
@@ -61,25 +68,31 @@ fun ServerScreen(
     val accountId by accountViewModel.accountId.collectAsStateWithLifecycle()
     val claimState by accountViewModel.claimState.collectAsStateWithLifecycle()
     val connectionsState by accountViewModel.connectionsState.collectAsStateWithLifecycle()
+    val accountProfile by accountViewModel.accountProfile.collectAsStateWithLifecycle()
+    val thisDeviceState by accountViewModel.thisDeviceState.collectAsStateWithLifecycle()
 
-    // Loads the connections list once this device already has a claimed account (a fresh claim
-    // triggers its own load right after succeeding, in the view model) - covers reopening the app
-    // on a device that was claimed in an earlier session. allowInteractive=false: this fires on
-    // its own, not from a tap, so it must never put up Google's own account-picker UI by itself -
-    // being claimed is this device's own durable, persisted state and must survive the app being
-    // closed or the phone rebooting without looking like a sign-out (founder feedback, PR #8
-    // round 5); a stale Credential Manager session here just means the connections list shows its
-    // own "Sign in to view" retry affordance instead of the full list, not a surprise sign-in UI.
+    // Same durable-claim semantics as the old ServerScreen: an automatic refresh on reopening the
+    // app must never put up Google's own account-picker UI by itself (founder feedback, PR #8
+    // round 5) - allowInteractive=false here, same as before.
     LaunchedEffect(accountId) {
         if (accountId != null && claimState !is AccountClaimState.Claimed) {
             accountViewModel.loadConnections(context, allowInteractive = false)
+            accountViewModel.loadThisDevice(context)
         }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text(stringResource(R.string.tab_server)) },
+            title = { Text(stringResource(R.string.tab_home)) },
             windowInsets = WindowInsets(0),
+            actions = {
+                AccountAvatarMenu(
+                    profile = accountProfile,
+                    onSignInClick = { accountViewModel.signInAndClaim(context) },
+                    onSignOutClick = { accountViewModel.signOut(context) },
+                    modifier = Modifier.padding(end = 12.dp),
+                )
+            },
         )
         Column(
             modifier =
@@ -100,18 +113,7 @@ fun ServerScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            AccountCard(
-                accountId = accountId,
-                claimState = claimState,
-                connectionsState = connectionsState,
-                onSignInClick = { accountViewModel.signInAndClaim(context) },
-                onRetryConnectionsClick = { accountViewModel.loadConnections(context, allowInteractive = true) },
-                onRevokeConnection = { clientId, _ -> accountViewModel.revokeConnection(context, clientId) },
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            TransportStatusCard(
+            HomeStatusIndicator(
                 status = transportStatus,
                 pauseState = pauseState,
                 onPauseFor1Hour = transportViewModel::pauseFor1Hour,
@@ -120,11 +122,23 @@ fun ServerScreen(
                 onResumeClick = transportViewModel::resume,
             )
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(20.dp))
 
-            ServerLogsSection(
-                logs = recentServerLogs,
-                onShowMore = onShowAllLogs,
+            AiClientsSection(
+                connectionsState = connectionsState,
+                onClientClick = onNavigateToClientDetail,
+                onAddClientClick = onNavigateToAddClient,
+            )
+
+            Spacer(Modifier.height(20.dp))
+
+            SavedFlowsSection()
+
+            Spacer(Modifier.height(20.dp))
+
+            ThisDeviceSection(
+                deviceModel = accountViewModel.deviceModel,
+                thisDeviceState = thisDeviceState,
             )
         }
     }
