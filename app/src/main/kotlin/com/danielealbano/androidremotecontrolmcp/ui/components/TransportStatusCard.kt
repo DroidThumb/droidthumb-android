@@ -42,50 +42,137 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.danielealbano.androidremotecontrolmcp.data.model.PauseState
 import com.danielealbano.androidremotecontrolmcp.data.model.TransportConfig
 import com.danielealbano.androidremotecontrolmcp.services.transport.TransportStatus
 import com.danielealbano.androidremotecontrolmcp.ui.theme.AndroidRemoteControlMcpTheme
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewModel
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 private const val STATUS_DOT_SIZE_DP = 12
 private const val ANIMATION_DURATION_MS = 300
 
 /**
- * Status, server-address fields, and start/stop control for the M2 device transport. Host/port
- * are editable only while stopped — changing them while connected would silently reconnect
- * elsewhere, which is confusing without an explicit action.
+ * Status, server-address fields, and the owner's Pause control for the M2 device transport
+ * (design doc §8.8 revision — the connection starts on its own once signed in and accessible;
+ * Pause is the only thing the owner controls here). Host/port are editable only while not
+ * connected — changing them while connected would silently reconnect elsewhere, which is
+ * confusing without an explicit action.
  */
 @Composable
 fun TransportStatusCard(
     status: TransportStatus,
-    enabled: Boolean,
+    pauseState: PauseState,
     host: String,
     port: String,
     portError: String?,
     onHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
-    onStartClick: () -> Unit,
-    onStopClick: () -> Unit,
-    startEnabled: Boolean,
     tls: Boolean,
     onTlsChange: (Boolean) -> Unit,
     connectorUrl: String?,
     regenerateState: TransportViewModel.RegenerateSecretState,
     onRegenerateClick: () -> Unit,
+    onPauseFor1Hour: () -> Unit,
+    onPauseUntilTomorrow: () -> Unit,
+    onPauseIndefinitely: () -> Unit,
+    onResumeClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val label = "Remote Control"
-    val statusText = transportStatusToText(status, enabled)
+    val paused = pauseState.isEffectivePause(System.currentTimeMillis())
+    val statusText = transportStatusToText(status, paused, pauseState.resumeAtEpochMs)
     val animatedColor by animateColorAsState(
-        targetValue = transportStatusToColor(status, enabled, isSystemInDarkTheme()),
+        targetValue = transportStatusToColor(status, paused, isSystemInDarkTheme()),
         animationSpec = tween(durationMillis = ANIMATION_DURATION_MS),
         label = "transportStatusColor",
     )
 
+    var showPauseOptions by remember { mutableStateOf(false) }
+
     ElevatedCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            TransportStatusRow(label, statusText, animatedColor, enabled, startEnabled, onStartClick, onStopClick)
-            Spacer(modifier = Modifier.width(8.dp))
+        TransportStatusCardContent(
+            label = label,
+            statusText = statusText,
+            statusColor = animatedColor,
+            paused = paused,
+            status = status,
+            host = host,
+            port = port,
+            portError = portError,
+            onHostChange = onHostChange,
+            onPortChange = onPortChange,
+            tls = tls,
+            onTlsChange = onTlsChange,
+            connectorUrl = connectorUrl,
+            regenerateState = regenerateState,
+            onRegenerateClick = onRegenerateClick,
+            onPauseClick = { showPauseOptions = true },
+            onResumeClick = onResumeClick,
+        )
+    }
+
+    if (showPauseOptions) {
+        PauseOptionsDialog(
+            onDismiss = { showPauseOptions = false },
+            onPauseFor1Hour = {
+                showPauseOptions = false
+                onPauseFor1Hour()
+            },
+            onPauseUntilTomorrow = {
+                showPauseOptions = false
+                onPauseUntilTomorrow()
+            },
+            onPauseIndefinitely = {
+                showPauseOptions = false
+                onPauseIndefinitely()
+            },
+        )
+    }
+}
+
+@Composable
+private fun TransportStatusCardContent(
+    label: String,
+    statusText: String,
+    statusColor: Color,
+    paused: Boolean,
+    status: TransportStatus,
+    host: String,
+    port: String,
+    portError: String?,
+    onHostChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
+    tls: Boolean,
+    onTlsChange: (Boolean) -> Unit,
+    connectorUrl: String?,
+    regenerateState: TransportViewModel.RegenerateSecretState,
+    onRegenerateClick: () -> Unit,
+    onPauseClick: () -> Unit,
+    onResumeClick: () -> Unit,
+) {
+    var advancedExpanded by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        TransportStatusRow(
+            label = label,
+            statusText = statusText,
+            statusColor = statusColor,
+            paused = paused,
+            onPauseClick = onPauseClick,
+            onResumeClick = onResumeClick,
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        // Host/port/TLS are self-hosting-only (design doc D-33/§8.8): the app connects to the
+        // right server out of the box (staging for a debug build, production for release), so
+        // nobody signing in normally ever needs to see these fields, let alone edit them —
+        // collapsed by default, not removed, since a self-hoster still needs to change them.
+        TextButton(onClick = { advancedExpanded = !advancedExpanded }) {
+            Text(if (advancedExpanded) "Hide advanced" else "Advanced (self-hosting)")
+        }
+        if (advancedExpanded) {
             TransportAddressFields(
                 host,
                 port,
@@ -94,19 +181,41 @@ fun TransportStatusCard(
                 onPortChange,
                 tls,
                 onTlsChange,
-                fieldsEnabled = !enabled,
+                fieldsEnabled = status !is TransportStatus.Connected,
             )
-            if (connectorUrl != null) {
-                Spacer(modifier = Modifier.height(12.dp))
-                ConnectorUrlSection(
-                    connectorUrl = connectorUrl,
-                    canRegenerate = status is TransportStatus.Connected,
-                    regenerateState = regenerateState,
-                    onRegenerateClick = onRegenerateClick,
-                )
-            }
+        }
+        if (connectorUrl != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            ConnectorUrlSection(
+                connectorUrl = connectorUrl,
+                canRegenerate = status is TransportStatus.Connected,
+                regenerateState = regenerateState,
+                onRegenerateClick = onRegenerateClick,
+            )
         }
     }
+}
+
+@Composable
+private fun PauseOptionsDialog(
+    onDismiss: () -> Unit,
+    onPauseFor1Hour: () -> Unit,
+    onPauseUntilTomorrow: () -> Unit,
+    onPauseIndefinitely: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pause remote control?") },
+        text = {
+            Column {
+                TextButton(onClick = onPauseFor1Hour) { Text("For 1 hour") }
+                TextButton(onClick = onPauseUntilTomorrow) { Text("Until tomorrow") }
+                TextButton(onClick = onPauseIndefinitely) { Text("Until I resume") }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -114,10 +223,9 @@ private fun TransportStatusRow(
     label: String,
     statusText: String,
     statusColor: Color,
-    enabled: Boolean,
-    startEnabled: Boolean,
-    onStartClick: () -> Unit,
-    onStopClick: () -> Unit,
+    paused: Boolean,
+    onPauseClick: () -> Unit,
+    onResumeClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -143,11 +251,8 @@ private fun TransportStatusRow(
                 )
             }
         }
-        FilledTonalButton(
-            onClick = if (enabled) onStopClick else onStartClick,
-            enabled = if (enabled) true else startEnabled,
-        ) {
-            Text(text = if (enabled) "Stop" else "Start")
+        FilledTonalButton(onClick = if (paused) onResumeClick else onPauseClick) {
+            Text(text = if (paused) "Resume" else "Pause")
         }
     }
 }
@@ -285,10 +390,20 @@ private fun ConnectorUrlSection(
 
 private fun transportStatusToText(
     status: TransportStatus,
-    enabled: Boolean,
+    paused: Boolean,
+    resumeAtEpochMs: Long?,
 ): String =
-    if (!enabled) {
-        "Stopped"
+    if (paused) {
+        if (resumeAtEpochMs == null) {
+            "Paused"
+        } else {
+            val time =
+                DateTimeFormatter
+                    .ofPattern("MMM d, HH:mm")
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochMilli(resumeAtEpochMs))
+            "Paused until $time"
+        }
     } else {
         when (status) {
             is TransportStatus.Idle -> "Idle"
@@ -301,10 +416,10 @@ private fun transportStatusToText(
 
 private fun transportStatusToColor(
     status: TransportStatus,
-    enabled: Boolean,
+    paused: Boolean,
     isDarkTheme: Boolean,
 ): Color =
-    if (!enabled) {
+    if (paused) {
         if (isDarkTheme) Color(0xFFEF5350) else Color(0xFFF44336)
     } else {
         when (status) {
@@ -317,24 +432,25 @@ private fun transportStatusToColor(
 
 @Preview(showBackground = true)
 @Composable
-private fun TransportStatusCardStoppedPreview() {
+private fun TransportStatusCardPausedPreview() {
     AndroidRemoteControlMcpTheme {
         TransportStatusCard(
             status = TransportStatus.Idle,
-            enabled = false,
+            pauseState = PauseState(isPaused = true, resumeAtEpochMs = null),
             host = "",
             port = "4000",
             portError = null,
             onHostChange = {},
             onPortChange = {},
-            onStartClick = {},
-            onStopClick = {},
-            startEnabled = true,
             tls = false,
             onTlsChange = {},
             connectorUrl = null,
             regenerateState = TransportViewModel.RegenerateSecretState.IDLE,
             onRegenerateClick = {},
+            onPauseFor1Hour = {},
+            onPauseUntilTomorrow = {},
+            onPauseIndefinitely = {},
+            onResumeClick = {},
         )
     }
 }

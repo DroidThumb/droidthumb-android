@@ -8,9 +8,18 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.ui.screens.MainScreen
+import com.danielealbano.androidremotecontrolmcp.ui.screens.OnboardingScreen
 import com.danielealbano.androidremotecontrolmcp.ui.theme.AndroidRemoteControlMcpTheme
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.OnboardingStep
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.OnboardingViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -31,9 +40,20 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AndroidRemoteControlMcpTheme {
-                MainScreen(
-                    onRequestNotificationPermission = ::requestNotificationPermission,
-                )
+                val onboardingViewModel: OnboardingViewModel = hiltViewModel()
+                val onboardingStep by onboardingViewModel.step.collectAsStateWithLifecycle()
+
+                // LOADING (the initial value, until the first refresh resolves) and every real
+                // step except DONE show the onboarding flow instead of the main app - see
+                // OnboardingScreen's own doc comment for why LOADING renders blank rather than
+                // flashing a wrong step for a returning user who's already done with it.
+                if (onboardingStep == OnboardingStep.DONE) {
+                    MainScreen(
+                        onRequestNotificationPermission = ::requestNotificationPermission,
+                    )
+                } else {
+                    OnboardingScreen()
+                }
             }
         }
     }

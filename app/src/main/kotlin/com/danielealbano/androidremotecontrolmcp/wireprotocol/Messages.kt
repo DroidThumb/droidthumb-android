@@ -121,6 +121,33 @@ data class SecretRegenerated(
     @SerialName("connector_url") val connectorUrl: String,
 ) : WireMessage
 
+/** device -> server, sent on the already challenge-authenticated connection to claim this device
+ *  into an account (design doc D-33). `account_token` is the short-lived, single-use token minted
+ *  by `POST /v1/accounts/claim-token` right after Google sign-in — never the raw OAuth/id token
+ *  itself; carries no device identifier, since the connection itself already proves key
+ *  possession, the same trust model [RegenerateSecret] already uses. */
+@Serializable
+@SerialName("claim_account")
+data class ClaimAccount(
+    @SerialName("account_token") val accountToken: String,
+) : WireMessage
+
+/** server -> device, reply to [ClaimAccount] on success — sent for both a new claim and an
+ *  idempotent re-claim by the same account that already owns this device. */
+@Serializable
+@SerialName("claimed")
+data class Claimed(
+    @SerialName("account_id") val accountId: String,
+) : WireMessage
+
+/** server -> device, reply to [ClaimAccount] on failure. `already_claimed`: a different account
+ *  already owns this device. `invalid_token`: the token is invalid, expired, or already used. */
+@Serializable
+@SerialName("claim_rejected")
+data class ClaimRejected(
+    val reason: String,
+) : WireMessage
+
 /**
  * D-21. Referenced from within a `step`'s `params` or a `result`'s `output` wherever a value may
  * be large. Only [Inline] is ever produced by this build (`read_screen`'s optional screenshot);
@@ -190,6 +217,9 @@ val wireJson =
                     subclass(StepError::class, StepError.serializer())
                     subclass(RegenerateSecret::class, RegenerateSecret.serializer())
                     subclass(SecretRegenerated::class, SecretRegenerated.serializer())
+                    subclass(ClaimAccount::class, ClaimAccount.serializer())
+                    subclass(Claimed::class, Claimed.serializer())
+                    subclass(ClaimRejected::class, ClaimRejected.serializer())
                 }
             }
     }

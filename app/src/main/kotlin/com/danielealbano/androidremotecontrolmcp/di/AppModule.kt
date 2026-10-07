@@ -4,10 +4,14 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettings
+import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettingsImpl
+import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
+import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepository
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepositoryImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
@@ -24,6 +28,10 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenSt
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenStateSnapshotCacheImpl
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.TypeInputController
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.TypeInputControllerImpl
+import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClient
+import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClientImpl
+import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClient
+import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClientImpl
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManagerImpl
 import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcher
@@ -110,6 +118,17 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindConnectorUrlSettings(impl: ConnectorUrlSettingsImpl): ConnectorUrlSettings
+
+    /** Binds the account settings slice (D-33) that [SettingsRepositoryImpl] delegates to. */
+    @Binds
+    @Singleton
+    abstract fun bindAccountSettings(impl: AccountSettingsImpl): AccountSettings
+
+    /** Binds the pause settings slice (design doc §8.8 revision) that [SettingsRepositoryImpl]
+     *  delegates to. */
+    @Binds
+    @Singleton
+    abstract fun bindPauseSettings(impl: PauseSettingsImpl): PauseSettings
 }
 
 @Module
@@ -179,4 +198,12 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindDeviceRegistrationClient(impl: DeviceRegistrationClientImpl): DeviceRegistrationClient
+
+    @Binds
+    @Singleton
+    abstract fun bindGoogleSignInClient(impl: GoogleSignInClientImpl): GoogleSignInClient
+
+    @Binds
+    @Singleton
+    abstract fun bindAccountApiClient(impl: AccountApiClientImpl): AccountApiClient
 }

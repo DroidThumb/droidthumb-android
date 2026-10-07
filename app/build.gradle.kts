@@ -219,6 +219,28 @@ android {
         targetSdk = 34
         versionCode = versionCodeProp
         versionName = versionNameProp
+        // droidthumb-server's own Web OAuth client id (GOOGLE_CLIENT_ID there) - Credential
+        // Manager's GetGoogleIdOption needs this as its serverClientId so a minted Google id_token's
+        // `aud` claim matches what the server verifies against (design doc D-33); a different
+        // client here makes every sign-in fail server-side verification. Public, not secret - the
+        // same value every browser-based OAuth flow already sends as its own client_id parameter,
+        // extracted directly from staging's own redirect to Google (curl, not guessed) rather than
+        // asked for. Committed so every build (CI debug and release alike) has it with no manual
+        // step; `-PGOOGLE_SERVER_CLIENT_ID=...` still overrides it if the client ever changes.
+        buildConfigField(
+            "String",
+            "GOOGLE_SERVER_CLIENT_ID",
+            "\"${
+                project.findProperty("GOOGLE_SERVER_CLIENT_ID")
+                    ?: "981523234665-9c90qjbcalops8pvsnmfdl76v8csq4fa.apps.googleusercontent.com"
+            }\"",
+        )
+        // The MCP server address the app connects to out of the box (design doc D-33/§8.8) - the
+        // user is never asked to type a host/port/TLS; those move under an "Advanced" disclosure
+        // for self-hosting only (ServerScreen). Port and TLS are the same for both build types
+        // (Caddy's public HTTPS listener); only the host differs, set per build type below.
+        buildConfigField("int", "DEFAULT_SERVER_PORT", "443")
+        buildConfigField("boolean", "DEFAULT_SERVER_TLS", "true")
     }
 
     // Release signing configuration (optional, uses keystore.properties if present)
@@ -237,6 +259,25 @@ android {
         }
     }
 
+    // A shared, checked-in debug keystore (debug keys aren't secret - Android's own standard
+    // convention) so every debug build, local or CI, is signed with the SAME key and therefore
+    // carries the SAME SHA-1. Without this, AGP's default debug signing config auto-generates a
+    // throwaway `~/.android/debug.keystore` the first time it's needed, so CI (a fresh runner
+    // every time) mints a brand-new, different key on every run - never matching the debug
+    // fingerprint registered with the Android OAuth client in Google Cloud, so Google Sign-In
+    // fails on every CI-built debug APK with "No credentials available" (confirmed: the CI
+    // app-debug artifact's signer SHA-1 was 59:E4:E5:3F:..., not the registered
+    // 19:7B:14:13:5D:42:BF:A8:7A:AF:85:AE:21:0D:5E:45:20:83:A9:C6). `debug.keystore`'s password,
+    // alias and key password are AGP's own standard debug-keystore defaults.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             // `.debug` suffix so the debug build (`…droidthumb.debug`) installs alongside a release
@@ -244,10 +285,12 @@ android {
             applicationIdSuffix = ".debug"
             isDebuggable = true
             isMinifyEnabled = false
+            buildConfigField("String", "DEFAULT_SERVER_HOST", "\"staging.droidthumb.com\"")
         }
         release {
             isDebuggable = false
             isMinifyEnabled = false
+            buildConfigField("String", "DEFAULT_SERVER_HOST", "\"mcp.droidthumb.com\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -340,6 +383,11 @@ dependencies {
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
+
+    // Credential Manager (Google sign-in, design doc D-33)
+    implementation(libs.credentials)
+    implementation(libs.credentials.play.services.auth)
+    implementation(libs.googleid)
 
     // Unit Testing
     testImplementation(platform(libs.junit.bom))

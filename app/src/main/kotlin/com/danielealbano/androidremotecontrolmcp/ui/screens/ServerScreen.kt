@@ -18,21 +18,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.R
+import com.danielealbano.androidremotecontrolmcp.ui.components.AccountCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.BatteryOptimizationCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.CalloutCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.EventChannelStatusCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.ServerLogsSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.TransportStatusCard
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountClaimState
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.LogsViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
@@ -47,8 +52,10 @@ fun ServerScreen(
     viewModel: MainViewModel = hiltViewModel(),
     channelViewModel: ChannelViewModel = hiltViewModel(),
     transportViewModel: TransportViewModel = hiltViewModel(),
+    accountViewModel: AccountViewModel = hiltViewModel(),
 ) {
     val logsViewModel: LogsViewModel = hiltViewModel()
+    val context = LocalContext.current
 
     val recentServerLogs by logsViewModel.recentServerLogs.collectAsStateWithLifecycle()
 
@@ -58,14 +65,32 @@ fun ServerScreen(
     val channelConfig by channelViewModel.eventChannelConfig.collectAsStateWithLifecycle()
     val channelStatus by channelViewModel.channelConnectionStatus.collectAsStateWithLifecycle()
 
-    val transportConfig by transportViewModel.transportConfig.collectAsStateWithLifecycle()
     val transportStatus by transportViewModel.transportStatus.collectAsStateWithLifecycle()
+    val pauseState by transportViewModel.pauseState.collectAsStateWithLifecycle()
     val hostInput by transportViewModel.hostInput.collectAsStateWithLifecycle()
     val portInput by transportViewModel.portInput.collectAsStateWithLifecycle()
     val portError by transportViewModel.portError.collectAsStateWithLifecycle()
     val connectorUrl by transportViewModel.connectorUrl.collectAsStateWithLifecycle()
     val tlsInput by transportViewModel.tlsInput.collectAsStateWithLifecycle()
     val regenerateState by transportViewModel.regenerateState.collectAsStateWithLifecycle()
+
+    val accountId by accountViewModel.accountId.collectAsStateWithLifecycle()
+    val claimState by accountViewModel.claimState.collectAsStateWithLifecycle()
+    val connectionsState by accountViewModel.connectionsState.collectAsStateWithLifecycle()
+
+    // Loads the connections list once this device already has a claimed account (a fresh claim
+    // triggers its own load right after succeeding, in the view model) - covers reopening the app
+    // on a device that was claimed in an earlier session. allowInteractive=false: this fires on
+    // its own, not from a tap, so it must never put up Google's own account-picker UI by itself -
+    // being claimed is this device's own durable, persisted state and must survive the app being
+    // closed or the phone rebooting without looking like a sign-out (founder feedback, PR #8
+    // round 5); a stale Credential Manager session here just means the connections list shows its
+    // own "Sign in to view" retry affordance instead of the full list, not a surprise sign-in UI.
+    LaunchedEffect(accountId) {
+        if (accountId != null && claimState !is AccountClaimState.Claimed) {
+            accountViewModel.loadConnections(context, allowInteractive = false)
+        }
+    }
 
     var showChannelNotConfiguredDialog by remember { mutableStateOf(false) }
 
@@ -93,6 +118,17 @@ fun ServerScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
+            AccountCard(
+                accountId = accountId,
+                claimState = claimState,
+                connectionsState = connectionsState,
+                onSignInClick = { accountViewModel.signInAndClaim(context) },
+                onRetryConnectionsClick = { accountViewModel.loadConnections(context, allowInteractive = true) },
+                onRevokeConnection = { clientId, _ -> accountViewModel.revokeConnection(context, clientId) },
+            )
+
+            Spacer(Modifier.height(16.dp))
+
             EventChannelStatusCard(
                 channelStatus = channelStatus,
                 channelEnabled = channelConfig.enabled,
@@ -111,20 +147,21 @@ fun ServerScreen(
 
             TransportStatusCard(
                 status = transportStatus,
-                enabled = transportConfig.enabled,
+                pauseState = pauseState,
                 host = hostInput,
                 port = portInput,
                 portError = portError,
                 onHostChange = transportViewModel::updateHost,
                 onPortChange = transportViewModel::updatePort,
-                onStartClick = { transportViewModel.start() },
-                onStopClick = { transportViewModel.stop() },
-                startEnabled = isAccessibilityEnabled && hostInput.isNotBlank(),
                 tls = tlsInput,
                 onTlsChange = transportViewModel::updateTls,
                 connectorUrl = connectorUrl,
                 regenerateState = regenerateState,
                 onRegenerateClick = transportViewModel::regenerateSecret,
+                onPauseFor1Hour = transportViewModel::pauseFor1Hour,
+                onPauseUntilTomorrow = transportViewModel::pauseUntilTomorrow,
+                onPauseIndefinitely = transportViewModel::pauseIndefinitely,
+                onResumeClick = transportViewModel::resume,
             )
 
             Spacer(Modifier.height(16.dp))

@@ -1,16 +1,16 @@
 package com.danielealbano.androidremotecontrolmcp.services.transport
 
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
-import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
-import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Challenge
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ChallengeResponse
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimAccount
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimRejected
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.Claimed
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Hello
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.RegenerateSecret
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SecretRegenerated
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Step
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepDispatcher
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepResult
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Welcome
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.WireMessage
@@ -46,87 +46,11 @@ import kotlin.time.Duration.Companion.seconds
  * Exercises [DeviceTransportClientImpl] against a real, host-side Ktor WS server standing in for
  * `droidthumb-server`'s handshake — the same fake-server-on-the-JVM pattern
  * `EventDispatcherImplTest` already uses for HTTP, extended to WebSockets so the handshake and
- * reconnect logic are verified against real frames, not a mock.
+ * reconnect logic are verified against real frames, not a mock. Pause-gating has its own test
+ * class, [DeviceTransportClientPauseTest] — split out to keep this one under detekt's
+ * `LargeClass` threshold; both share [DeviceTransportClientTestBase]'s fixtures.
  */
-class DeviceTransportClientTest {
-    private fun stepDispatcherMock(): StepDispatcher = mockk()
-
-    private companion object {
-        const val TEST_PUBLIC_KEY_BASE64 =
-            "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaLYBkdZrrs2nrNpdnPkFSS4F00NwONoA5e6B4Q6pB/5Oaxi6NUPTW7pJ80l8L+0Aaxt1V/87nXFRb83soCH0Sw=="
-        const val TEST_DEVICE_ID = "dt_1d5aaa900ef5ffb98ae91a05932113643681ebc96ed43bdd084195ce34a9b09e"
-    }
-
-    private fun newClient(
-        dispatcher: StepDispatcher = stepDispatcherMock(),
-        identityKeyStore: DeviceIdentityKeyStore =
-            mockk {
-                every { ensurePublicKeyBase64() } returns TEST_PUBLIC_KEY_BASE64
-                every { signNonce(any()) } answers { "sig-for-${firstArg<String>()}" }
-            },
-        deviceInfoProvider: DeviceInfoProvider =
-            mockk {
-                every { androidVersion } returns 34
-                every { deviceModel } returns "Google Pixel 8"
-            },
-        registrationClient: DeviceRegistrationClient =
-            mockk {
-                coEvery { register(any(), any(), any(), any()) } returns
-                    DeviceRegistrationResult.Success(TEST_DEVICE_ID, null)
-            },
-        connectorUrlSettings: ConnectorUrlSettings = mockk(relaxed = true),
-    ): DeviceTransportClientImpl =
-        DeviceTransportClientImpl(
-            dispatcher,
-            identityKeyStore,
-            deviceInfoProvider,
-            registrationClient,
-            connectorUrlSettings,
-        )
-
-    /**
-     * Waits until `client.status` matches [T], returning that exact snapshot — never re-reading
-     * `client.status.value` afterward. Several fake-server handlers below return immediately after
-     * sending `Welcome` (closing the connection from the server side), which sends the real client
-     * straight back into `Reconnecting`/`Connecting` on the very next loop iteration with no delay;
-     * a plain `while (status !is X) yield()` followed by a second read is a TOCTOU race against that
-     * transition, found live (not theoretical) once `ensureRegistered()`'s extra suspension point
-     * per loop iteration shifted the scheduling enough to make it flaky under `:app:test`'s full run.
-     */
-    private suspend inline fun <reified T : TransportStatus> awaitStatus(client: DeviceTransportClientImpl): T =
-        withTimeout(15.seconds) {
-            var captured: T? = null
-            while (captured == null) {
-                val current = client.status.value
-                if (current is T) captured = current else kotlinx.coroutines.yield()
-            }
-            captured
-        }
-
-    private suspend fun <T> withFakeServer(
-        handler: suspend io.ktor.server.websocket.DefaultWebSocketServerSession.() -> Unit,
-        block: suspend (port: Int) -> T,
-    ): T {
-        val server =
-            embeddedServer(Netty, port = 0) {
-                install(WebSockets)
-                routing {
-                    webSocket("/device") { handler() }
-                }
-            }
-        server.start(wait = false)
-        val port =
-            server.engine
-                .resolvedConnectors()
-                .first()
-                .port
-        try {
-            return block(port)
-        } finally {
-            server.stop(0, 0)
-        }
-    }
-
+class DeviceTransportClientTest : DeviceTransportClientTestBase() {
     @Test
     fun `connects, sends a schema-shaped hello, and reaches Connected on welcome`() =
         runBlocking {
@@ -487,6 +411,83 @@ class DeviceTransportClientTest {
             val client = newClient()
             val result = client.regenerateSecret()
             assertFalse(result)
+        }
+
+    @Test
+    fun `claimAccount sends claim_account and completes on claimed`() =
+        runBlocking {
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    val next = incoming.receive() as Frame.Text
+                    val message = wireJson.decodeFromString(WireMessage.serializer(), next.readText())
+                    check(message is ClaimAccount)
+                    assertEquals("clt_abc123", message.accountToken)
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Claimed("acc_1"))))
+                },
+            ) { port ->
+                val client = newClient()
+                client.start("127.0.0.1", port, tls = false)
+                withTimeout(15.seconds) {
+                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
+                }
+                val result = withTimeout(8.seconds) { client.claimAccount("clt_abc123") }
+                assertEquals(ClaimResult.Claimed("acc_1"), result)
+                client.stop()
+            }
+        }
+
+    @Test
+    fun `claimAccount completes with Rejected on claim_rejected`() =
+        runBlocking {
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    incoming.receive() // claim_account
+                    val rejected = ClaimRejected("already_claimed")
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), rejected)))
+                },
+            ) { port ->
+                val client = newClient()
+                client.start("127.0.0.1", port, tls = false)
+                withTimeout(15.seconds) {
+                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
+                }
+                val result = withTimeout(8.seconds) { client.claimAccount("clt_abc123") }
+                assertEquals(ClaimResult.Rejected("already_claimed"), result)
+                client.stop()
+            }
+        }
+
+    @Test
+    fun `claimAccount times out when the server sends no reply`() =
+        runBlocking {
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    incoming.receive() // claim_account, deliberately never answered
+                },
+            ) { port ->
+                val client = newClient()
+                client.start("127.0.0.1", port, tls = false)
+                withTimeout(15.seconds) {
+                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
+                }
+                val result = withTimeout(8.seconds) { client.claimAccount("clt_abc123") }
+                assertEquals(ClaimResult.TimedOut, result)
+                client.stop()
+            }
+        }
+
+    @Test
+    fun `claimAccount returns NotConnected immediately when never connected`() =
+        runBlocking {
+            val client = newClient()
+            val result = client.claimAccount("clt_abc123")
+            assertEquals(ClaimResult.NotConnected, result)
         }
 
     @Test

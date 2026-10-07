@@ -16,6 +16,10 @@ datastore = "1.2.1"
 # Networking
 ktor = "3.5.2"
 
+# Credential Manager (Google sign-in, design doc D-33)
+credentials = "1.6.0"
+googleid = "1.2.0"
+
 # SLF4J (routes Ktor client logs to android.util.Log)
 slf4j-android = "1.7.36"
 
@@ -84,6 +88,11 @@ ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref =
 ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
 # The M2 device transport's WebSocket client (services/transport/DeviceTransportClient).
 ktor-client-websockets = { group = "io.ktor", name = "ktor-client-websockets", version.ref = "ktor" }
+
+# Credential Manager (Google sign-in, design doc D-33)
+credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
+credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
+googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 
 # Kotlinx
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }

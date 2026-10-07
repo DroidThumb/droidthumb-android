@@ -21,6 +21,9 @@ keystore.properties
 # Keystores (sensitive)
 *.jks
 *.keystore
+# Exception: the shared debug keystore is intentionally checked in (debug keys aren't secret -
+# this is what makes every debug build's SHA-1 match the fingerprint registered in Google Cloud).
+!/debug.keystore
 
 # Local release signing material (keystore, plaintext credentials, certs) — NEVER commit
 .release/

@@ -24,12 +24,26 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.SettingsRoute
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.TopLevelRoute
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewModel
 
 @Composable
 fun MainScreen(
     onRequestNotificationPermission: () -> Unit,
     viewModel: MainViewModel = hiltViewModel(),
+    // Hoisted here (not obtained via hiltViewModel() inside ServerTabScreen's own NavHost) so
+    // sign-in/claim state, the connections list and the live transport status all survive
+    // switching away to another tab and back - the NavHost's own NavBackStackEntry (and every
+    // hiltViewModel() scoped to it) is torn down and rebuilt from scratch every time
+    // ServerTabScreen itself leaves and re-enters composition, which was silently resetting
+    // AccountViewModel's claimState to Idle on every tab switch, re-triggering a full Google
+    // sign-in prompt each time (founder feedback, PR #8 round 4) even though the device was
+    // already signed in and claimed.
+    accountViewModel: AccountViewModel = hiltViewModel(),
+    channelViewModel: ChannelViewModel = hiltViewModel(),
+    transportViewModel: TransportViewModel = hiltViewModel(),
 ) {
     var selectedTabRoute by rememberSaveable { mutableStateOf(TopLevelRoute.Server.route) }
     var pendingSettingsRoute by rememberSaveable { mutableStateOf<String?>(null) }
@@ -68,6 +82,9 @@ fun MainScreen(
                     },
                     modifier = Modifier.padding(paddingValues),
                     viewModel = viewModel,
+                    accountViewModel = accountViewModel,
+                    channelViewModel = channelViewModel,
+                    transportViewModel = transportViewModel,
                 )
             }
 
@@ -78,6 +95,7 @@ fun MainScreen(
                     onPendingRouteConsumed = { pendingSettingsRoute = null },
                     modifier = Modifier.padding(paddingValues),
                     viewModel = viewModel,
+                    channelViewModel = channelViewModel,
                 )
             }
 
@@ -93,6 +111,9 @@ fun MainScreen(
                     },
                     modifier = Modifier.padding(paddingValues),
                     viewModel = viewModel,
+                    accountViewModel = accountViewModel,
+                    channelViewModel = channelViewModel,
+                    transportViewModel = transportViewModel,
                 )
             }
         }
