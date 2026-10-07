@@ -15,7 +15,7 @@ import javax.inject.Inject
 
 /**
  * Handles the Pause/Resume action buttons on the persistent "Remote control" notification
- * (design doc §8.8 revision) — the same three options [TransportStatusCard]'s in-app pause
+ * (design doc §8.8 revision) — the same three options the Home status indicator's in-app pause
  * dialog offers. [TransportService] observes [SettingsRepository.pauseState] itself and rebuilds
  * the notification on any change, so a tap here updates it the same way an in-app tap does.
  */

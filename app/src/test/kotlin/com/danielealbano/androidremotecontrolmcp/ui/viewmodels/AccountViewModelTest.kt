@@ -5,11 +5,17 @@ import com.danielealbano.androidremotecontrolmcp.data.model.TransportConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClient
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountConnection
+import com.danielealbano.androidremotecontrolmcp.services.account.AccountDevice
 import com.danielealbano.androidremotecontrolmcp.services.account.ClaimTokenResult
 import com.danielealbano.androidremotecontrolmcp.services.account.ConnectionsResult
+import com.danielealbano.androidremotecontrolmcp.services.account.DevicesResult
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClient
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInResult
+import com.danielealbano.androidremotecontrolmcp.services.account.RenameResult
 import com.danielealbano.androidremotecontrolmcp.services.account.RevokeResult
+import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
+import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
+import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
 import com.danielealbano.androidremotecontrolmcp.services.transport.ClaimResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
 import io.mockk.coEvery
@@ -30,6 +36,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import java.util.Base64
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @DisplayName("AccountViewModel")
@@ -39,6 +46,8 @@ class AccountViewModelTest {
     private val googleSignInClient = mockk<GoogleSignInClient>()
     private val accountApiClient = mockk<AccountApiClient>()
     private val transportClient = mockk<DeviceTransportClient>()
+    private val deviceIdentityKeyStore = mockk<DeviceIdentityKeyStore>(relaxed = true)
+    private val deviceInfoProvider = mockk<DeviceInfoProvider>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
 
     private val accountIdFlow = MutableStateFlow<String?>(null)
@@ -52,7 +61,15 @@ class AccountViewModelTest {
         every { settingsRepository.accountId } returns accountIdFlow
         coEvery { settingsRepository.getTransportConfig() } returns transportConfig
         viewModel =
-            AccountViewModel(settingsRepository, googleSignInClient, accountApiClient, transportClient, testDispatcher)
+            AccountViewModel(
+                settingsRepository,
+                googleSignInClient,
+                accountApiClient,
+                transportClient,
+                deviceIdentityKeyStore,
+                deviceInfoProvider,
+                testDispatcher,
+            )
     }
 
     @AfterEach
@@ -117,12 +134,12 @@ class AccountViewModelTest {
             coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
                 GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.listConnections("h", 1, false, "silent-token") } returns
-                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "2026-10-01")))
+                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
 
             viewModel.loadConnections(context, allowInteractive = true)
             advanceUntilIdle()
 
-            val expected = ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "2026-10-01")))
+            val expected = ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
             assertEquals(expected, viewModel.connectionsState.value)
             coVerify(exactly = 0) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) }
         }
@@ -169,7 +186,7 @@ class AccountViewModelTest {
             coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
                 GoogleSignInResult.Success("token")
             coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns
-                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "2026-10-01")))
+                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
             viewModel.loadConnections(context, allowInteractive = true)
             advanceUntilIdle()
 
@@ -179,5 +196,89 @@ class AccountViewModelTest {
             advanceUntilIdle()
 
             assertEquals(ConnectionsState.Loaded(emptyList()), viewModel.connectionsState.value)
+        }
+
+    @Test
+    fun `renameConnection sends the new display name and updates connectionsState`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("token")
+            coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns
+                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
+            viewModel.loadConnections(context, allowInteractive = true)
+            advanceUntilIdle()
+
+            coEvery { accountApiClient.renameConnection("h", 1, false, "token", "c1", "My Claude") } returns
+                RenameResult.Updated
+
+            viewModel.renameConnection(context, "c1", "My Claude")
+            advanceUntilIdle()
+
+            assertEquals(
+                ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "My Claude", null, "2026-10-01"))),
+                viewModel.connectionsState.value,
+            )
+        }
+
+    @Test
+    fun `renameConnection on a failed server response leaves connectionsState unchanged`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("token")
+            val loaded = ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
+            coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns loaded
+            viewModel.loadConnections(context, allowInteractive = true)
+            advanceUntilIdle()
+
+            coEvery { accountApiClient.renameConnection("h", 1, false, "token", "c1", "My Claude") } returns
+                RenameResult.Failed("HTTP 500")
+
+            viewModel.renameConnection(context, "c1", "My Claude")
+            advanceUntilIdle()
+
+            assertEquals(
+                ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01"))),
+                viewModel.connectionsState.value,
+            )
+        }
+
+    @Test
+    fun `loadThisDevice matches this device's own id out of the account's full device list`() =
+        runTest {
+            every { deviceIdentityKeyStore.ensurePublicKeyBase64() } returns Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3))
+            val thisDeviceId = deriveDeviceId(byteArrayOf(1, 2, 3))
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("token")
+            coEvery { accountApiClient.listDevices("h", 1, false, "token") } returns
+                DevicesResult.Success(
+                    devices =
+                        listOf(
+                            AccountDevice(thisDeviceId, "2026-10-01", null),
+                            AccountDevice("dt_other", "2026-09-01", "2026-09-02"),
+                        ),
+                    deviceLimit = null,
+                )
+
+            viewModel.loadThisDevice(context)
+            advanceUntilIdle()
+
+            assertEquals(
+                ThisDeviceState.Loaded(device = AccountDevice(thisDeviceId, "2026-10-01", null), deviceLimit = null),
+                viewModel.thisDeviceState.value,
+            )
+        }
+
+    @Test
+    fun `signOut clears the local account association without touching the server`() =
+        runTest {
+            coEvery { googleSignInClient.signOut(context) } returns Unit
+
+            viewModel.signOut(context)
+            advanceUntilIdle()
+
+            coVerify { googleSignInClient.signOut(context) }
+            coVerify { settingsRepository.clearAccountId() }
+            assertEquals(AccountClaimState.Idle, viewModel.claimState.value)
+            assertEquals(ConnectionsState.Idle, viewModel.connectionsState.value)
         }
 }

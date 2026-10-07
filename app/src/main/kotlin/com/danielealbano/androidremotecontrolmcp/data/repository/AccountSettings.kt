@@ -14,4 +14,9 @@ interface AccountSettings {
     suspend fun getAccountId(): String?
 
     suspend fun updateAccountId(accountId: String)
+
+    /** Clears the local account association ("Sign out", plan 70 US3's account avatar menu) —
+     *  this device's own claim is untouched server-side; signing back in with the same Google
+     *  account reaches the same claimed device, not a new one. */
+    suspend fun clearAccountId()
 }

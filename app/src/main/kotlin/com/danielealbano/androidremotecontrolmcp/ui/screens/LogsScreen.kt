@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,22 +59,17 @@ private val CHIP_DISPLAY_ORDER =
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogsScreen(
-    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: LogsViewModel = hiltViewModel(),
 ) {
     val selectedTypes by viewModel.selectedTypes.collectAsStateWithLifecycle()
     val filteredIndex by viewModel.filteredIndex.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text(stringResource(R.string.server_logs_title)) },
             windowInsets = WindowInsets(0),
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                }
-            },
             actions = {
                 IconButton(onClick = { showClearDialog = true }) {
                     Icon(

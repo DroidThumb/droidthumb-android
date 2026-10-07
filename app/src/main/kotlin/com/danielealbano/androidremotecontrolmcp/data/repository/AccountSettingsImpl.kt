@@ -34,6 +34,11 @@ class AccountSettingsImpl
             }
         }
 
+        override suspend fun clearAccountId() {
+            dataStore.edit { prefs -> prefs.remove(ACCOUNT_ID_KEY) }
+            settingsChangeLogger.submit("account_id", "x", "") { _, _ -> "Signed out of the account" }
+        }
+
         private companion object {
             private val ACCOUNT_ID_KEY = stringPreferencesKey("account_id")
         }

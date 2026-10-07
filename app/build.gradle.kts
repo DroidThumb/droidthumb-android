@@ -403,6 +403,10 @@ dependencies {
     implementation(libs.credentials.play.services.auth)
     implementation(libs.googleid)
 
+    // Coil (account avatar's Google profile photo, plan 70 US3)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+
     // Unit Testing
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter.api)

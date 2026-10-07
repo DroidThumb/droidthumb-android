@@ -5,7 +5,8 @@ package com.danielealbano.androidremotecontrolmcp.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -32,32 +33,33 @@ import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewMode
 fun MainScreen(
     onRequestNotificationPermission: () -> Unit,
     viewModel: MainViewModel = hiltViewModel(),
-    // Hoisted here (not obtained via hiltViewModel() inside ServerTabScreen's own NavHost) so
+    // Hoisted here (not obtained via hiltViewModel() inside HomeTabScreen's own NavHost) so
     // sign-in/claim state, the connections list and the live transport status all survive
     // switching away to another tab and back - the NavHost's own NavBackStackEntry (and every
     // hiltViewModel() scoped to it) is torn down and rebuilt from scratch every time
-    // ServerTabScreen itself leaves and re-enters composition, which was silently resetting
+    // HomeTabScreen itself leaves and re-enters composition, which was silently resetting
     // AccountViewModel's claimState to Idle on every tab switch, re-triggering a full Google
     // sign-in prompt each time (founder feedback, PR #8 round 4) even though the device was
     // already signed in and claimed.
     accountViewModel: AccountViewModel = hiltViewModel(),
     transportViewModel: TransportViewModel = hiltViewModel(),
 ) {
-    var selectedTabRoute by rememberSaveable { mutableStateOf(TopLevelRoute.Server.route) }
+    var selectedTabRoute by rememberSaveable { mutableStateOf(TopLevelRoute.Home.route) }
     var pendingSettingsRoute by rememberSaveable { mutableStateOf<String?>(null) }
 
-    // Back on the Settings/About tab returns to the Server tab instead of leaving the app. The
+    // Back on the Logs/Settings/About tab returns to the Home tab instead of leaving the app. The
     // settings NavHost registers its own back callback AFTER this one, so it wins while its back
     // stack is non-empty: back inside a settings sub-screen still pops to the settings index first.
-    BackHandler(enabled = selectedTabRoute != TopLevelRoute.Server.route) {
-        selectedTabRoute = TopLevelRoute.Server.route
+    BackHandler(enabled = selectedTabRoute != TopLevelRoute.Home.route) {
+        selectedTabRoute = TopLevelRoute.Home.route
     }
 
     Scaffold(
         bottomBar = {
             NavigationBar {
                 listOf(
-                    Triple(TopLevelRoute.Server, Icons.Default.Dns, stringResource(R.string.tab_server)),
+                    Triple(TopLevelRoute.Home, Icons.Default.Home, stringResource(R.string.tab_home)),
+                    Triple(TopLevelRoute.Logs, Icons.AutoMirrored.Filled.List, stringResource(R.string.tab_logs)),
                     Triple(TopLevelRoute.Settings, Icons.Default.Settings, stringResource(R.string.tab_settings)),
                     Triple(TopLevelRoute.About, Icons.Default.Info, stringResource(R.string.tab_about)),
                 ).forEach { (route, icon, label) ->
@@ -72,17 +74,8 @@ fun MainScreen(
         },
     ) { paddingValues ->
         when (selectedTabRoute) {
-            TopLevelRoute.Server.route -> {
-                ServerTabScreen(
-                    onNavigateToPermissions = {
-                        pendingSettingsRoute = SettingsRoute.Permissions.route
-                        selectedTabRoute = TopLevelRoute.Settings.route
-                    },
-                    modifier = Modifier.padding(paddingValues),
-                    viewModel = viewModel,
-                    accountViewModel = accountViewModel,
-                    transportViewModel = transportViewModel,
-                )
+            TopLevelRoute.Logs.route -> {
+                LogsScreen(modifier = Modifier.padding(paddingValues))
             }
 
             TopLevelRoute.Settings.route -> {
@@ -100,7 +93,7 @@ fun MainScreen(
             }
 
             else -> {
-                ServerTabScreen(
+                HomeTabScreen(
                     onNavigateToPermissions = {
                         pendingSettingsRoute = SettingsRoute.Permissions.route
                         selectedTabRoute = TopLevelRoute.Settings.route

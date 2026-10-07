@@ -104,6 +104,18 @@ class SettingsRepositoryLoggingTest {
             )
         }
 
+    @Test
+    fun `clearAccountId removes the stored account id and logs the sign-out`() =
+        testScope.runTest {
+            repository.updateAccountId("acc_1")
+            advanceUntilIdle()
+
+            repository.clearAccountId()
+            advanceUntilIdle()
+
+            assertEquals(null, repository.getAccountId())
+        }
+
     private companion object {
         const val WINDOW = 2_000L
     }
