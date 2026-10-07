@@ -119,7 +119,7 @@ class AccountViewModelTest {
             coEvery { accountApiClient.listConnections("h", 1, false, "silent-token") } returns
                 ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "2026-10-01")))
 
-            viewModel.loadConnections(context)
+            viewModel.loadConnections(context, allowInteractive = true)
             advanceUntilIdle()
 
             val expected = ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "2026-10-01")))
@@ -128,7 +128,7 @@ class AccountViewModelTest {
         }
 
     @Test
-    fun `loadConnections falls back to the interactive picker when silent finds no credential`() =
+    fun `loadConnections falls back to the picker when silent fails and interactive is allowed`() =
         runTest {
             coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
                 GoogleSignInResult.NoCredential
@@ -137,10 +137,30 @@ class AccountViewModelTest {
             coEvery { accountApiClient.listConnections("h", 1, false, "interactive-token") } returns
                 ConnectionsResult.Success(emptyList())
 
-            viewModel.loadConnections(context)
+            viewModel.loadConnections(context, allowInteractive = true)
             advanceUntilIdle()
 
             assertTrue(viewModel.connectionsState.value is ConnectionsState.Loaded)
+        }
+
+    @Test
+    fun `loadConnections never shows the picker when interactive is not allowed, even if silent finds nothing`() =
+        runTest {
+            // An automatic, non-user-initiated refresh (app reopened, phone rebooted) must never
+            // put up Google's own account-picker UI on its own - being claimed is this device's
+            // own durable state and must not look like a sign-out just because a background
+            // connections refresh needed a fresh token (founder feedback, PR #8 round 5).
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.NoCredential
+
+            viewModel.loadConnections(context, allowInteractive = false)
+            advanceUntilIdle()
+
+            assertEquals(
+                ConnectionsState.Failed("Sign in to view your AI connections"),
+                viewModel.connectionsState.value,
+            )
+            coVerify(exactly = 0) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) }
         }
 
     @Test
@@ -150,7 +170,7 @@ class AccountViewModelTest {
                 GoogleSignInResult.Success("token")
             coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns
                 ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "2026-10-01")))
-            viewModel.loadConnections(context)
+            viewModel.loadConnections(context, allowInteractive = true)
             advanceUntilIdle()
 
             coEvery { accountApiClient.revokeConnection("h", 1, false, "token", "c1") } returns RevokeResult.Revoked

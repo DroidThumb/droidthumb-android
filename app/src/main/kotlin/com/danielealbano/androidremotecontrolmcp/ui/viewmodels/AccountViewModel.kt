@@ -119,7 +119,7 @@ class AccountViewModel
                     is ClaimResult.Claimed -> {
                         settingsRepository.updateAccountId(result.accountId)
                         _claimState.value = AccountClaimState.Claimed(result.accountId)
-                        loadConnections(context)
+                        loadConnections(context, allowInteractive = true)
                     }
 
                     is ClaimResult.Rejected -> {
@@ -143,11 +143,24 @@ class AccountViewModel
         }
 
         /** Fetches the account's AI connections, re-using an already-signed-in Google account
-         *  silently (no UI) wherever Credential Manager allows it — see [GoogleSignInClient.signIn]. */
-        fun loadConnections(context: Context) {
+         *  silently (no UI) wherever Credential Manager allows it — see [GoogleSignInClient.signIn].
+         *  [allowInteractive] must be `false` for any call this device owner didn't directly
+         *  trigger (e.g. an automatic refresh on opening the app) — being claimed is this device's
+         *  own persisted, durable state (design doc D-33), unrelated to whether Credential Manager
+         *  still considers the Google session "silent"; an automatic background refresh must never
+         *  surface Google's own account-picker UI on its own, or every cold start (app reopened,
+         *  phone rebooted) would look like being signed out and asked to sign back in again, purely
+         *  because a background connections-list refresh happened to need a fresh ID token
+         *  (founder feedback, PR #8 round 5). `true` is for the cases the user actually asked for
+         *  this: the "Retry" button, and right after [signInAndClaim] itself just finished its own
+         *  interactive sign-in. */
+        fun loadConnections(
+            context: Context,
+            allowInteractive: Boolean,
+        ) {
             viewModelScope.launch(ioDispatcher) {
                 _connectionsState.value = ConnectionsState.Loading
-                val idToken = freshIdTokenOrNull(context)
+                val idToken = freshIdTokenOrNull(context, allowInteractive)
                 if (idToken == null) {
                     _connectionsState.value = ConnectionsState.Failed("Sign in to view your AI connections")
                     return@launch
@@ -170,7 +183,7 @@ class AccountViewModel
             clientId: String,
         ) {
             viewModelScope.launch(ioDispatcher) {
-                val idToken = freshIdTokenOrNull(context) ?: return@launch
+                val idToken = freshIdTokenOrNull(context, allowInteractive = true) ?: return@launch
                 val config = settingsRepository.getTransportConfig()
                 when (accountApiClient.revokeConnection(config.host, config.port, config.tls, idToken, clientId)) {
                     RevokeResult.Revoked, RevokeResult.NotFound -> {
@@ -191,13 +204,21 @@ class AccountViewModel
         }
 
         /** [GoogleSignInClient.signIn] silently first (`filterByAuthorizedAccounts = true`); only
-         *  shows the account picker if that finds nothing — keeps viewing/refreshing the
-         *  connections list from demanding an interactive sign-in every time, days later. */
-        private suspend fun freshIdTokenOrNull(context: Context): String? {
+         *  shows the account picker if that finds nothing AND [allowInteractive] permits it — see
+         *  [loadConnections]'s own doc comment for why an automatic call must pass `false`. */
+        private suspend fun freshIdTokenOrNull(
+            context: Context,
+            allowInteractive: Boolean,
+        ): String? {
             val silent = googleSignInClient.signIn(context, filterByAuthorizedAccounts = true)
-            if (silent is GoogleSignInResult.Success) return silent.idToken
-            val interactive = googleSignInClient.signIn(context, filterByAuthorizedAccounts = false)
-            return (interactive as? GoogleSignInResult.Success)?.idToken
+            return if (silent is GoogleSignInResult.Success) {
+                silent.idToken
+            } else if (!allowInteractive) {
+                null
+            } else {
+                val interactive = googleSignInClient.signIn(context, filterByAuthorizedAccounts = false)
+                (interactive as? GoogleSignInResult.Success)?.idToken
+            }
         }
 
         private companion object {

@@ -80,10 +80,15 @@ fun ServerScreen(
 
     // Loads the connections list once this device already has a claimed account (a fresh claim
     // triggers its own load right after succeeding, in the view model) - covers reopening the app
-    // on a device that was claimed in an earlier session.
+    // on a device that was claimed in an earlier session. allowInteractive=false: this fires on
+    // its own, not from a tap, so it must never put up Google's own account-picker UI by itself -
+    // being claimed is this device's own durable, persisted state and must survive the app being
+    // closed or the phone rebooting without looking like a sign-out (founder feedback, PR #8
+    // round 5); a stale Credential Manager session here just means the connections list shows its
+    // own "Sign in to view" retry affordance instead of the full list, not a surprise sign-in UI.
     LaunchedEffect(accountId) {
         if (accountId != null && claimState !is AccountClaimState.Claimed) {
-            accountViewModel.loadConnections(context)
+            accountViewModel.loadConnections(context, allowInteractive = false)
         }
     }
 
@@ -118,7 +123,7 @@ fun ServerScreen(
                 claimState = claimState,
                 connectionsState = connectionsState,
                 onSignInClick = { accountViewModel.signInAndClaim(context) },
-                onRetryConnectionsClick = { accountViewModel.loadConnections(context) },
+                onRetryConnectionsClick = { accountViewModel.loadConnections(context, allowInteractive = true) },
                 onRevokeConnection = { clientId, _ -> accountViewModel.revokeConnection(context, clientId) },
             )
 
