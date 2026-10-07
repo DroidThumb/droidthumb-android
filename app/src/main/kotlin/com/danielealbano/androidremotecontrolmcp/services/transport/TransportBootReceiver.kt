@@ -16,10 +16,9 @@ import java.io.IOException
 import javax.inject.Inject
 
 /**
- * Receives `BOOT_COMPLETED` and re-starts the device transport (design doc §8.8 revision) — same
- * `goAsync` pattern as [com.danielealbano.androidremotecontrolmcp.services.channel.EventChannelBootReceiver],
- * extended beyond the default 10s broadcast-receiver lifetime so [TransportAutoStart] can read
- * settings from DataStore.
+ * Receives `BOOT_COMPLETED` and re-starts the device transport (design doc §8.8 revision), using
+ * `goAsync` to extend beyond the default 10s broadcast-receiver lifetime so [TransportAutoStart]
+ * can read settings from DataStore.
  */
 @AndroidEntryPoint
 class TransportBootReceiver : BroadcastReceiver() {

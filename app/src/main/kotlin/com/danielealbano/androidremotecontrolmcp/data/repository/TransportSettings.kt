@@ -4,9 +4,9 @@ import com.danielealbano.androidremotecontrolmcp.data.model.TransportConfig
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Device-transport (M2 WebSocket client) slice of the settings surface, same split as
- * [EventChannelSettings] for the same reason: keeps [SettingsRepositoryImpl] small while
- * [SettingsRepository] still presents one unified API to callers.
+ * Device-transport (M2 WebSocket client) slice of the settings surface, split out to keep
+ * [SettingsRepositoryImpl] small while [SettingsRepository] still presents one unified API to
+ * callers.
  */
 interface TransportSettings {
     /** Observes the current transport configuration. */

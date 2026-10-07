@@ -54,8 +54,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Connection lifecycle, mirroring [com.danielealbano.androidremotecontrolmcp.data.model.ChannelConnectionStatus]'s
- *  existing shape for this codebase's other outbound connection (the Event Channel). */
+/** Connection lifecycle for this device's outbound transport connection. */
 sealed interface TransportStatus {
     data object Idle : TransportStatus
 

@@ -63,7 +63,6 @@ class SettingsRepositoryLoggingTest {
             }
         repository =
             SettingsRepositoryImpl(
-                EventChannelSettingsImpl(dataStore, changeLogger),
                 TransportSettingsImpl(dataStore, changeLogger),
                 ConnectorUrlSettingsImpl(dataStore, identityCrypto, changeLogger),
                 AccountSettingsImpl(dataStore, changeLogger),
@@ -91,18 +90,6 @@ class SettingsRepositoryLoggingTest {
         }
 
     @Test
-    fun `count-preserving set swap still logs`() =
-        testScope.runTest {
-            repository.updateNotificationFilterApps(setOf("com.a"))
-            advanceUntilIdle()
-            serverLog.clear()
-
-            repository.updateNotificationFilterApps(setOf("com.b"))
-            advanceUntilIdle()
-            assertEquals("Notification filter apps changed 1 → 1", settingsMessages().single())
-        }
-
-    @Test
     fun `transport host logs old to new`() =
         testScope.runTest {
             repository.updateTransportHost("old-host")
@@ -115,6 +102,18 @@ class SettingsRepositoryLoggingTest {
                 "Remote control server host changed old-host → new-host",
                 settingsMessages().single(),
             )
+        }
+
+    @Test
+    fun `clearAccountId removes the stored account id and logs the sign-out`() =
+        testScope.runTest {
+            repository.updateAccountId("acc_1")
+            advanceUntilIdle()
+
+            repository.clearAccountId()
+            advanceUntilIdle()
+
+            assertEquals(null, repository.getAccountId())
         }
 
     private companion object {

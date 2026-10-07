@@ -46,11 +46,12 @@ import androidx.compose.ui.unit.dp
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.R
 
-private const val GITHUB_URL = "https://github.com/danielealbano/android-remote-control-mcp"
-private const val LICENSE_URL = "https://github.com/danielealbano/android-remote-control-mcp/blob/main/LICENSE"
-private const val ISSUES_URL = "https://github.com/danielealbano/android-remote-control-mcp/issues"
-private const val LINKEDIN_URL = "https://linkedin.com/in/danielesalvatorealbano"
-private const val X_URL = "https://x.com/daniele_dll"
+private const val GITHUB_URL = "https://github.com/DroidThumb/droidthumb-android"
+
+// The repo's actual license file is LICENSE.md, not a bare LICENSE - confirmed by reading the repo
+// root rather than assuming the plan's own shorthand path.
+private const val LICENSE_URL = "https://github.com/DroidThumb/droidthumb-android/blob/main/LICENSE.md"
+private const val ISSUES_URL = "https://github.com/DroidThumb/droidthumb-android/issues"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,31 +129,9 @@ fun AboutScreen(modifier: Modifier = Modifier) {
                     Modifier.clickable {
                         val intent =
                             Intent(Intent.ACTION_SENDTO).apply {
-                                data = Uri.parse("mailto:d.albano@gmail.com")
+                                data = Uri.parse("mailto:danielray97.harris@gmail.com")
                             }
                         context.startActivity(intent)
-                    },
-            )
-            Spacer(Modifier.height(4.dp))
-
-            Text(
-                text = stringResource(R.string.about_author_linkedin),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier =
-                    Modifier.clickable {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(LINKEDIN_URL)))
-                    },
-            )
-            Spacer(Modifier.height(4.dp))
-
-            Text(
-                text = stringResource(R.string.about_author_x),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier =
-                    Modifier.clickable {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(X_URL)))
                     },
             )
 

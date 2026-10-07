@@ -15,8 +15,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 sealed interface GoogleSignInResult {
+    /** [displayName]/[email]/[profilePictureUri] are parsed by [GoogleIdTokenCredential] itself
+     *  from the same credential this id_token comes from — the account avatar menu's display
+     *  fields (plan 70 US3), never sent anywhere; the server only ever sees [idToken]. */
     data class Success(
         val idToken: String,
+        val displayName: String? = null,
+        val email: String? = null,
+        val profilePictureUri: String? = null,
     ) : GoogleSignInResult
 
     /** No credential available for a silent (`filterByAuthorizedAccounts = true`) request — the
@@ -67,7 +73,7 @@ class GoogleSignInClientImpl
             return try {
                 val response = CredentialManager.create(context).getCredential(context, request)
                 val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(response.credential.data)
-                GoogleSignInResult.Success(googleIdTokenCredential.idToken)
+                googleIdTokenCredential.toSuccessResult()
             } catch (_: NoCredentialException) {
                 when {
                     filterByAuthorizedAccounts -> GoogleSignInResult.NoCredential
@@ -96,13 +102,21 @@ class GoogleSignInClientImpl
             return try {
                 val response = CredentialManager.create(context).getCredential(context, request)
                 val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(response.credential.data)
-                GoogleSignInResult.Success(googleIdTokenCredential.idToken)
+                googleIdTokenCredential.toSuccessResult()
             } catch (e: GetCredentialException) {
                 GoogleSignInResult.Failed(readableMessage(e))
             } catch (e: GoogleIdTokenParsingException) {
                 GoogleSignInResult.Failed(e.message ?: "could not parse the Google id_token")
             }
         }
+
+        private fun GoogleIdTokenCredential.toSuccessResult(): GoogleSignInResult.Success =
+            GoogleSignInResult.Success(
+                idToken = idToken,
+                displayName = displayName,
+                email = email,
+                profilePictureUri = profilePictureUri?.toString(),
+            )
 
         /** [GetCredentialException]'s own `message` is a platform/debug string (e.g. raw
          *  `NoCredentialException` text) never meant for a user-facing screen - mapped to something

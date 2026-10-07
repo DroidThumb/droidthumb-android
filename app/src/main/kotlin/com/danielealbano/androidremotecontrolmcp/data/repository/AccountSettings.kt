@@ -3,9 +3,9 @@ package com.danielealbano.androidremotecontrolmcp.data.repository
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Account slice of the settings surface (design doc D-33), same split as [TransportSettings]/
- * [EventChannelSettings]. `accountId` is an opaque identifier, not a credential — unlike
- * [ConnectorUrlSettings]'s secret, it's stored in plain preferences, no encryption needed.
+ * Account slice of the settings surface (design doc D-33), same split as [TransportSettings].
+ * `accountId` is an opaque identifier, not a credential — unlike [ConnectorUrlSettings]'s secret,
+ * it's stored in plain preferences, no encryption needed.
  */
 interface AccountSettings {
     /** Observes the account this phone is claimed by, or `null` if never claimed. */
@@ -14,4 +14,9 @@ interface AccountSettings {
     suspend fun getAccountId(): String?
 
     suspend fun updateAccountId(accountId: String)
+
+    /** Clears the local account association ("Sign out", plan 70 US3's account avatar menu) —
+     *  this device's own claim is untouched server-side; signing back in with the same Google
+     *  account reaches the same claimed device, not a new one. */
+    suspend fun clearAccountId()
 }

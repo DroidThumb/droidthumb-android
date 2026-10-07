@@ -27,9 +27,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
-/** Foreground service holding the M2 device transport open, same shape as
- *  [com.danielealbano.androidremotecontrolmcp.services.channel.EventChannelService] — `START_STICKY`,
- *  a persistent low-importance notification, driven by [SettingsRepository]'s transport config. */
+/** Foreground service holding the M2 device transport open — `START_STICKY`, a persistent
+ *  low-importance notification, driven by [SettingsRepository]'s transport config. */
 @AndroidEntryPoint
 class TransportService : Service() {
     @Inject

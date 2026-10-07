@@ -236,9 +236,10 @@ android {
             }\"",
         )
         // The MCP server address the app connects to out of the box (design doc D-33/§8.8) - the
-        // user is never asked to type a host/port/TLS; those move under an "Advanced" disclosure
-        // for self-hosting only (ServerScreen). Port and TLS are the same for both build types
-        // (Caddy's public HTTPS listener); only the host differs, set per build type below.
+        // user is never asked to type a host/port/TLS anywhere in the app (plan 70 US2); self-
+        // hosting is a build-time-only override (`DEFAULT_SERVER_HOST_DEBUG`/`_RELEASE` below), not
+        // a running-app setting. Port and TLS are the same for both build types (Caddy's public
+        // HTTPS listener); only the host differs, set per build type below.
         buildConfigField("int", "DEFAULT_SERVER_PORT", "443")
         buildConfigField("boolean", "DEFAULT_SERVER_TLS", "true")
     }
@@ -285,12 +286,25 @@ android {
             applicationIdSuffix = ".debug"
             isDebuggable = true
             isMinifyEnabled = false
-            buildConfigField("String", "DEFAULT_SERVER_HOST", "\"staging.droidthumb.com\"")
+            // `-PDEFAULT_SERVER_HOST_DEBUG=...` is the self-host escape hatch (plan 70 US2): the
+            // field has no in-app UI any more, so a self-host build is a build-time choice, not
+            // something typed into the running app. Same `findProperty` pattern as
+            // GOOGLE_SERVER_CLIENT_ID above; CI wires it to an optional workflow_dispatch input
+            // (`.github/workflows/ci.yml`), so a self-host APK needs no local checkout either.
+            buildConfigField(
+                "String",
+                "DEFAULT_SERVER_HOST",
+                "\"${project.findProperty("DEFAULT_SERVER_HOST_DEBUG") ?: "staging.droidthumb.com"}\"",
+            )
         }
         release {
             isDebuggable = false
             isMinifyEnabled = false
-            buildConfigField("String", "DEFAULT_SERVER_HOST", "\"mcp.droidthumb.com\"")
+            buildConfigField(
+                "String",
+                "DEFAULT_SERVER_HOST",
+                "\"${project.findProperty("DEFAULT_SERVER_HOST_RELEASE") ?: "mcp.droidthumb.com"}\"",
+            )
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -388,6 +402,10 @@ dependencies {
     implementation(libs.credentials)
     implementation(libs.credentials.play.services.auth)
     implementation(libs.googleid)
+
+    // Coil (account avatar's Google profile photo, plan 70 US3)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
 
     // Unit Testing
     testImplementation(platform(libs.junit.bom))

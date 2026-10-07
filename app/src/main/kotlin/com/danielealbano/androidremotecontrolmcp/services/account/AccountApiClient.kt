@@ -25,7 +25,17 @@ import javax.inject.Singleton
 data class AccountConnection(
     val clientId: String,
     val clientName: String,
+    /** Account-editable display name (`droidthumb-server` plan 05 US1) — defaults server-side to
+     *  "Claude"/"ChatGPT"/"Custom" when never renamed. */
+    val displayName: String,
+    val imageUrl: String?,
     val connectedAt: String,
+)
+
+data class AccountDevice(
+    val deviceId: String,
+    val createdAt: String,
+    val lastConnectedAt: String?,
 )
 
 sealed interface ClaimTokenResult {
@@ -59,6 +69,27 @@ sealed interface RevokeResult {
     ) : RevokeResult
 }
 
+sealed interface RenameResult {
+    data object Updated : RenameResult
+
+    data object NotFound : RenameResult
+
+    data class Failed(
+        val message: String,
+    ) : RenameResult
+}
+
+sealed interface DevicesResult {
+    data class Success(
+        val devices: List<AccountDevice>,
+        val deviceLimit: Int?,
+    ) : DevicesResult
+
+    data class Failed(
+        val message: String,
+    ) : DevicesResult
+}
+
 /**
  * `droidthumb-server`'s account-facing REST surface (design doc D-33/D-37/D-38) — the first
  * hand-written REST routes in that codebase, authenticated the same way on every call: a fresh
@@ -88,6 +119,22 @@ interface AccountApiClient {
         googleIdToken: String,
         clientId: String,
     ): RevokeResult
+
+    suspend fun renameConnection(
+        host: String,
+        port: Int,
+        tls: Boolean,
+        googleIdToken: String,
+        clientId: String,
+        displayName: String,
+    ): RenameResult
+
+    suspend fun listDevices(
+        host: String,
+        port: Int,
+        tls: Boolean,
+        googleIdToken: String,
+    ): DevicesResult
 }
 
 @Serializable
@@ -102,6 +149,13 @@ private data class RevokeBody(
 )
 
 @Serializable
+private data class RenameBody(
+    @SerialName("google_id_token") val googleIdToken: String,
+    @SerialName("client_id") val clientId: String,
+    @SerialName("display_name") val displayName: String,
+)
+
+@Serializable
 private data class ClaimTokenResponseBody(
     @SerialName("claim_token") val claimToken: String,
     @SerialName("account_id") val accountId: String,
@@ -111,12 +165,27 @@ private data class ClaimTokenResponseBody(
 private data class ConnectionBody(
     @SerialName("client_id") val clientId: String,
     @SerialName("client_name") val clientName: String,
+    @SerialName("display_name") val displayName: String,
+    @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("connected_at") val connectedAt: String,
 )
 
 @Serializable
 private data class ConnectionsResponseBody(
     val connections: List<ConnectionBody>,
+)
+
+@Serializable
+private data class DeviceBody(
+    @SerialName("device_id") val deviceId: String,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("last_connected_at") val lastConnectedAt: String? = null,
+)
+
+@Serializable
+private data class DevicesResponseBody(
+    val devices: List<DeviceBody>,
+    @SerialName("device_limit") val deviceLimit: Int? = null,
 )
 
 @Singleton
@@ -192,7 +261,15 @@ class AccountApiClientImpl
                         HttpStatusCode.OK -> {
                             val body = response.body<ConnectionsResponseBody>()
                             ConnectionsResult.Success(
-                                body.connections.map { AccountConnection(it.clientId, it.clientName, it.connectedAt) },
+                                body.connections.map {
+                                    AccountConnection(
+                                        it.clientId,
+                                        it.clientName,
+                                        it.displayName,
+                                        it.imageUrl,
+                                        it.connectedAt,
+                                    )
+                                },
                             )
                         }
 
@@ -236,10 +313,82 @@ class AccountApiClientImpl
                 }
             }
 
+        @Suppress("TooGenericExceptionCaught")
+        override suspend fun renameConnection(
+            host: String,
+            port: Int,
+            tls: Boolean,
+            googleIdToken: String,
+            clientId: String,
+            displayName: String,
+        ): RenameResult =
+            withContext(Dispatchers.IO) {
+                try {
+                    val response: HttpResponse =
+                        client.post {
+                            url {
+                                protocol = if (tls) URLProtocol.HTTPS else URLProtocol.HTTP
+                                this.host = host
+                                this.port = port
+                                path(RENAME_PATH)
+                            }
+                            contentType(ContentType.Application.Json)
+                            setBody(RenameBody(googleIdToken, clientId, displayName))
+                        }
+                    when (response.status) {
+                        HttpStatusCode.OK -> RenameResult.Updated
+                        HttpStatusCode.NotFound -> RenameResult.NotFound
+                        else -> RenameResult.Failed("HTTP ${response.status.value}")
+                    }
+                } catch (e: Exception) {
+                    RenameResult.Failed(e.message ?: "rename request failed")
+                }
+            }
+
+        @Suppress("TooGenericExceptionCaught")
+        override suspend fun listDevices(
+            host: String,
+            port: Int,
+            tls: Boolean,
+            googleIdToken: String,
+        ): DevicesResult =
+            withContext(Dispatchers.IO) {
+                try {
+                    val response: HttpResponse =
+                        client.post {
+                            url {
+                                protocol = if (tls) URLProtocol.HTTPS else URLProtocol.HTTP
+                                this.host = host
+                                this.port = port
+                                path(DEVICES_PATH)
+                            }
+                            contentType(ContentType.Application.Json)
+                            setBody(GoogleIdTokenBody(googleIdToken))
+                        }
+                    when (response.status) {
+                        HttpStatusCode.OK -> {
+                            val body = response.body<DevicesResponseBody>()
+                            DevicesResult.Success(
+                                body.devices.map { AccountDevice(it.deviceId, it.createdAt, it.lastConnectedAt) },
+                                body.deviceLimit,
+                            )
+                        }
+
+                        else -> {
+                            DevicesResult.Failed("HTTP ${response.status.value}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    DevicesResult.Failed(e.message ?: "devices request failed")
+                }
+            }
+
         private companion object {
             const val CLAIM_TOKEN_PATH = "/v1/accounts/claim-token"
             const val CONNECTIONS_PATH = "/v1/accounts/connections"
             const val REVOKE_PATH = "/v1/accounts/connections/revoke"
+            const val RENAME_PATH = "/v1/accounts/connections/rename"
+            const val DEVICES_PATH = "/v1/accounts/devices"
             const val REQUEST_TIMEOUT_MS = 5_000L
             const val CONNECT_TIMEOUT_MS = 3_000L
         }

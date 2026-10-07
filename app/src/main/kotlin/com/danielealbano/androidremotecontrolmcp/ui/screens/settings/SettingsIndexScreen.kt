@@ -11,7 +11,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -56,12 +55,6 @@ private fun SettingsEntriesColumn(
             title = stringResource(R.string.settings_permissions_title),
             subtitle = stringResource(R.string.settings_permissions_subtitle),
             onClick = { onNavigate(SettingsRoute.Permissions.route) },
-        )
-        SettingsEntry(
-            icon = Icons.Default.CellTower,
-            title = "Event Channel",
-            subtitle = stringResource(R.string.event_channel_subtitle),
-            onClick = { onNavigate(SettingsRoute.ChannelSettings.route) },
         )
     }
 }

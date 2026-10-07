@@ -20,6 +20,9 @@ ktor = "3.5.2"
 credentials = "1.6.0"
 googleid = "1.2.0"
 
+# Image loading (Google profile photo, account avatar — plan 70 US3)
+coil = "3.6.3"
+
 # SLF4J (routes Ktor client logs to android.util.Log)
 slf4j-android = "1.7.36"
 
@@ -93,6 +96,10 @@ ktor-client-websockets = { group = "io.ktor", name = "ktor-client-websockets", v
 credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
+
+# Coil (account avatar's Google profile photo, plan 70 US3)
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 
 # Kotlinx
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }

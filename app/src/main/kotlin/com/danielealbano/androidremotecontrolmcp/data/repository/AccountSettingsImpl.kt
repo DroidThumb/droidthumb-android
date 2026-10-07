@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 /** [AccountSettings] backed by the same Preferences DataStore as [SettingsRepositoryImpl], same
- *  pattern as [TransportSettingsImpl]/[EventChannelSettingsImpl]. */
+ *  pattern as [TransportSettingsImpl]. */
 class AccountSettingsImpl
     @Inject
     constructor(
@@ -32,6 +32,11 @@ class AccountSettingsImpl
                     "Device claimed for the signed-in account"
                 }
             }
+        }
+
+        override suspend fun clearAccountId() {
+            dataStore.edit { prefs -> prefs.remove(ACCOUNT_ID_KEY) }
+            settingsChangeLogger.submit("account_id", "x", "") { _, _ -> "Signed out of the account" }
         }
 
         private companion object {
