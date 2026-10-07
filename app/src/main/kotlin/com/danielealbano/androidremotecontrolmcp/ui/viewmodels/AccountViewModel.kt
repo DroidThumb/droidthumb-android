@@ -168,7 +168,13 @@ class AccountViewModel
                     is ClaimResult.Claimed -> {
                         settingsRepository.updateAccountId(result.accountId)
                         _claimState.value = AccountClaimState.Claimed(result.accountId)
+                        // HomeScreen's own LaunchedEffect(accountId) guards on claimState not yet
+                        // being Claimed (it only auto-refreshes once, on a cold start) - by the time
+                        // its recomposition sees the new accountId, claimState above is already
+                        // Claimed, so that effect never fires for a fresh claim. Both loads here
+                        // are this path's own responsibility, not something the effect also covers.
                         loadConnections(context, allowInteractive = true)
+                        loadThisDevice(context)
                     }
 
                     is ClaimResult.Rejected -> {

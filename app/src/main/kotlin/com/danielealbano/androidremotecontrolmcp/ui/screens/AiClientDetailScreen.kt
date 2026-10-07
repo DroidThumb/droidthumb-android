@@ -2,6 +2,7 @@
 
 package com.danielealbano.androidremotecontrolmcp.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -64,12 +65,32 @@ fun AiClientDetailScreen(
 
     var nameInput by remember(connection?.displayName) { mutableStateOf(connection?.displayName.orEmpty()) }
 
+    // Saving only on `onFocusChanged` isn't enough on its own: neither the back arrow nor the
+    // system back gesture/button is guaranteed to deliver a focus-loss callback before this screen
+    // leaves composition, so a pending edit would otherwise be silently lost on either path. All
+    // three (focus loss, the back arrow, system back) call the same idempotent save-if-changed
+    // check.
+    val saveIfChanged = {
+        if (connection != null && nameInput.isNotBlank() && nameInput != connection.displayName) {
+            accountViewModel.renameConnection(context, clientId, nameInput)
+        }
+    }
+    BackHandler {
+        saveIfChanged()
+        onBack()
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("AI client") },
             windowInsets = WindowInsets(0),
             navigationIcon = {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    onClick = {
+                        saveIfChanged()
+                        onBack()
+                    },
+                ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                 }
             },
@@ -106,10 +127,7 @@ fun AiClientDetailScreen(
                         Modifier
                             .fillMaxWidth()
                             .onFocusChanged { focusState ->
-                                val changed = nameInput.isNotBlank() && nameInput != connection.displayName
-                                if (!focusState.isFocused && changed) {
-                                    accountViewModel.renameConnection(context, clientId, nameInput)
-                                }
+                                if (!focusState.isFocused) saveIfChanged()
                             },
                 )
             }

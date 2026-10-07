@@ -90,7 +90,16 @@ fun AiClientsSection(
             }
 
             is ConnectionsState.Idle -> {
-                Unit
+                // Reached, not transient, whenever this device was never signed in at all (sign-in
+                // is skippable during onboarding) - HomeScreen's own LaunchedEffect never attempts a
+                // load while accountId is null, so this is this section's actual steady state for
+                // that case, not just a flash before Loading. Same "sign in" guidance as the Failed
+                // branch above, not silence.
+                Text(
+                    text = "Sign in to view your AI connections",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SECTION_HEADER_COLOR,
+                )
             }
         }
 

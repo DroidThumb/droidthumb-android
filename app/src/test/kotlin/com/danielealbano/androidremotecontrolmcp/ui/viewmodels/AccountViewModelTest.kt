@@ -91,12 +91,18 @@ class AccountViewModelTest {
             coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.Claimed("acc_1")
             coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
                 ConnectionsResult.Success(emptyList())
+            coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
+                DevicesResult.Success(emptyList(), deviceLimit = null)
 
             viewModel.signInAndClaim(context)
             advanceUntilIdle()
 
             assertEquals(AccountClaimState.Claimed("acc_1"), viewModel.claimState.value)
             coVerify { settingsRepository.updateAccountId("acc_1") }
+            // A fresh claim must also load "This device" - HomeScreen's own auto-refresh effect
+            // can't do it (see loadThisDevice's own doc comment: it guards on claimState not yet
+            // being Claimed, which is already false by the time that effect's recomposition runs).
+            assertTrue(viewModel.thisDeviceState.value is ThisDeviceState.Loaded)
         }
 
     @Test

@@ -94,9 +94,27 @@ fun ThisDeviceSection(
 
 private fun thisDeviceSubtitle(state: ThisDeviceState): String =
     when (state) {
-        is ThisDeviceState.Loaded -> state.device?.let { "Added ${formatAddedDate(it.createdAt)}" } ?: ""
-        is ThisDeviceState.Failed -> state.message
-        ThisDeviceState.Loading, ThisDeviceState.Idle -> ""
+        is ThisDeviceState.Loaded -> {
+            state.device?.let { "Added ${formatAddedDate(it.createdAt)}" }
+                // Right after a fresh claim, this device's own registration can momentarily not
+                // show up yet in the account's device list - not an error, just not caught up yet.
+                ?: "Still showing up on the server — try again shortly"
+        }
+
+        is ThisDeviceState.Failed -> {
+            state.message
+        }
+
+        // Idle is this section's real steady state whenever this device was never signed in at all
+        // (sign-in is skippable during onboarding) - not just a flash before Loading, so it needs
+        // its own message rather than silence, same reasoning as AiClientsSection's Idle branch.
+        ThisDeviceState.Idle -> {
+            "Sign in to see when this device was added"
+        }
+
+        ThisDeviceState.Loading -> {
+            ""
+        }
     }
 
 private fun formatAddedDate(isoTimestamp: String): String =
