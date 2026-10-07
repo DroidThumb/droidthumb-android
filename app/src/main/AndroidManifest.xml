@@ -64,26 +64,6 @@
             </intent-filter>
         </service>
 
-        <!-- Event Channel Service (notification events → configured endpoint). specialUse: it
-             forwards notification events and holds no location, camera or media access. -->
-        <service
-            android:name=".services.channel.EventChannelService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Forwards notification events to a user-configured endpoint" />
-        </service>
-
-        <!-- Event Channel auto-start on boot -->
-        <receiver
-            android:name=".services.channel.EventChannelBootReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-
         <!-- M2 device transport (WebSocket client to droidthumb-server). specialUse: it holds a
              single outbound control-channel connection and no location, camera or media access. -->
         <service

@@ -25,7 +25,7 @@ private val DEFAULT_TRANSPORT_CONFIG =
     )
 
 /** [TransportSettings] backed by the same Preferences DataStore as [SettingsRepositoryImpl] (which
- *  delegates these members here), same pattern as [EventChannelSettingsImpl]. */
+ *  delegates these members here). */
 class TransportSettingsImpl
     @Inject
     constructor(

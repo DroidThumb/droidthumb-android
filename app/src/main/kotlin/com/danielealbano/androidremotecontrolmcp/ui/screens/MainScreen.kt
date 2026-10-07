@@ -25,7 +25,6 @@ import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.SettingsRoute
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.TopLevelRoute
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
-import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewModel
 
@@ -42,7 +41,6 @@ fun MainScreen(
     // sign-in prompt each time (founder feedback, PR #8 round 4) even though the device was
     // already signed in and claimed.
     accountViewModel: AccountViewModel = hiltViewModel(),
-    channelViewModel: ChannelViewModel = hiltViewModel(),
     transportViewModel: TransportViewModel = hiltViewModel(),
 ) {
     var selectedTabRoute by rememberSaveable { mutableStateOf(TopLevelRoute.Server.route) }
@@ -83,7 +81,6 @@ fun MainScreen(
                     modifier = Modifier.padding(paddingValues),
                     viewModel = viewModel,
                     accountViewModel = accountViewModel,
-                    channelViewModel = channelViewModel,
                     transportViewModel = transportViewModel,
                 )
             }
@@ -95,7 +92,6 @@ fun MainScreen(
                     onPendingRouteConsumed = { pendingSettingsRoute = null },
                     modifier = Modifier.padding(paddingValues),
                     viewModel = viewModel,
-                    channelViewModel = channelViewModel,
                 )
             }
 
@@ -112,7 +108,6 @@ fun MainScreen(
                     modifier = Modifier.padding(paddingValues),
                     viewModel = viewModel,
                     accountViewModel = accountViewModel,
-                    channelViewModel = channelViewModel,
                     transportViewModel = transportViewModel,
                 )
             }

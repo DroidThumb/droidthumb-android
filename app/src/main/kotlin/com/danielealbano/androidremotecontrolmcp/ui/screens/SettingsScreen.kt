@@ -10,11 +10,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.SettingsRoute
-import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.ChannelSettingsScreen
-import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.NotificationFilterScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.PermissionsSettingsScreen
 import com.danielealbano.androidremotecontrolmcp.ui.screens.settings.SettingsIndexScreen
-import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
 
 @Composable
@@ -24,7 +21,6 @@ fun SettingsScreen(
     onPendingRouteConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel(),
-    channelViewModel: ChannelViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
 
@@ -50,21 +46,6 @@ fun SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onRequestNotificationPermission = onRequestNotificationPermission,
                 viewModel = viewModel,
-            )
-        }
-        composable(SettingsRoute.ChannelSettings.route) {
-            ChannelSettingsScreen(
-                viewModel = channelViewModel,
-                onNavigateToNotificationFilter = {
-                    navController.navigate(SettingsRoute.NotificationFilter.route)
-                },
-                onNavigateBack = { navController.popBackStack() },
-            )
-        }
-        composable(SettingsRoute.NotificationFilter.route) {
-            NotificationFilterScreen(
-                viewModel = channelViewModel,
-                onNavigateBack = { navController.popBackStack() },
             )
         }
     }

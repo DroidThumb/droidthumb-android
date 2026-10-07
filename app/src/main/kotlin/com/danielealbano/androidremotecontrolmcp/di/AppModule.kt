@@ -8,8 +8,6 @@ import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettingsImpl
-import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettings
-import com.danielealbano.androidremotecontrolmcp.data.repository.EventChannelSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepository
@@ -34,8 +32,6 @@ import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInCl
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClientImpl
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManagerImpl
-import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcher
-import com.danielealbano.androidremotecontrolmcp.services.channel.EventDispatcherImpl
 import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCrypto
 import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCryptoImpl
 import com.danielealbano.androidremotecontrolmcp.services.identity.DefaultDeviceInfoProvider
@@ -98,11 +94,6 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindSettingsRepository(impl: SettingsRepositoryImpl): SettingsRepository
-
-    /** Binds the event-channel settings slice that [SettingsRepositoryImpl] delegates to. */
-    @Binds
-    @Singleton
-    abstract fun bindEventChannelSettings(impl: EventChannelSettingsImpl): EventChannelSettings
 
     /** Binds the M2 transport settings slice that [SettingsRepositoryImpl] delegates to. */
     @Binds
@@ -170,10 +161,6 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindIntentDispatcher(impl: IntentDispatcherImpl): IntentDispatcher
-
-    @Binds
-    @Singleton
-    abstract fun bindEventDispatcher(impl: EventDispatcherImpl): EventDispatcher
 
     @Binds
     @Singleton

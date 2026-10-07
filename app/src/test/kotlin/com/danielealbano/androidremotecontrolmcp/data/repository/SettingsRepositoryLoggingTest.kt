@@ -63,7 +63,6 @@ class SettingsRepositoryLoggingTest {
             }
         repository =
             SettingsRepositoryImpl(
-                EventChannelSettingsImpl(dataStore, changeLogger),
                 TransportSettingsImpl(dataStore, changeLogger),
                 ConnectorUrlSettingsImpl(dataStore, identityCrypto, changeLogger),
                 AccountSettingsImpl(dataStore, changeLogger),
@@ -88,18 +87,6 @@ class SettingsRepositoryLoggingTest {
             repository.updateTransportHost("same-host")
             advanceUntilIdle()
             assertTrue(settingsMessages().isEmpty())
-        }
-
-    @Test
-    fun `count-preserving set swap still logs`() =
-        testScope.runTest {
-            repository.updateNotificationFilterApps(setOf("com.a"))
-            advanceUntilIdle()
-            serverLog.clear()
-
-            repository.updateNotificationFilterApps(setOf("com.b"))
-            advanceUntilIdle()
-            assertEquals("Notification filter apps changed 1 → 1", settingsMessages().single())
         }
 
     @Test

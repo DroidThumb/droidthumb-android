@@ -64,14 +64,6 @@
     <string name="server_logs_type_channel">Channel</string>
     <string name="server_logs_type_settings">Settings</string>
 
-    <!-- Event Channel — start/stop dialogs -->
-    <string name="channel_not_configured_dialog_title">Not registered with a server yet</string>
-    <string name="channel_not_configured_dialog_body">Set up the connector on the Server tab before starting the event channel.</string>
-    <string name="channel_not_configured_dialog_ok">OK</string>
-
-    <!-- On-device approval -->
-    <string name="event_channel_subtitle">Notification event forwarding</string>
-
     <!-- Account (D-33): sign-in, claim, AI connections -->
     <string name="account_card_title">Account</string>
     <string name="account_signed_out_body">Sign in to connect this phone to your account.</string>

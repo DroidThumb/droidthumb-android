@@ -47,12 +47,12 @@ class ExportedComponentsManifestTest {
     }
 
     @Test
-    fun `EventChannelService declares the specialUse foreground-service type it starts with`() {
-        // EventChannelService calls startForeground(..., FOREGROUND_SERVICE_TYPE_SPECIAL_USE); a
+    fun `TransportService declares the specialUse foreground-service type it starts with`() {
+        // TransportService calls startForeground(..., FOREGROUND_SERVICE_TYPE_SPECIAL_USE); a
         // mismatch with the manifest crashes at startForeground, so pin both halves here.
         val service =
             elementsIn(MAIN_MANIFEST, "service")
-                .single { it.getAttribute("android:name") == ".services.channel.EventChannelService" }
+                .single { it.getAttribute("android:name") == ".services.transport.TransportService" }
         assertEquals("specialUse", service.getAttribute("android:foregroundServiceType"))
 
         val properties = service.getElementsByTagName("property")
@@ -61,7 +61,7 @@ class ExportedComponentsManifestTest {
                 .map { properties.item(it) as Element }
                 .singleOrNull { it.getAttribute("android:name") == "android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" }
         assertTrue(subtype != null && subtype.getAttribute("android:value").isNotBlank()) {
-            "EventChannelService must declare a non-empty PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+            "TransportService must declare a non-empty PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
         }
         assertTrue(permissionsIn(MAIN_MANIFEST).contains("android.permission.FOREGROUND_SERVICE_SPECIAL_USE"))
     }

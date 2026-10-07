@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 /** [AccountSettings] backed by the same Preferences DataStore as [SettingsRepositoryImpl], same
- *  pattern as [TransportSettingsImpl]/[EventChannelSettingsImpl]. */
+ *  pattern as [TransportSettingsImpl]. */
 class AccountSettingsImpl
     @Inject
     constructor(

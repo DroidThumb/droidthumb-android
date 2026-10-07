@@ -10,7 +10,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.ServerRoute
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
-import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewModel
 
@@ -24,7 +23,6 @@ fun ServerTabScreen(
     // scratch every time this whole screen leaves and re-enters composition, which would silently
     // reset sign-in/claim state on every tab switch (see MainScreen's own doc comment).
     accountViewModel: AccountViewModel = hiltViewModel(),
-    channelViewModel: ChannelViewModel = hiltViewModel(),
     transportViewModel: TransportViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
@@ -39,7 +37,6 @@ fun ServerTabScreen(
                 onShowAllLogs = { navController.navigate(ServerRoute.Logs.route) },
                 viewModel = viewModel,
                 accountViewModel = accountViewModel,
-                channelViewModel = channelViewModel,
                 transportViewModel = transportViewModel,
             )
         }

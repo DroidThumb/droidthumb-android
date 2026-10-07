@@ -16,10 +16,6 @@ sealed class SettingsRoute(
     data object Index : SettingsRoute("settings/index")
 
     data object Permissions : SettingsRoute("settings/permissions")
-
-    data object ChannelSettings : SettingsRoute("settings/channel")
-
-    data object NotificationFilter : SettingsRoute("settings/channel/notification_filter")
 }
 
 sealed class ServerRoute(
