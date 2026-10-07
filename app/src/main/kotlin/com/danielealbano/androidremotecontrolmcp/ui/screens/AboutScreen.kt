@@ -47,6 +47,7 @@ import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.R
 
 private const val GITHUB_URL = "https://github.com/DroidThumb/droidthumb-android"
+
 // The repo's actual license file is LICENSE.md, not a bare LICENSE - confirmed by reading the repo
 // root rather than assuming the plan's own shorthand path.
 private const val LICENSE_URL = "https://github.com/DroidThumb/droidthumb-android/blob/main/LICENSE.md"

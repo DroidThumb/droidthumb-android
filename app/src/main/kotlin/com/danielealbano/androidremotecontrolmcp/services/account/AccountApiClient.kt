@@ -262,7 +262,13 @@ class AccountApiClientImpl
                             val body = response.body<ConnectionsResponseBody>()
                             ConnectionsResult.Success(
                                 body.connections.map {
-                                    AccountConnection(it.clientId, it.clientName, it.displayName, it.imageUrl, it.connectedAt)
+                                    AccountConnection(
+                                        it.clientId,
+                                        it.clientName,
+                                        it.displayName,
+                                        it.imageUrl,
+                                        it.connectedAt,
+                                    )
                                 },
                             )
                         }

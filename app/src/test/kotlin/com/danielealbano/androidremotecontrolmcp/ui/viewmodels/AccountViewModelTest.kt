@@ -139,7 +139,8 @@ class AccountViewModelTest {
             viewModel.loadConnections(context, allowInteractive = true)
             advanceUntilIdle()
 
-            val expected = ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
+            val expected =
+                ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
             assertEquals(expected, viewModel.connectionsState.value)
             coVerify(exactly = 0) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) }
         }
@@ -225,7 +226,8 @@ class AccountViewModelTest {
         runTest {
             coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
                 GoogleSignInResult.Success("token")
-            val loaded = ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
+            val loaded =
+                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
             coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns loaded
             viewModel.loadConnections(context, allowInteractive = true)
             advanceUntilIdle()
@@ -245,8 +247,10 @@ class AccountViewModelTest {
     @Test
     fun `loadThisDevice matches this device's own id out of the account's full device list`() =
         runTest {
-            every { deviceIdentityKeyStore.ensurePublicKeyBase64() } returns Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3))
-            val thisDeviceId = deriveDeviceId(byteArrayOf(1, 2, 3))
+            val publicKeyBytes = byteArrayOf(1, 2, 3)
+            every { deviceIdentityKeyStore.ensurePublicKeyBase64() } returns
+                Base64.getEncoder().encodeToString(publicKeyBytes)
+            val thisDeviceId = deriveDeviceId(publicKeyBytes)
             coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
                 GoogleSignInResult.Success("token")
             coEvery { accountApiClient.listDevices("h", 1, false, "token") } returns

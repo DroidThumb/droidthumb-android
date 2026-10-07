@@ -235,9 +235,16 @@ class AccountViewModel
             viewModelScope.launch(ioDispatcher) {
                 val idToken = freshIdTokenOrNull(context, allowInteractive = true) ?: return@launch
                 val config = settingsRepository.getTransportConfig()
-                when (
-                    accountApiClient.renameConnection(config.host, config.port, config.tls, idToken, clientId, displayName)
-                ) {
+                val result =
+                    accountApiClient.renameConnection(
+                        config.host,
+                        config.port,
+                        config.tls,
+                        idToken,
+                        clientId,
+                        displayName,
+                    )
+                when (result) {
                     RenameResult.Updated, RenameResult.NotFound -> {
                         val current = _connectionsState.value
                         if (current is ConnectionsState.Loaded) {
@@ -301,8 +308,10 @@ class AccountViewModel
             }
         }
 
-        private fun currentDeviceId(): String =
-            deriveDeviceId(Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64()))
+        private fun currentDeviceId(): String {
+            val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
+            return deriveDeviceId(publicKeyDer)
+        }
 
         fun revokeConnection(
             context: Context,
@@ -341,8 +350,12 @@ class AccountViewModel
                 _accountProfile.value = AccountProfile(silent.displayName, silent.email, silent.profilePictureUri)
                 return silent.idToken
             }
-            if (!allowInteractive) return null
-            val interactive = googleSignInClient.signIn(context, filterByAuthorizedAccounts = false)
+            val interactive =
+                if (allowInteractive) {
+                    googleSignInClient.signIn(context, filterByAuthorizedAccounts = false)
+                } else {
+                    null
+                }
             if (interactive is GoogleSignInResult.Success) {
                 _accountProfile.value =
                     AccountProfile(interactive.displayName, interactive.email, interactive.profilePictureUri)

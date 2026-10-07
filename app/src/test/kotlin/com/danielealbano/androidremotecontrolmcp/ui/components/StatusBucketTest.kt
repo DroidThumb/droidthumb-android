@@ -5,8 +5,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 
-@DisplayName("TransportStatusPresentation")
-class TransportStatusPresentationTest {
+@DisplayName("StatusBucket")
+class StatusBucketTest {
     @Test
     fun `connected maps to CONNECTED with fixed copy`() {
         val status = TransportStatus.Connected(protocolVersion = 1)

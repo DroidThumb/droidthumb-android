@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming", "LongMethod")
+@file:Suppress("FunctionNaming", "LongMethod", "MagicNumber")
 
 package com.danielealbano.androidremotecontrolmcp.ui.screens
 
@@ -85,7 +85,11 @@ fun ChatGptConnectorInstructionsScreen(
                     "For **Authentication**, choose **OAuth**.",
                     extraContent = { InstructionField("Authentication", "OAuth") },
                 )
-                InstructionStep(7, "Click **Create**, then sign in with the Google account you used in DroidThumb when the browser opens.")
+                InstructionStep(
+                    7,
+                    "Click **Create**, then sign in with the Google account you used in DroidThumb " +
+                        "when the browser opens.",
+                )
             }
 
             InstructionSourceNote(

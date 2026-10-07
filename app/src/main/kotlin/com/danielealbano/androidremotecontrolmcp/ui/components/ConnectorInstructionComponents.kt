@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming")
+@file:Suppress("FunctionNaming", "MagicNumber")
 
 package com.danielealbano.androidremotecontrolmcp.ui.components
 
@@ -101,26 +101,19 @@ fun InstructionSourceNote(text: String) {
     )
 }
 
+private val BOLD_TERM_PATTERN = Regex("\\*\\*(.+?)\\*\\*")
+
 /** Renders `**term**` spans in bold — just enough markup for this screen's own copy, not a
  *  general-purpose parser. */
 private fun boldedTerms(text: String) =
     buildAnnotatedString {
-        var remaining = text
-        while (true) {
-            val start = remaining.indexOf("**")
-            if (start == -1) {
-                append(remaining)
-                break
-            }
-            val end = remaining.indexOf("**", start + 2)
-            if (end == -1) {
-                append(remaining)
-                break
-            }
-            append(remaining.substring(0, start))
+        var cursor = 0
+        for (match in BOLD_TERM_PATTERN.findAll(text)) {
+            append(text.substring(cursor, match.range.first))
             withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                append(remaining.substring(start + 2, end))
+                append(match.groupValues[1])
             }
-            remaining = remaining.substring(end + 2)
+            cursor = match.range.last + 1
         }
+        append(text.substring(cursor))
     }

@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming")
+@file:Suppress("FunctionNaming", "LongMethod")
 
 package com.danielealbano.androidremotecontrolmcp.ui.screens
 
@@ -106,7 +106,8 @@ fun AiClientDetailScreen(
                         Modifier
                             .fillMaxWidth()
                             .onFocusChanged { focusState ->
-                                if (!focusState.isFocused && nameInput.isNotBlank() && nameInput != connection.displayName) {
+                                val changed = nameInput.isNotBlank() && nameInput != connection.displayName
+                                if (!focusState.isFocused && changed) {
                                     accountViewModel.renameConnection(context, clientId, nameInput)
                                 }
                             },

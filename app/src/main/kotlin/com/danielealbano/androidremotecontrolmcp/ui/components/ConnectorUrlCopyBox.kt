@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming")
+@file:Suppress("FunctionNaming", "MagicNumber")
 
 package com.danielealbano.androidremotecontrolmcp.ui.components
 

@@ -35,10 +35,19 @@ fun statusText(
     resumeAtEpochMs: Long?,
 ): String =
     when (bucket) {
-        StatusBucket.CONNECTED -> "Connected"
-        StatusBucket.CONNECTING -> if (status is TransportStatus.Reconnecting) "Reconnecting…" else "Connecting…"
-        StatusBucket.ERROR -> ERROR_COPY
-        StatusBucket.PAUSED ->
+        StatusBucket.CONNECTED -> {
+            "Connected"
+        }
+
+        StatusBucket.CONNECTING -> {
+            if (status is TransportStatus.Reconnecting) "Reconnecting…" else "Connecting…"
+        }
+
+        StatusBucket.ERROR -> {
+            ERROR_COPY
+        }
+
+        StatusBucket.PAUSED -> {
             if (resumeAtEpochMs == null) {
                 "Paused"
             } else {
@@ -49,4 +58,5 @@ fun statusText(
                         .format(Instant.ofEpochMilli(resumeAtEpochMs))
                 "Paused until $time"
             }
+        }
     }

@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming", "MagicNumber")
+@file:Suppress("FunctionNaming", "MagicNumber", "LongMethod")
 
 package com.danielealbano.androidremotecontrolmcp.ui.components
 
@@ -40,7 +40,10 @@ private const val STATUS_TEXT_COLOR = 0xFF121218
 
 /** The light pastel badge background + dark dot/text per bucket — fixed brand colors from the
  *  approved mockup, not theme-driven (unlike the rest of the app's dark Material theme). */
-private data class BucketColors(val background: Color, val dot: Color)
+private data class BucketColors(
+    val background: Color,
+    val dot: Color,
+)
 
 private fun bucketColors(bucket: StatusBucket): BucketColors =
     when (bucket) {

@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming", "LongMethod")
+@file:Suppress("FunctionNaming", "LongMethod", "MagicNumber")
 
 package com.danielealbano.androidremotecontrolmcp.ui.screens
 
@@ -75,7 +75,11 @@ fun ClaudeConnectorInstructionsScreen(
                         "no client ID or secret needed.",
                     extraContent = { InstructionField("OAuth client", "Register automatically") },
                 )
-                InstructionStep(6, "Click **Add**, then sign in with the Google account you used in DroidThumb when the browser opens.")
+                InstructionStep(
+                    6,
+                    "Click **Add**, then sign in with the Google account you used in DroidThumb " +
+                        "when the browser opens.",
+                )
             }
 
             InstructionSourceNote(
