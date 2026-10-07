@@ -16,24 +16,28 @@ import javax.inject.Inject
 
 /**
  * The guided first-run sequence (design doc §8.8, brought forward from the app-polish milestone):
- * restricted settings → accessibility → battery → Google sign-in, each shown only while actually
- * unmet — a step whose precondition is already satisfied (e.g. reinstalling onto a device that
- * still has accessibility granted) is skipped straight past, not shown and clicked through.
+ * accessibility → battery → Google sign-in, each shown only while actually unmet — a step whose
+ * precondition is already satisfied (e.g. reinstalling onto a device that still has accessibility
+ * granted) is skipped straight past, not shown and clicked through.
  *
- * [RESTRICTED_SETTINGS] has no direct platform API to query ("is this app currently exempted from
- * Android 13+'s restricted-settings block") — the only observable proxy is whether the
- * accessibility service it blocks is already enabled: if it is, restricted settings can't still be
- * blocking it (or this Android version/install source never imposed the restriction to begin
- * with), so that step and the accessibility step both skip together. While accessibility is still
- * off, this step's own "Continue" is a plain forward button (the user did the ⋮ menu step or
- * didn't; there's nothing to re-check mid-flow), not a detector.
+ * There is deliberately no separate "allow restricted settings" step. Android 13+'s restricted-
+ * settings block only engages — and only then does "Allow restricted settings" appear in the
+ * target app's App Info ⋮ menu — *after* the user has actually attempted to turn the blocked
+ * setting on from the system's own Accessibility screen; visiting App Info first (this build's
+ * original ordering) shows no such menu entry at all, since nothing has tripped the block yet
+ * (confirmed live, founder's phone test round 2 — the original ordering left them stuck "clicking
+ * Continue" with no "Allow restricted settings" entry to tap). The real device-verified sequence
+ * is: open Accessibility → tap the (grayed-out) service → get blocked → App Info → ⋮ → Allow
+ * restricted settings → back to Accessibility → turn it on. [ACCESSIBILITY]'s own screen now
+ * carries both the normal instructions and this restricted-settings fallback together, since
+ * there is no way to know in advance whether a given device/Android version will even hit the
+ * block — some don't (confirmed: this build's redroid test device never enforces it at all).
  */
 enum class OnboardingStep {
     /** Initial value, before the first [OnboardingViewModel.refresh] resolves — rendered as a
      *  blank/loading frame, never as any real step's content, so a returning user who has already
      *  completed onboarding never sees a wrong step flash before landing on the main app. */
     LOADING,
-    RESTRICTED_SETTINGS,
     ACCESSIBILITY,
     BATTERY,
     GOOGLE_SIGN_IN,
@@ -50,10 +54,6 @@ class OnboardingViewModel
         private val _step = MutableStateFlow(OnboardingStep.LOADING)
         val step: StateFlow<OnboardingStep> = _step.asStateFlow()
 
-        /** Manually advanced past by the restricted-settings step's own "Continue" (see the class
-         *  doc) — there's nothing to auto-detect there, unlike every other step below. */
-        private var restrictedSettingsAcknowledged = false
-
         /** `accountId` comes from [AccountViewModel][com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel]
          *  (its own settings-backed state, already restored on a relaunch) - without it, a device
          *  that signed in in a previous session would show the sign-in step again on every cold
@@ -69,28 +69,21 @@ class OnboardingViewModel
             val wasDone = _step.value == OnboardingStep.DONE
             _step.value =
                 when {
-                    !accessibilityEnabled && !restrictedSettingsAcknowledged -> OnboardingStep.RESTRICTED_SETTINGS
                     !accessibilityEnabled -> OnboardingStep.ACCESSIBILITY
                     !batteryIgnored -> OnboardingStep.BATTERY
                     accountId != null -> OnboardingStep.DONE
                     wasDone -> OnboardingStep.DONE
                     else -> OnboardingStep.GOOGLE_SIGN_IN
                 }
-            // Covers both the first time this becomes true and every later cold start where it's
-            // already true (TransportAutoStart.maybeStart is idempotent - TransportService's own
-            // `started` guard no-ops a redundant start) - the transport otherwise has no other way
-            // to come back up between the boot/app-update triggers if something else stopped it.
-            if (_step.value == OnboardingStep.DONE && accountId != null) {
+            // The transport connects on device identity alone, not the account (claim_account is
+            // sent *over* an already-connected transport, so gating this on accountId would
+            // deadlock claiming) - runs on every refresh once accessibility is enabled, covering
+            // both the first time that becomes true and every later cold start
+            // (TransportAutoStart.maybeStart is idempotent - TransportService's own `started`
+            // guard no-ops a redundant start).
+            if (accessibilityEnabled) {
                 viewModelScope.launch { transportAutoStart.maybeStart(context) }
             }
-        }
-
-        fun acknowledgeRestrictedSettings(
-            context: Context,
-            accountId: String?,
-        ) {
-            restrictedSettingsAcknowledged = true
-            refresh(context, accountId)
         }
 
         /** The sign-in step's own "Skip for now" — self-host deployments (today's production
@@ -101,8 +94,7 @@ class OnboardingViewModel
             _step.value = OnboardingStep.DONE
         }
 
-        fun markSignedIn(context: Context) {
+        fun markSignedIn() {
             _step.value = OnboardingStep.DONE
-            viewModelScope.launch { transportAutoStart.maybeStart(context) }
         }
     }

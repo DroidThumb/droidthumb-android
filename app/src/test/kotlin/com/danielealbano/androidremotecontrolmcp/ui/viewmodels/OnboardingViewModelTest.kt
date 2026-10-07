@@ -54,27 +54,29 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `shows restricted settings first when accessibility is off and nothing acknowledged yet`() {
+    fun `shows accessibility first while it's off`() {
         stubAccessibility(false)
         every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns false
 
         viewModel.refresh(context, accountId = null)
 
-        assertEquals(OnboardingStep.RESTRICTED_SETTINGS, viewModel.step.value)
-    }
-
-    @Test
-    fun `acknowledging restricted settings moves to accessibility while it's still off`() {
-        stubAccessibility(false)
-        every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns false
-
-        viewModel.acknowledgeRestrictedSettings(context, accountId = null)
-
         assertEquals(OnboardingStep.ACCESSIBILITY, viewModel.step.value)
     }
 
     @Test
-    fun `an already-enabled accessibility service skips both restricted settings and accessibility`() {
+    fun `accessibility being off does not auto-start the transport`() =
+        runTest(testDispatcher) {
+            stubAccessibility(false)
+            every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns false
+
+            viewModel.refresh(context, accountId = null)
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { transportAutoStart.maybeStart(context) }
+        }
+
+    @Test
+    fun `an already-enabled accessibility service skips straight to battery`() {
         stubAccessibility(true)
         every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns false
 
@@ -82,6 +84,22 @@ class OnboardingViewModelTest {
 
         assertEquals(OnboardingStep.BATTERY, viewModel.step.value)
     }
+
+    @Test
+    fun `accessibility alone - regardless of account or battery - auto-starts the transport`() =
+        runTest(testDispatcher) {
+            stubAccessibility(true)
+            every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns false
+
+            viewModel.refresh(context, accountId = null)
+            advanceUntilIdle()
+
+            // The transport connects on device identity, not the account - claim_account is sent
+            // *over* an already-connected transport, so this must NOT be gated on accountId (a
+            // real regression found live: gating on accountId deadlocked sign-in entirely, since
+            // claiming requires a connection that would never have been allowed to start).
+            coVerify { transportAutoStart.maybeStart(context) }
+        }
 
     @Test
     fun `an already-ignored battery optimization skips straight to sign-in`() {
@@ -106,30 +124,6 @@ class OnboardingViewModelTest {
         }
 
     @Test
-    fun `reaching done with an account auto-starts the transport`() =
-        runTest(testDispatcher) {
-            stubAccessibility(true)
-            every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns true
-
-            viewModel.refresh(context, accountId = "acc_1")
-            advanceUntilIdle()
-
-            coVerify { transportAutoStart.maybeStart(context) }
-        }
-
-    @Test
-    fun `reaching done without an account does not auto-start the transport`() =
-        runTest(testDispatcher) {
-            stubAccessibility(true)
-            every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns true
-
-            viewModel.refresh(context, accountId = null)
-            advanceUntilIdle()
-
-            coVerify(exactly = 0) { transportAutoStart.maybeStart(context) }
-        }
-
-    @Test
     fun `skipSignIn moves to done without an account, and a later refresh does not bounce back`() =
         runTest(testDispatcher) {
             stubAccessibility(true)
@@ -141,16 +135,12 @@ class OnboardingViewModelTest {
             viewModel.refresh(context, accountId = null)
             advanceUntilIdle()
             assertEquals(OnboardingStep.DONE, viewModel.step.value)
-            coVerify(exactly = 0) { transportAutoStart.maybeStart(context) }
         }
 
     @Test
-    fun `markSignedIn moves to done and auto-starts the transport`() =
-        runTest(testDispatcher) {
-            viewModel.markSignedIn(context)
-            advanceUntilIdle()
+    fun `markSignedIn moves to done`() {
+        viewModel.markSignedIn()
 
-            assertEquals(OnboardingStep.DONE, viewModel.step.value)
-            coVerify { transportAutoStart.maybeStart(context) }
-        }
+        assertEquals(OnboardingStep.DONE, viewModel.step.value)
+    }
 }

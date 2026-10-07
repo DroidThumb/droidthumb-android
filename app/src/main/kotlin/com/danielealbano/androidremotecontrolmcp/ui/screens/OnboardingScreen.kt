@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -40,12 +42,13 @@ import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.OnboardingViewMod
 import com.danielealbano.androidremotecontrolmcp.utils.PermissionUtils
 
 /**
- * The guided first-run sequence (design doc §8.8): restricted settings → accessibility → battery
- * → Google sign-in. [MainActivity][com.danielealbano.androidremotecontrolmcp.ui.MainActivity]
- * shows this instead of [MainScreen] until [OnboardingViewModel.step] reaches
- * [OnboardingStep.DONE] — each step is skipped automatically once its own precondition is already
- * satisfied, re-checked on every resume (the same `onResume -> refreshPermissionStatus` pattern
- * [MainViewModel] already uses for the Settings tab).
+ * The guided first-run sequence (design doc §8.8): accessibility (which also carries the
+ * restricted-settings fallback - see [OnboardingStep]'s own doc) → battery → Google sign-in.
+ * [MainActivity][com.danielealbano.androidremotecontrolmcp.ui.MainActivity] shows this instead of
+ * [MainScreen] until [OnboardingViewModel.step] reaches [OnboardingStep.DONE] — each step is
+ * skipped automatically once its own precondition is already satisfied, re-checked on every resume
+ * (the same `onResume -> refreshPermissionStatus` pattern [MainViewModel] already uses for the
+ * Settings tab).
  */
 @Composable
 fun OnboardingScreen(
@@ -78,7 +81,7 @@ fun OnboardingScreen(
     }
 
     LaunchedEffect(claimState) {
-        if (claimState is AccountClaimState.Claimed) onboardingViewModel.markSignedIn(context)
+        if (claimState is AccountClaimState.Claimed) onboardingViewModel.markSignedIn()
     }
 
     // Without this Surface, Text here falls back to Compose's hard-coded default content color
@@ -87,19 +90,17 @@ fun OnboardingScreen(
     // Sign-In step, PR #8 phone feedback).
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             when (step) {
                 OnboardingStep.LOADING, OnboardingStep.DONE -> {
                     Unit
-                }
-
-                OnboardingStep.RESTRICTED_SETTINGS -> {
-                    RestrictedSettingsStep(
-                        onContinue = { onboardingViewModel.acknowledgeRestrictedSettings(context, accountId) },
-                    )
                 }
 
                 OnboardingStep.ACCESSIBILITY -> {
@@ -122,22 +123,15 @@ fun OnboardingScreen(
     }
 }
 
-@Composable
-private fun RestrictedSettingsStep(onContinue: () -> Unit) {
-    val context = LocalContext.current
-    Text(stringResource(R.string.onboarding_restricted_settings_title), style = MaterialTheme.typography.headlineSmall)
-    Spacer(Modifier.height(12.dp))
-    Text(stringResource(R.string.onboarding_restricted_settings_body), style = MaterialTheme.typography.bodyMedium)
-    Spacer(Modifier.height(16.dp))
-    Text(stringResource(R.string.onboarding_restricted_settings_steps), style = MaterialTheme.typography.bodyMedium)
-    Spacer(Modifier.height(24.dp))
-    Button(onClick = { context.startActivity(appInfoIntent(context.packageName)) }) {
-        Text(stringResource(R.string.onboarding_restricted_settings_action))
-    }
-    Spacer(Modifier.height(8.dp))
-    TextButton(onClick = onContinue) { Text(stringResource(R.string.onboarding_restricted_settings_continue)) }
-}
-
+/**
+ * Accessibility, plus the restricted-settings fallback (see [OnboardingStep]'s own doc for why
+ * these two live on one screen rather than as separate steps): the primary action opens
+ * Accessibility settings directly; if turning DroidThumb on there is blocked, the hint below
+ * explains the one-time App Info detour. This step doesn't try to detect which case applies —
+ * there's no platform API for that — it just shows both and lets the user follow whichever one
+ * their device actually needs. Auto-advances once accessibility is actually detected enabled
+ * ([OnboardingViewModel.refresh], re-run on every resume), not a manual "Continue".
+ */
 @Composable
 private fun AccessibilityStep() {
     val context = LocalContext.current
@@ -147,6 +141,22 @@ private fun AccessibilityStep() {
     Spacer(Modifier.height(24.dp))
     Button(onClick = { PermissionUtils.openAccessibilitySettings(context) }) {
         Text(stringResource(R.string.onboarding_accessibility_action))
+    }
+    Spacer(Modifier.height(24.dp))
+    Text(
+        stringResource(R.string.onboarding_accessibility_restricted_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        stringResource(R.string.onboarding_accessibility_restricted_steps),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(12.dp))
+    TextButton(onClick = { context.startActivity(appInfoIntent(context.packageName)) }) {
+        Text(stringResource(R.string.onboarding_accessibility_restricted_action))
     }
 }
 

@@ -93,14 +93,12 @@
     <string name="account_connection_revoke_dialog_cancel">Cancel</string>
 
     <!-- First-run onboarding (design doc §8.8): restricted settings -> accessibility -> battery -> Google sign-in -->
-    <string name="onboarding_restricted_settings_title">Allow restricted settings</string>
-    <string name="onboarding_restricted_settings_body">Android blocks sideloaded apps from turning on accessibility until you allow it once, in this app\'s own App info page.</string>
-    <string name="onboarding_restricted_settings_steps">1. Tap "Open app info" below\n2. Tap the ⋮ menu (top right)\n3. Tap "Allow restricted settings"</string>
-    <string name="onboarding_restricted_settings_action">Open app info</string>
-    <string name="onboarding_restricted_settings_continue">Continue</string>
     <string name="onboarding_accessibility_title">Turn on accessibility</string>
-    <string name="onboarding_accessibility_body">This is what lets DroidThumb read the screen and act on it — taps, swipes, typing.</string>
+    <string name="onboarding_accessibility_body">This is what lets DroidThumb read the screen and act on it — taps, swipes, typing. Tap below, then turn DroidThumb on.</string>
     <string name="onboarding_accessibility_action">Open accessibility settings</string>
+    <string name="onboarding_accessibility_restricted_hint">Tapped DroidThumb there and it wouldn\'t turn on? Android blocks that until you allow it once, in this app\'s own App info page.</string>
+    <string name="onboarding_accessibility_restricted_steps">1. Tap "Open app info" below\n2. Tap the ⋮ menu (top right)\n3. Tap "Allow restricted settings"\n4. Go back to Accessibility and turn DroidThumb on</string>
+    <string name="onboarding_accessibility_restricted_action">Open app info</string>
     <string name="onboarding_battery_title">Allow background use</string>
     <string name="onboarding_battery_body">Without this, Android can stop DroidThumb while your phone is idle, even mid-task.</string>
     <string name="onboarding_battery_action">Allow</string>
