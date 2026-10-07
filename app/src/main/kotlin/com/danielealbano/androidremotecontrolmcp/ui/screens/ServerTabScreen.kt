@@ -9,13 +9,23 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.ServerRoute
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ChannelViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewModel
 
 @Composable
 fun ServerTabScreen(
     onNavigateToPermissions: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel(),
+    // Passed down from MainScreen (Activity-scoped) rather than obtained here - this composable's
+    // own NavHost recreates its NavBackStackEntry (and anything hiltViewModel()'d against it) from
+    // scratch every time this whole screen leaves and re-enters composition, which would silently
+    // reset sign-in/claim state on every tab switch (see MainScreen's own doc comment).
+    accountViewModel: AccountViewModel = hiltViewModel(),
+    channelViewModel: ChannelViewModel = hiltViewModel(),
+    transportViewModel: TransportViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
     NavHost(
@@ -28,6 +38,9 @@ fun ServerTabScreen(
                 onNavigateToPermissions = onNavigateToPermissions,
                 onShowAllLogs = { navController.navigate(ServerRoute.Logs.route) },
                 viewModel = viewModel,
+                accountViewModel = accountViewModel,
+                channelViewModel = channelViewModel,
+                transportViewModel = transportViewModel,
             )
         }
         composable(ServerRoute.Logs.route) {
