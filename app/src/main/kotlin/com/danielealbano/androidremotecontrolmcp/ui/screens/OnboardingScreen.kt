@@ -132,11 +132,10 @@ fun OnboardingScreen(
  * there's no platform API for that — it just shows both and lets the user follow whichever one
  * their device actually needs.
  *
- * The bold question is deliberately shown BEFORE the button, not after — Android's own
- * Accessibility screen tries to guide a blocked user toward its own in-place explanation once
- * they hit the block, and by then they've left this screen; putting the warning up front, bold
- * enough to actually be read first, means they already know to come straight back here instead of
- * following whatever Android itself suggests (founder feedback, PR #8 round 4).
+ * The bold "Any problems?" sits right below the button, short enough to register at a glance
+ * before tapping through to Android's own Accessibility screen — the detail below it (the actual
+ * App Info steps) doesn't need reading up front, only remembering that it's there to come back to
+ * if Android blocks the toggle (founder feedback, PR #8 round 5).
  *
  * Auto-advances once accessibility is actually detected enabled ([OnboardingViewModel.refresh],
  * re-run on every resume), not a manual "Continue".
@@ -147,17 +146,17 @@ private fun AccessibilityStep() {
     Text(stringResource(R.string.onboarding_accessibility_title), style = MaterialTheme.typography.headlineSmall)
     Spacer(Modifier.height(12.dp))
     Text(stringResource(R.string.onboarding_accessibility_body), style = MaterialTheme.typography.bodyMedium)
+    Spacer(Modifier.height(24.dp))
+    Button(onClick = { PermissionUtils.openAccessibilitySettings(context) }) {
+        Text(stringResource(R.string.onboarding_accessibility_action))
+    }
     Spacer(Modifier.height(16.dp))
     Text(
         stringResource(R.string.onboarding_accessibility_restricted_question),
         style = MaterialTheme.typography.bodyMedium,
         fontWeight = FontWeight.Bold,
     )
-    Spacer(Modifier.height(24.dp))
-    Button(onClick = { PermissionUtils.openAccessibilitySettings(context) }) {
-        Text(stringResource(R.string.onboarding_accessibility_action))
-    }
-    Spacer(Modifier.height(24.dp))
+    Spacer(Modifier.height(8.dp))
     Text(
         stringResource(R.string.onboarding_accessibility_restricted_hint),
         style = MaterialTheme.typography.bodySmall,
