@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -129,8 +130,16 @@ fun OnboardingScreen(
  * Accessibility settings directly; if turning DroidThumb on there is blocked, the hint below
  * explains the one-time App Info detour. This step doesn't try to detect which case applies —
  * there's no platform API for that — it just shows both and lets the user follow whichever one
- * their device actually needs. Auto-advances once accessibility is actually detected enabled
- * ([OnboardingViewModel.refresh], re-run on every resume), not a manual "Continue".
+ * their device actually needs.
+ *
+ * The bold question is deliberately shown BEFORE the button, not after — Android's own
+ * Accessibility screen tries to guide a blocked user toward its own in-place explanation once
+ * they hit the block, and by then they've left this screen; putting the warning up front, bold
+ * enough to actually be read first, means they already know to come straight back here instead of
+ * following whatever Android itself suggests (founder feedback, PR #8 round 4).
+ *
+ * Auto-advances once accessibility is actually detected enabled ([OnboardingViewModel.refresh],
+ * re-run on every resume), not a manual "Continue".
  */
 @Composable
 private fun AccessibilityStep() {
@@ -138,6 +147,12 @@ private fun AccessibilityStep() {
     Text(stringResource(R.string.onboarding_accessibility_title), style = MaterialTheme.typography.headlineSmall)
     Spacer(Modifier.height(12.dp))
     Text(stringResource(R.string.onboarding_accessibility_body), style = MaterialTheme.typography.bodyMedium)
+    Spacer(Modifier.height(16.dp))
+    Text(
+        stringResource(R.string.onboarding_accessibility_restricted_question),
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.Bold,
+    )
     Spacer(Modifier.height(24.dp))
     Button(onClick = { PermissionUtils.openAccessibilitySettings(context) }) {
         Text(stringResource(R.string.onboarding_accessibility_action))

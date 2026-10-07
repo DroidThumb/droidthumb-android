@@ -95,8 +95,9 @@
     <!-- First-run onboarding (design doc §8.8): restricted settings -> accessibility -> battery -> Google sign-in -->
     <string name="onboarding_accessibility_title">Turn on accessibility</string>
     <string name="onboarding_accessibility_body">This is what lets DroidThumb read the screen and act on it — taps, swipes, typing. Tap below, then turn DroidThumb on.</string>
+    <string name="onboarding_accessibility_restricted_question">Does it say the setting is unavailable, or won\'t it turn on?</string>
     <string name="onboarding_accessibility_action">Open accessibility settings</string>
-    <string name="onboarding_accessibility_restricted_hint">Tapped DroidThumb there and it wouldn\'t turn on? Android blocks that until you allow it once, in this app\'s own App info page.</string>
+    <string name="onboarding_accessibility_restricted_hint">Come back here — Android blocks this until you allow it once, in this app\'s own App info page:</string>
     <string name="onboarding_accessibility_restricted_steps">1. Tap "Open app info" below\n2. Tap the ⋮ menu (top right)\n3. Tap "Allow restricted settings"\n4. Go back to Accessibility and turn DroidThumb on</string>
     <string name="onboarding_accessibility_restricted_action">Open app info</string>
     <string name="onboarding_battery_title">Allow background use</string>
