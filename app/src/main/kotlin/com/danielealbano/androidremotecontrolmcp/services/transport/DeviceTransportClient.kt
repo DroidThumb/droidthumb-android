@@ -3,6 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.services.transport
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
@@ -145,6 +146,7 @@ interface DeviceTransportClient {
  */
 @Singleton
 class DeviceTransportClientImpl
+    @Suppress("LongParameterList")
     @Inject
     constructor(
         private val stepDispatcher: StepDispatcher,
@@ -153,6 +155,7 @@ class DeviceTransportClientImpl
         private val registrationClient: DeviceRegistrationClient,
         private val connectorUrlSettings: ConnectorUrlSettings,
         private val pauseSettings: PauseSettings,
+        private val controlBarCoordinator: ControlBarCoordinator,
     ) : DeviceTransportClient {
         private val _status = MutableStateFlow<TransportStatus>(TransportStatus.Idle)
         override val status: StateFlow<TransportStatus> = _status.asStateFlow()
@@ -317,12 +320,7 @@ class DeviceTransportClientImpl
                 }
 
                 is Step -> {
-                    val reply =
-                        if (pauseSettings.getPauseState().isEffectivePause(System.currentTimeMillis())) {
-                            StepError(message.stepId, code = "device_paused", message = PAUSED_STEP_MESSAGE)
-                        } else {
-                            stepDispatcher.dispatch(message)
-                        }
+                    val reply = runStepCancellable(message)
                     send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), reply)))
                 }
 
@@ -344,6 +342,32 @@ class DeviceTransportClientImpl
                 else -> {}
             }
             return false
+        }
+
+        /** Runs [step] in a CHILD coroutine of this session (launched from the
+         *  [DefaultClientWebSocketSession] receiver, which is itself a [CoroutineScope]) so
+         *  [ControlBarCoordinator.stop] can cancel JUST this step - cancelling this session's own
+         *  job would tear down the whole connection, which Stop must never do. */
+        private suspend fun DefaultClientWebSocketSession.runStepCancellable(step: Step): WireMessage {
+            if (pauseSettings.getPauseState().isEffectivePause(System.currentTimeMillis())) {
+                return StepError(step.stepId, code = "device_paused", message = PAUSED_STEP_MESSAGE)
+            }
+            val deferred = CompletableDeferred<WireMessage>()
+            val job =
+                launch {
+                    deferred.complete(stepDispatcher.dispatch(step))
+                }
+            controlBarCoordinator.registerCurrentStep {
+                job.cancel()
+                deferred.complete(
+                    StepError(step.stepId, code = "stopped_by_owner", message = STOPPED_BY_OWNER_MESSAGE),
+                )
+            }
+            return try {
+                deferred.await()
+            } finally {
+                controlBarCoordinator.clearCurrentStep()
+            }
         }
 
         override suspend fun regenerateSecret(): Boolean =
@@ -383,19 +407,6 @@ class DeviceTransportClientImpl
                 result ?: ClaimResult.TimedOut
             }
 
-        /** Decodes one inbound frame, or null for a non-text frame or a malformed payload (logged
-         *  and skipped rather than tearing down the whole session over one bad frame). */
-        @Suppress("TooGenericExceptionCaught")
-        private fun decodeOrNull(frame: Frame): WireMessage? {
-            if (frame !is Frame.Text) return null
-            return try {
-                wireJson.decodeFromString(WireMessage.serializer(), frame.readText())
-            } catch (e: Exception) {
-                Logger.w(TAG, "Ignoring malformed frame: ${e.message}")
-                null
-            }
-        }
-
         private fun helloFor(): Hello =
             Hello(
                 protocolVersion = 1,
@@ -432,6 +443,26 @@ class DeviceTransportClientImpl
              *  up and replies immediately, so an AI client sees a clear, fast rejection instead of
              *  the step timing out as if the device had simply gone unresponsive. */
             const val PAUSED_STEP_MESSAGE = "This device was paused by its owner"
+
+            /** Reply when the floating control bar's Stop button cancels an in-flight step (plan
+             *  71, D-39) - distinct from [PAUSED_STEP_MESSAGE], which is a step that never started
+             *  because the device was already paused. */
+            const val STOPPED_BY_OWNER_MESSAGE = "Stopped by the device owner"
             private val BACKOFF_SCHEDULE_MS = listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L)
         }
     }
+
+/** Decodes one inbound frame, or null for a non-text frame or a malformed payload (logged and
+ *  skipped rather than tearing down the whole session over one bad frame). A top-level function,
+ *  not a class member - keeps [DeviceTransportClientImpl] under detekt's `TooManyFunctions`
+ *  threshold without an unjustified suppression; this has no dependency on the class's own state. */
+@Suppress("TooGenericExceptionCaught")
+private fun decodeOrNull(frame: Frame): WireMessage? {
+    if (frame !is Frame.Text) return null
+    return try {
+        wireJson.decodeFromString(WireMessage.serializer(), frame.readText())
+    } catch (e: Exception) {
+        Logger.w("MCP:DeviceTransport", "Ignoring malformed frame: ${e.message}")
+        null
+    }
+}

@@ -223,6 +223,7 @@ class ScreenIntrospectionToolsTest {
                     mockScreenCaptureProvider.captureScreenshotBitmap(
                         GetScreenStateHandler.SCREENSHOT_MAX_SIZE,
                         GetScreenStateHandler.SCREENSHOT_MAX_SIZE,
+                        any(),
                     )
                 } returns Result.success(mockBitmap)
                 every {
@@ -252,7 +253,7 @@ class ScreenIntrospectionToolsTest {
                 val mockBitmap = mockk<Bitmap>(relaxed = true)
                 val mockAnnotatedBitmap = mockk<Bitmap>(relaxed = true)
                 coEvery {
-                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any())
+                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any(), any())
                 } returns Result.success(mockBitmap)
                 every {
                     mockScreenshotAnnotator.annotate(any(), any(), any(), any())
@@ -268,6 +269,7 @@ class ScreenIntrospectionToolsTest {
                     mockScreenCaptureProvider.captureScreenshotBitmap(
                         GetScreenStateHandler.SCREENSHOT_MAX_SIZE,
                         GetScreenStateHandler.SCREENSHOT_MAX_SIZE,
+                        any(),
                     )
                 }
             }
@@ -283,7 +285,7 @@ class ScreenIntrospectionToolsTest {
                 assertEquals(1, result.content.size)
                 assertTrue(result.content[0] is ToolContent.Text)
                 coVerify(exactly = 0) {
-                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any())
+                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any(), any())
                 }
             }
 
@@ -299,7 +301,7 @@ class ScreenIntrospectionToolsTest {
                 assertEquals(1, result.content.size)
                 assertTrue(result.content[0] is ToolContent.Text)
                 coVerify(exactly = 0) {
-                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any())
+                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any(), any())
                 }
             }
 
@@ -353,7 +355,7 @@ class ScreenIntrospectionToolsTest {
                 setupReadyService()
                 every { mockScreenCaptureProvider.isScreenCaptureAvailable() } returns true
                 coEvery {
-                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any())
+                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any(), any())
                 } returns Result.failure(RuntimeException("Screenshot capture failed"))
 
                 val params = buildJsonObject { put("include_screenshot", true) }
@@ -594,7 +596,7 @@ class ScreenIntrospectionToolsTest {
                 every { mockScreenCaptureProvider.isScreenCaptureAvailable() } returns true
                 val mockBitmap = mockk<Bitmap>(relaxed = true)
                 coEvery {
-                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any())
+                    mockScreenCaptureProvider.captureScreenshotBitmap(any(), any(), any())
                 } returns Result.success(mockBitmap)
                 every {
                     mockScreenshotAnnotator.annotate(any(), any(), any(), any())

@@ -169,10 +169,16 @@ class GetScreenStateHandler
                 )
             }
 
+            // The focused APPLICATION window's id, when known - lets captureScreenshotBitmap
+            // exclude DroidThumb's own overlay via a per-window capture rather than whole-display
+            // (plan 71, D-39). Same focused-APPLICATION-window lookup activityName resolution
+            // already uses in NodeActionTools.kt's getFreshWindowsLocked.
+            val focusedWindowId = result.windows.firstOrNull { it.focused && it.windowType == "APPLICATION" }?.windowId
             val bitmapResult =
                 screenCaptureProvider.captureScreenshotBitmap(
                     maxWidth = SCREENSHOT_MAX_SIZE,
                     maxHeight = SCREENSHOT_MAX_SIZE,
+                    windowId = focusedWindowId,
                 )
             val resizedBitmap =
                 bitmapResult.getOrElse { exception ->

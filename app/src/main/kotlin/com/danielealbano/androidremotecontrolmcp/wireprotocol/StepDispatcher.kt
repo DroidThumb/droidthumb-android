@@ -24,6 +24,7 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.FindBy
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.findNodeAtPoint
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.pickSelectorCandidate
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.selectorForNode
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
@@ -79,6 +80,7 @@ class StepDispatcher
         private val treeParser: AccessibilityTreeParser,
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val nodeCache: AccessibilityNodeCache,
+        private val controlBarCoordinator: ControlBarCoordinator,
     ) {
         /** Never throws — every failure becomes a [StepError], never an unhandled exception out of
          *  the transport client's per-step dispatch loop. The final catch-all is deliberate: any
@@ -110,6 +112,10 @@ class StepDispatcher
             params: JsonObject,
         ): JsonElement {
             if (op == "read_screen") return readScreen(params)
+            // task_done is the session-END signal, not a device action — starting a new "session"
+            // (beginStep) for the very op that ends one would flash the bar to Running for an
+            // instant before immediately flipping to Ended (plan 71).
+            if (op != "task_done") controlBarCoordinator.beginStep(op, params)
             val output = executeAction(op, params)
             waitForIdle()
             return output ?: EMPTY_OUTPUT
@@ -149,10 +155,22 @@ class StepDispatcher
                     null
                 }
 
+                "task_done" -> {
+                    taskDone(params)
+                    null
+                }
+
                 else -> {
                     throw McpToolException.InvalidParams("Unknown op: '$op'")
                 }
             }
+
+        /** Session-end signal (plan 71, D-39) - not a device action; ends the floating control
+         *  bar's session with an optional summary. */
+        private fun taskDone(params: JsonObject) {
+            val summary = params["summary"]?.jsonPrimitive?.contentOrNull
+            controlBarCoordinator.taskDone(summary)
+        }
 
         /** Best-effort settle wait after every action — never throws, `WaitForIdleTool` reports a
          *  timeout as a normal (non-error) result, which is exactly right here: an action that
@@ -198,16 +216,30 @@ class StepDispatcher
                     val fallbackEligible =
                         at != null && (e is McpToolException.NodeNotFound || e is McpToolException.ActionFailed)
                     if (!fallbackEligible) throw e
-                    tapTool.execute(at)
+                    tapAtCoordinate(at)
                 }
                 return null
             }
             if (at != null) {
                 val discovered = discoverSelectorAt(at)
-                tapTool.execute(at)
+                tapAtCoordinate(at)
                 return discovered
             }
             throw McpToolException.InvalidParams("tap requires 'selector' or 'at'")
+        }
+
+        /** Raw-coordinate gesture dispatch — unlike a selector-resolved tap (which calls
+         *  `performAction`, never touching screen pixels), this physically touches a point the
+         *  floating control bar could be sitting on. Briefly makes the bar pass-through around the
+         *  dispatch (plan 71's touch-passthrough decision) so the gesture reaches the app
+         *  underneath, not the bar's own view. */
+        private suspend fun tapAtCoordinate(at: JsonObject) {
+            controlBarCoordinator.setBarTouchable(false)
+            try {
+                tapTool.execute(at)
+            } finally {
+                controlBarCoordinator.setBarTouchable(true)
+            }
         }
 
         /** Hit-tests the point *before* tapping (describing what was there when the tap was

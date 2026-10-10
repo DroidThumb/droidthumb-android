@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService
 import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -141,6 +143,72 @@ class ScreenCaptureProviderImplTest {
 
                 assertTrue(result.isSuccess)
                 verify(exactly = 0) { bitmap.recycle() }
+            }
+
+        @Test
+        fun `given a windowId on API 34, captureScreenshotBitmap prefers the per-window capture`() =
+            runTest {
+                every { mockApiLevelProvider.getSdkInt() } returns 34
+                val bitmap = mockk<Bitmap>(relaxed = true)
+                coEvery { mockService.takeScreenshotOfWindowBitmap(42) } returns bitmap
+                every { screenshotEncoder.resizeBitmapProportional(bitmap, 700, 700) } returns bitmap
+
+                val result = provider.captureScreenshotBitmap(maxWidth = 700, maxHeight = 700, windowId = 42)
+
+                assertTrue(result.isSuccess)
+                coVerify(exactly = 0) { mockService.takeScreenshotBitmap() }
+                verify(exactly = 0) { mockService.setOverlayHidden(any()) }
+            }
+
+        @Test
+        fun `given a windowId on API 33, captureScreenshotBitmap hides the overlay around whole-display capture`() =
+            runTest {
+                every { mockApiLevelProvider.getSdkInt() } returns 33
+                val bitmap = mockk<Bitmap>(relaxed = true)
+                coEvery { mockService.takeScreenshotBitmap() } returns bitmap
+                every { screenshotEncoder.resizeBitmapProportional(bitmap, 700, 700) } returns bitmap
+
+                val result = provider.captureScreenshotBitmap(maxWidth = 700, maxHeight = 700, windowId = 42)
+
+                assertTrue(result.isSuccess)
+                coVerifyOrder {
+                    mockService.setOverlayHidden(true)
+                    mockService.takeScreenshotBitmap()
+                    mockService.setOverlayHidden(false)
+                }
+            }
+
+        @Test
+        fun `a null windowId always uses whole-display capture regardless of API level`() =
+            runTest {
+                every { mockApiLevelProvider.getSdkInt() } returns 34
+                val bitmap = mockk<Bitmap>(relaxed = true)
+                coEvery { mockService.takeScreenshotBitmap() } returns bitmap
+                every { screenshotEncoder.resizeBitmapProportional(bitmap, 700, 700) } returns bitmap
+
+                val result = provider.captureScreenshotBitmap(maxWidth = 700, maxHeight = 700, windowId = null)
+
+                assertTrue(result.isSuccess)
+                coVerifyOrder {
+                    mockService.setOverlayHidden(true)
+                    mockService.takeScreenshotBitmap()
+                    mockService.setOverlayHidden(false)
+                }
+            }
+
+        @Test
+        fun `takeScreenshotOfWindowBitmap returning null falls back to whole-display capture`() =
+            runTest {
+                every { mockApiLevelProvider.getSdkInt() } returns 34
+                val bitmap = mockk<Bitmap>(relaxed = true)
+                coEvery { mockService.takeScreenshotOfWindowBitmap(42) } returns null
+                coEvery { mockService.takeScreenshotBitmap() } returns bitmap
+                every { screenshotEncoder.resizeBitmapProportional(bitmap, 700, 700) } returns bitmap
+
+                val result = provider.captureScreenshotBitmap(maxWidth = 700, maxHeight = 700, windowId = 42)
+
+                assertTrue(result.isSuccess)
+                assertEquals(bitmap, result.getOrNull())
             }
     }
 }

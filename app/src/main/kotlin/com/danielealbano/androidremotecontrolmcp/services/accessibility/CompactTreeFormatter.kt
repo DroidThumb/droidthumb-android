@@ -199,6 +199,13 @@ class CompactTreeFormatter
                 append("layer:${windowData.layer} ")
                 append("focused:${windowData.focused}")
                 append(" ---")
+                // DroidThumb's own overlay windows are already excluded upstream (plan 71, D-39 -
+                // see NodeActionTools.getFreshWindowsLocked), so any ACCESSIBILITY_OVERLAY window
+                // reaching this point is necessarily a THIRD-PARTY one (OEM translate/assistant
+                // bars, etc.) - label it so the model doesn't mistake it for the target app.
+                if (windowData.windowType == "ACCESSIBILITY_OVERLAY") {
+                    append("\nnote:third-party overlay — ignore unless it blocks the target")
+                }
             }
 
         /**
