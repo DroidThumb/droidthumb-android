@@ -82,10 +82,6 @@ class AccountViewModelTest {
         runTest {
             coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
                 GoogleSignInResult.Success("id-token")
-            // The claim's own success path triggers loadConnections internally, which tries
-            // silently first (freshIdTokenOrNull) - stubbed here too, not just the interactive call.
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
-                GoogleSignInResult.Success("id-token")
             coEvery { accountApiClient.mintClaimToken("h", 1, false, "id-token") } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
             coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.Claimed("acc_1")
@@ -103,6 +99,12 @@ class AccountViewModelTest {
             // can't do it (see loadThisDevice's own doc comment: it guards on claimState not yet
             // being Claimed, which is already false by the time that effect's recomposition runs).
             assertTrue(viewModel.thisDeviceState.value is ThisDeviceState.Loaded)
+            // The post-claim connections/device load must reuse the id_token this interactive
+            // sign-in already obtained, never calling Credential Manager a second time - a silent
+            // (filterByAuthorizedAccounts=true) attempt right after an interactive grant isn't
+            // guaranteed to succeed, and falling back from there to a second interactive picker is
+            // exactly the "double sign-in" founder phone-test feedback (PR #9 round 1) reported.
+            coVerify(exactly = 0) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) }
         }
 
     @Test
@@ -276,6 +278,25 @@ class AccountViewModelTest {
                 ThisDeviceState.Loaded(device = AccountDevice(thisDeviceId, "2026-10-01", null), deviceLimit = null),
                 viewModel.thisDeviceState.value,
             )
+        }
+
+    @Test
+    fun `loadThisDevice resolves to Failed, not a stuck Loading, if the device identity key store throws`() =
+        runTest {
+            // Real-device failure mode (founder phone-test feedback, PR #9 round 1 - "This device"
+            // spinner that never stopped): ensurePublicKeyBase64 is a real Android Keystore call
+            // with no try/catch of its own, so any unexpected throw here must not leave
+            // ThisDeviceState stuck on Loading forever.
+            every { deviceIdentityKeyStore.ensurePublicKeyBase64() } throws RuntimeException("keystore unavailable")
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("token")
+            coEvery { accountApiClient.listDevices("h", 1, false, "token") } returns
+                DevicesResult.Success(devices = emptyList(), deviceLimit = null)
+
+            viewModel.loadThisDevice(context)
+            advanceUntilIdle()
+
+            assertTrue(viewModel.thisDeviceState.value is ThisDeviceState.Failed)
         }
 
     @Test

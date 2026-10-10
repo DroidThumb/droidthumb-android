@@ -139,7 +139,14 @@ private fun AiClientRow(
     ) {
         AiClientLogoBadge(displayName = connection.displayName, imageUrl = connection.imageUrl)
         Spacer(Modifier.width(12.dp))
-        Text(text = connection.displayName, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = connection.displayName, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = connection.lastUsedAt?.let { "Last used ${formatIsoDate(it)}" } ?: "Never used yet",
+                style = MaterialTheme.typography.bodySmall,
+                color = SECTION_HEADER_COLOR,
+            )
+        }
     }
 }
 

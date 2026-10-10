@@ -30,6 +30,10 @@ data class AccountConnection(
     val displayName: String,
     val imageUrl: String?,
     val connectedAt: String,
+    /** `null` if never used since connected — distinguishes genuinely distinct repeat test
+     *  connections from each other (founder phone-test feedback, PR #9 round 1: three identical
+     *  "Claude" rows from earlier testing, with nothing to tell them apart). */
+    val lastUsedAt: String? = null,
 )
 
 data class AccountDevice(
@@ -168,6 +172,7 @@ private data class ConnectionBody(
     @SerialName("display_name") val displayName: String,
     @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("connected_at") val connectedAt: String,
+    @SerialName("last_used_at") val lastUsedAt: String? = null,
 )
 
 @Serializable
@@ -268,6 +273,7 @@ class AccountApiClientImpl
                                         it.displayName,
                                         it.imageUrl,
                                         it.connectedAt,
+                                        it.lastUsedAt,
                                     )
                                 },
                             )
