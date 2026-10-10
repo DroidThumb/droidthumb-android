@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +69,15 @@ fun AiClientDetailScreen(
 
     var nameInput by remember(connection?.displayName) { mutableStateOf(connection?.displayName.orEmpty()) }
     var showRemoveConfirm by remember { mutableStateOf(false) }
+    // revokeConnection() is fire-and-forget: it only updates connectionsState on success and
+    // otherwise leaves it untouched (AccountViewModel's own documented recovery path is "the row's
+    // own retry"). Navigating back unconditionally on confirm would silently strand the user past
+    // a failed revoke with no error and no way to retry, so this only fires once `connection` has
+    // actually disappeared from the (now-updated) state - i.e. once the revoke truly succeeded.
+    var removalRequested by remember { mutableStateOf(false) }
+    LaunchedEffect(connection, removalRequested) {
+        if (removalRequested && connection == null) onBack()
+    }
 
     // Saving only on `onFocusChanged` isn't enough on its own: neither the back arrow nor the
     // system back gesture/button is guaranteed to deliver a focus-loss callback before this screen
@@ -177,8 +187,8 @@ fun AiClientDetailScreen(
                 TextButton(
                     onClick = {
                         showRemoveConfirm = false
+                        removalRequested = true
                         accountViewModel.revokeConnection(context, clientId)
-                        onBack()
                     },
                 ) {
                     Text("Remove", color = DESTRUCTIVE_COLOR)
