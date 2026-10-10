@@ -21,6 +21,7 @@ import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceI
 import com.danielealbano.androidremotecontrolmcp.services.transport.ClaimResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -173,8 +174,15 @@ class AccountViewModel
                         // its recomposition sees the new accountId, claimState above is already
                         // Claimed, so that effect never fires for a fresh claim. Both loads here
                         // are this path's own responsibility, not something the effect also covers.
-                        loadConnections(context, allowInteractive = true)
-                        loadThisDevice(context)
+                        // Reuse the SAME idToken this interactive sign-in just obtained, rather than
+                        // going through loadConnections(allowInteractive = true)/freshIdTokenOrNull,
+                        // which would try Credential Manager's *silent* request first - immediately
+                        // after an interactive grant, Google's own account-authorization state isn't
+                        // guaranteed to have propagated yet, so that silent attempt can fail and fall
+                        // straight back to a SECOND interactive picker, right after the first one
+                        // (founder phone-test feedback, PR #9 round 1 - "double sign-in").
+                        loadConnectionsWithToken(idToken)
+                        loadThisDeviceWithToken(idToken)
                     }
 
                     is ClaimResult.Rejected -> {
@@ -220,15 +228,24 @@ class AccountViewModel
                     _connectionsState.value = ConnectionsState.Failed("Sign in to view your AI connections")
                     return@launch
                 }
-                val config = settingsRepository.getTransportConfig()
-                when (val result = accountApiClient.listConnections(config.host, config.port, config.tls, idToken)) {
-                    is ConnectionsResult.Success -> {
-                        _connectionsState.value = ConnectionsState.Loaded(result.connections)
-                    }
+                loadConnectionsWithToken(idToken)
+            }
+        }
 
-                    is ConnectionsResult.Failed -> {
-                        _connectionsState.value = ConnectionsState.Failed(result.message)
-                    }
+        /** Does the actual fetch once a caller already has a usable `idToken` in hand - [loadConnections]
+         *  delegates to this after obtaining one itself; [signInAndClaim] calls it directly with the
+         *  token its own interactive sign-in just produced, skipping a second Credential Manager
+         *  round-trip entirely. */
+        private suspend fun loadConnectionsWithToken(idToken: String) {
+            _connectionsState.value = ConnectionsState.Loading
+            val config = settingsRepository.getTransportConfig()
+            when (val result = accountApiClient.listConnections(config.host, config.port, config.tls, idToken)) {
+                is ConnectionsResult.Success -> {
+                    _connectionsState.value = ConnectionsState.Loaded(result.connections)
+                }
+
+                is ConnectionsResult.Failed -> {
+                    _connectionsState.value = ConnectionsState.Failed(result.message)
                 }
             }
         }
@@ -282,6 +299,23 @@ class AccountViewModel
                     _thisDeviceState.value = ThisDeviceState.Failed("Sign in to view this device")
                     return@launch
                 }
+                loadThisDeviceWithToken(idToken)
+            }
+        }
+
+        /** Does the actual fetch once a caller already has a usable `idToken` in hand - same split
+         *  as [loadConnectionsWithToken], and for the same reason ([signInAndClaim] skips a second
+         *  Credential Manager round-trip). Every step after the network call - including
+         *  [currentDeviceId]'s Android Keystore access, which has no try/catch of its own and can
+         *  throw on real devices - is wrapped here so an unexpected failure always resolves to
+         *  [ThisDeviceState.Failed] rather than leaving [ThisDeviceState.Loading] (a spinner with no
+         *  way out) on screen forever (founder phone-test feedback, PR #9 round 1). The network call
+         *  itself already can't hang indefinitely - [AccountApiClient]'s ktor client has its own
+         *  request/connect timeouts and turns those into [DevicesResult.Failed]. */
+        @Suppress("TooGenericExceptionCaught")
+        private suspend fun loadThisDeviceWithToken(idToken: String) {
+            _thisDeviceState.value = ThisDeviceState.Loading
+            try {
                 val config = settingsRepository.getTransportConfig()
                 when (val result = accountApiClient.listDevices(config.host, config.port, config.tls, idToken)) {
                     is DevicesResult.Success -> {
@@ -297,6 +331,10 @@ class AccountViewModel
                         _thisDeviceState.value = ThisDeviceState.Failed(result.message)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _thisDeviceState.value = ThisDeviceState.Failed(e.message ?: "Could not load this device")
             }
         }
 

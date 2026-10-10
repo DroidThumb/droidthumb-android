@@ -23,10 +23,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.ThisDeviceState
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 
 private val SECTION_HEADER_COLOR = Color(0xFF9A9AAE)
 private val CARD_BACKGROUND = Color(0xFF1C1C24)
@@ -95,7 +91,7 @@ fun ThisDeviceSection(
 private fun thisDeviceSubtitle(state: ThisDeviceState): String =
     when (state) {
         is ThisDeviceState.Loaded -> {
-            state.device?.let { "Added ${formatAddedDate(it.createdAt)}" }
+            state.device?.let { "Added ${formatIsoDate(it.createdAt)}" }
                 // Right after a fresh claim, this device's own registration can momentarily not
                 // show up yet in the account's device list - not an error, just not caught up yet.
                 ?: "Still showing up on the server — try again shortly"
@@ -115,14 +111,4 @@ private fun thisDeviceSubtitle(state: ThisDeviceState): String =
         ThisDeviceState.Loading -> {
             ""
         }
-    }
-
-private fun formatAddedDate(isoTimestamp: String): String =
-    try {
-        DateTimeFormatter
-            .ofPattern("MMM d, yyyy")
-            .withZone(ZoneId.systemDefault())
-            .format(Instant.parse(isoTimestamp))
-    } catch (_: DateTimeParseException) {
-        isoTimestamp
     }

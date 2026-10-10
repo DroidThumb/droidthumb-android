@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 
@@ -159,6 +160,24 @@ object PermissionUtils {
     fun openNotificationListenerSettings(context: Context) {
         val intent =
             Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        context.startActivity(intent)
+    }
+
+    /**
+     * Opens this app's own App Info screen — the universal fallback that always resolves, used
+     * both by the accessibility onboarding step's restricted-settings detour and by
+     * [com.danielealbano.androidremotecontrolmcp.ui.components.OemBackgroundGuidanceSection]'s own
+     * settings button when an OEM's undocumented background-manager activity fails to resolve.
+     *
+     * @param context Application context. Uses [Intent.FLAG_ACTIVITY_NEW_TASK]
+     *   so this can be called from non-Activity contexts.
+     */
+    fun openAppInfoSettings(context: Context) {
+        val intent =
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", context.packageName, null)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         context.startActivity(intent)

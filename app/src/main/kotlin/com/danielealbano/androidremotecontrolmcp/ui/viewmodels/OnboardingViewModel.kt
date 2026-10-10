@@ -54,6 +54,12 @@ class OnboardingViewModel
         private val _step = MutableStateFlow(OnboardingStep.LOADING)
         val step: StateFlow<OnboardingStep> = _step.asStateFlow()
 
+        /** The battery step's own "Skip for now" (founder phone-test feedback, PR #9 round 1: this
+         *  step had no way past it except actually allowing the exemption, unlike sign-in's own
+         *  skip). Session-only, same as [skipSignIn] - the next cold start re-offers the step,
+         *  since nothing else here remembers "the owner chose not to" rather than "never asked". */
+        private var batterySkippedThisSession = false
+
         /** `accountId` comes from [AccountViewModel][com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel]
          *  (its own settings-backed state, already restored on a relaunch) - without it, a device
          *  that signed in in a previous session would show the sign-in step again on every cold
@@ -70,7 +76,7 @@ class OnboardingViewModel
             _step.value =
                 when {
                     !accessibilityEnabled -> OnboardingStep.ACCESSIBILITY
-                    !batteryIgnored -> OnboardingStep.BATTERY
+                    !batteryIgnored && !batterySkippedThisSession -> OnboardingStep.BATTERY
                     accountId != null -> OnboardingStep.DONE
                     wasDone -> OnboardingStep.DONE
                     else -> OnboardingStep.GOOGLE_SIGN_IN
@@ -92,6 +98,23 @@ class OnboardingViewModel
          *  it, since there's no account yet to remember *not* needing one. */
         fun skipSignIn() {
             _step.value = OnboardingStep.DONE
+        }
+
+        /** The battery step's own "Skip for now" (founder phone-test feedback, PR #9 round 1) —
+         *  battery-life-conscious owners, or a phone whose OEM makes the standard exemption hard
+         *  to grant, must be able to move on without allowing it; [HomeScreen]'s own non-blocking
+         *  reminder (same `isBatteryOptimizationIgnored` check `refresh` reads) is where this gets
+         *  revisited later, not a forced gate here. `refresh` re-evaluates every step on its own
+         *  terms right after this, which is what actually advances past [OnboardingStep.BATTERY] -
+         *  [accountId] must be the caller's own real current value (same as its own `refresh` call),
+         *  not assumed `null`: an already-signed-in device skipping battery must land on `DONE`,
+         *  not get routed back through `GOOGLE_SIGN_IN` as if it had never signed in. */
+        fun skipBattery(
+            context: Context,
+            accountId: String?,
+        ) {
+            batterySkippedThisSession = true
+            refresh(context, accountId)
         }
 
         fun markSignedIn() {
