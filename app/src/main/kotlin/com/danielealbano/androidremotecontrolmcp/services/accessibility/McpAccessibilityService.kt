@@ -3,6 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.services.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.InputMethod
+import android.annotation.SuppressLint
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
@@ -13,10 +14,23 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarState
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.OverlayLifecycleOwner
+import com.danielealbano.androidremotecontrolmcp.ui.components.controlbar.ControlBarCallbacks
+import com.danielealbano.androidremotecontrolmcp.ui.components.controlbar.ControlBarOverlay
+import com.danielealbano.androidremotecontrolmcp.ui.components.controlbar.EdgeGlow
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,11 +42,13 @@ import kotlin.coroutines.resume
 
 @Suppress("TooManyFunctions")
 class McpAccessibilityService : AccessibilityService() {
-    // AccessibilityNodeCache is in the same package — no import needed
+    // AccessibilityNodeCache/ControlBarCoordinator are in the same package — no import needed
     @EntryPoint
     @InstallIn(SingletonComponent::class)
     interface NodeCacheEntryPoint {
         fun nodeCache(): AccessibilityNodeCache
+
+        fun controlBarCoordinator(): ControlBarCoordinator
     }
 
     private var serviceScope: CoroutineScope? = null
@@ -47,6 +63,198 @@ class McpAccessibilityService : AccessibilityService() {
     @Volatile
     private var currentActivityName: String? = null
 
+    /** Set once both overlay views are added (see [setupControlBarOverlay]); null before that and
+     *  after [teardownControlBarOverlay]. [setOverlayHidden] is a safe no-op while null. */
+    @Volatile
+    private var overlayViews: List<android.view.View>? = null
+
+    private var barView: ComposeView? = null
+    private var glowView: ComposeView? = null
+    private var barLifecycleOwner: OverlayLifecycleOwner? = null
+    private var glowLifecycleOwner: OverlayLifecycleOwner? = null
+    private var barLayoutParams: WindowManager.LayoutParams? = null
+
+    /** Hides (or restores) DroidThumb's own floating control bar/glow overlay around a
+     *  whole-display screenshot capture on API levels below the per-window capture API (plan 71,
+     *  D-39) — a whole-display capture would otherwise include them. A no-op when no overlay views
+     *  exist yet (nothing to hide). */
+    fun setOverlayHidden(hidden: Boolean) {
+        overlayViews?.forEach { it.visibility = if (hidden) android.view.View.GONE else android.view.View.VISIBLE }
+    }
+
+    /** Toggles the bar window's `FLAG_NOT_TOUCHABLE` bit - registered with
+     *  [ControlBarCoordinator.registerBarTouchToggle] in [setupControlBarOverlay], called by
+     *  [com.danielealbano.androidremotecontrolmcp.wireprotocol.StepDispatcher] around a
+     *  raw-coordinate gesture dispatch (plan 71's touch-passthrough decision). */
+    @Suppress("ReturnCount")
+    private fun setBarTouchable(touchable: Boolean) {
+        val windowManager = getSystemService(WindowManager::class.java) ?: return
+        val view = barView ?: return
+        val params = barLayoutParams ?: return
+        params.flags =
+            if (touchable) {
+                params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            } else {
+                params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            }
+        windowManager.updateViewLayout(view, params)
+    }
+
+    /** Adds the glow (behind, full-screen, always pass-through) and bar (in front, draggable)
+     *  overlay windows via [WindowManager]/`TYPE_ACCESSIBILITY_OVERLAY` — no "display over other
+     *  apps" permission needed, since this is restricted to accessibility services (plan 71,
+     *  D-39). Both views' content reactively follows [ControlBarCoordinator.state] via plain
+     *  Compose `collectAsState()` - no manual per-emission `setContent` calls needed. */
+    private fun setupControlBarOverlay(controlBarCoordinator: ControlBarCoordinator) {
+        val windowManager = getSystemService(WindowManager::class.java) ?: return
+
+        val glowOwner = OverlayLifecycleOwner().also { it.onAttach() }
+        val glow = createGlowView(glowOwner, controlBarCoordinator)
+        windowManager.addView(glow, glowLayoutParams())
+
+        val barOwner = OverlayLifecycleOwner().also { it.onAttach() }
+        val bar = createBarView(barOwner, controlBarCoordinator, windowManager)
+        val barParams = barLayoutParams()
+        windowManager.addView(bar, barParams)
+
+        glowView = glow
+        barView = bar
+        glowLifecycleOwner = glowOwner
+        barLifecycleOwner = barOwner
+        this.barLayoutParams = barParams
+        overlayViews = listOf(glow, bar)
+        controlBarCoordinator.registerBarTouchToggle(::setBarTouchable)
+    }
+
+    private fun createGlowView(
+        owner: OverlayLifecycleOwner,
+        controlBarCoordinator: ControlBarCoordinator,
+    ): ComposeView =
+        ComposeView(this).apply {
+            setViewTreeLifecycleOwner(owner)
+            setViewTreeViewModelStoreOwner(owner)
+            setViewTreeSavedStateRegistryOwner(owner)
+            setContent {
+                when (controlBarCoordinator.state.collectAsState().value) {
+                    is ControlBarState.Running -> EdgeGlow(dim = false)
+                    is ControlBarState.Paused -> EdgeGlow(dim = true)
+                    else -> Unit
+                }
+            }
+        }
+
+    private fun glowLayoutParams() =
+        WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            android.graphics.PixelFormat.TRANSLUCENT,
+        )
+
+    private fun createBarView(
+        owner: OverlayLifecycleOwner,
+        controlBarCoordinator: ControlBarCoordinator,
+        windowManager: WindowManager,
+    ): ComposeView =
+        ComposeView(this).apply {
+            setViewTreeLifecycleOwner(owner)
+            setViewTreeViewModelStoreOwner(owner)
+            setViewTreeSavedStateRegistryOwner(owner)
+            setContent {
+                val state by controlBarCoordinator.state.collectAsState()
+                ControlBarOverlay(
+                    state = state,
+                    callbacks = barCallbacks(controlBarCoordinator, state, windowManager),
+                )
+            }
+        }
+
+    private fun barCallbacks(
+        controlBarCoordinator: ControlBarCoordinator,
+        state: ControlBarState,
+        windowManager: WindowManager,
+    ) = ControlBarCallbacks(
+        onCollapseToggle = { collapsed -> controlBarCoordinator.collapseToggle(collapsed) },
+        onStop = controlBarCoordinator::stop,
+        onPauseOrResume = {
+            if (state is ControlBarState.Paused) controlBarCoordinator.resume() else controlBarCoordinator.pause()
+        },
+        onBackToApp = {
+            backToForegroundApp(state)
+            // Ended has nothing left to resume - dismiss the bar once "Back to" is used (plan
+            // 71's own decision); Paused keeps it up, since Resume is still meaningful there.
+            if (state is ControlBarState.Ended) controlBarCoordinator.close()
+        },
+        onClose = controlBarCoordinator::close,
+        onDrag = { dx, dy -> moveBarBy(windowManager, dx, dy) },
+    )
+
+    private fun barLayoutParams() =
+        WindowManager
+            .LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                android.graphics.PixelFormat.TRANSLUCENT,
+            ).apply {
+                gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+                y = BAR_INITIAL_BOTTOM_MARGIN_PX
+            }
+
+    @Suppress("ReturnCount")
+    private fun backToForegroundApp(state: ControlBarState) {
+        val target =
+            when (state) {
+                is ControlBarState.Paused -> state.returnTarget
+                is ControlBarState.Ended -> state.returnTarget
+                else -> null
+            } ?: return
+        val pkg = target.packageName
+        if (pkg == null) {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            return
+        }
+        try {
+            val launchIntent = packageManager.getLaunchIntentForPackage(pkg) ?: return
+            startActivity(launchIntent)
+        } catch (e: android.content.ActivityNotFoundException) {
+            Log.w(TAG, "Could not return to $pkg: ${e.message}")
+        }
+    }
+
+    private fun moveBarBy(
+        windowManager: WindowManager,
+        dxPx: Float,
+        dyPx: Float,
+    ) {
+        val view = barView ?: return
+        val params = barLayoutParams ?: return
+        val screen = getScreenInfo()
+        // gravity is BOTTOM|CENTER_HORIZONTAL, so x is an offset from horizontal center - the
+        // view's own half-width must be subtracted from the half-screen bound on both sides, or
+        // dragging to either extreme pushes roughly half the bar off-screen (found in review).
+        val maxX = ((screen.width - view.width) / 2).coerceAtLeast(0)
+        params.x = (params.x + dxPx.toInt()).coerceIn(-maxX, maxX)
+        params.y = (params.y - dyPx.toInt()).coerceIn(0, screen.height - view.height)
+        windowManager.updateViewLayout(view, params)
+    }
+
+    private fun teardownControlBarOverlay() {
+        val windowManager = getSystemService(WindowManager::class.java)
+        barView?.let { windowManager?.removeView(it) }
+        glowView?.let { windowManager?.removeView(it) }
+        barLifecycleOwner?.onDetach()
+        glowLifecycleOwner?.onDetach()
+        barView = null
+        glowView = null
+        barLifecycleOwner = null
+        glowLifecycleOwner = null
+        barLayoutParams = null
+        overlayViews = null
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
 
@@ -54,6 +262,7 @@ class McpAccessibilityService : AccessibilityService() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         serviceScope = scope
         nodeCache = resolveNodeCache()
+        resolveControlBarCoordinator()?.let { setupControlBarOverlay(it) }
         cacheInvalidationDebouncer =
             CacheInvalidationDebouncer(
                 scope = scope,
@@ -112,6 +321,8 @@ class McpAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         Log.i(TAG, "Accessibility service destroying")
+
+        teardownControlBarOverlay()
 
         // Stop any pending debounced invalidation before tearing down the scope it runs on.
         cacheInvalidationDebouncer?.cancel()
@@ -266,6 +477,16 @@ class McpAccessibilityService : AccessibilityService() {
             null
         }
 
+    private fun resolveControlBarCoordinator(): ControlBarCoordinator? =
+        try {
+            EntryPointAccessors
+                .fromApplication(applicationContext, NodeCacheEntryPoint::class.java)
+                .controlBarCoordinator()
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Could not resolve control bar coordinator", e)
+            null
+        }
+
     /**
      * Takes a screenshot using AccessibilityService.takeScreenshot() API.
      * Does NOT require user consent.
@@ -276,30 +497,45 @@ class McpAccessibilityService : AccessibilityService() {
     suspend fun takeScreenshotBitmap(timeoutMs: Long = SCREENSHOT_TIMEOUT_MS): Bitmap? =
         withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine { continuation ->
-                val executor = Executor { it.run() }
-                val callback =
-                    object : TakeScreenshotCallback {
-                        override fun onSuccess(screenshot: ScreenshotResult) {
-                            val bitmap =
-                                Bitmap.wrapHardwareBuffer(
-                                    screenshot.hardwareBuffer,
-                                    screenshot.colorSpace,
-                                )
-                            screenshot.hardwareBuffer.close()
-                            if (continuation.isActive) {
-                                continuation.resume(bitmap)
-                            }
-                        }
+                takeScreenshot(Display.DEFAULT_DISPLAY, Executor { it.run() }, screenshotCallback(continuation))
+            }
+        }
 
-                        override fun onFailure(errorCode: Int) {
-                            Log.e(TAG, "Screenshot failed with error code: $errorCode")
-                            if (continuation.isActive) {
-                                continuation.resume(null)
-                            }
-                        }
-                    }
+    /**
+     * Captures just [windowId]'s content (API 34+ only) — never this app's own overlay windows,
+     * which are different windows entirely (plan 71, D-39). Falls back to `null` on any failure
+     * (including pre-34 API levels, where [android.accessibilityservice.AccessibilityService]
+     * has no `takeScreenshotOfWindow` overload at all) so the caller can fall back to whole-display
+     * capture rather than fail the screenshot outright.
+     */
+    @SuppressLint("NewApi")
+    @Suppress("TooGenericExceptionCaught")
+    suspend fun takeScreenshotOfWindowBitmap(
+        windowId: Int,
+        timeoutMs: Long = SCREENSHOT_TIMEOUT_MS,
+    ): Bitmap? =
+        withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine { continuation ->
+                try {
+                    takeScreenshotOfWindow(windowId, Executor { it.run() }, screenshotCallback(continuation))
+                } catch (e: Exception) {
+                    Log.w(TAG, "takeScreenshotOfWindow failed: ${e.message}")
+                    if (continuation.isActive) continuation.resume(null)
+                }
+            }
+        }
 
-                takeScreenshot(Display.DEFAULT_DISPLAY, executor, callback)
+    private fun screenshotCallback(continuation: CancellableContinuation<Bitmap?>) =
+        object : TakeScreenshotCallback {
+            override fun onSuccess(screenshot: ScreenshotResult) {
+                val bitmap = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
+                screenshot.hardwareBuffer.close()
+                if (continuation.isActive) continuation.resume(bitmap)
+            }
+
+            override fun onFailure(errorCode: Int) {
+                Log.e(TAG, "Screenshot failed with error code: $errorCode")
+                if (continuation.isActive) continuation.resume(null)
             }
         }
 
@@ -339,6 +575,10 @@ class McpAccessibilityService : AccessibilityService() {
          * cache fresh quickly. Single tunable constant; validate/adjust against real-device traces.
          */
         private const val CACHE_INVALIDATION_DEBOUNCE_MS = 250L
+
+        /** Initial resting position of the floating control bar (plan 71, D-39): bottom-center,
+         *  with this much clearance above the screen's bottom edge/gesture-nav area. */
+        private const val BAR_INITIAL_BOTTOM_MARGIN_PX = 140
 
         /**
          * Singleton instance of the accessibility service.

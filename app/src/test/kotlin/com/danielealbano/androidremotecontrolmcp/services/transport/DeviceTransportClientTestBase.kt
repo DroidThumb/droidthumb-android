@@ -3,6 +3,7 @@ package com.danielealbano.androidremotecontrolmcp.services.transport
 import com.danielealbano.androidremotecontrolmcp.data.model.PauseState
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepDispatcher
@@ -58,6 +59,7 @@ abstract class DeviceTransportClientTestBase {
             mockk {
                 coEvery { getPauseState() } returns PauseState()
             },
+        controlBarCoordinator: ControlBarCoordinator = mockk(relaxed = true),
     ): DeviceTransportClientImpl =
         DeviceTransportClientImpl(
             dispatcher,
@@ -66,6 +68,7 @@ abstract class DeviceTransportClientTestBase {
             registrationClient,
             connectorUrlSettings,
             pauseSettings,
+            controlBarCoordinator,
         )
 
     /**

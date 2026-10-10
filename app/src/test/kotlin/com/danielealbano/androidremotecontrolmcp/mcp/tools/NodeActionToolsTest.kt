@@ -182,6 +182,57 @@ class NodeActionToolsTest {
         )
     }
 
+    @Test
+    @DisplayName("getFreshWindows skips a window whose package is this app's own BuildConfig.APPLICATION_ID")
+    fun getFreshWindowsSkipsOwnOverlayWindow() {
+        val ownOverlayRoot = mockk<AccessibilityNodeInfo>()
+        every { ownOverlayRoot.packageName } returns
+            com.danielealbano.androidremotecontrolmcp.BuildConfig.APPLICATION_ID
+
+        val ownOverlayWindow = mockk<AccessibilityWindowInfo>(relaxed = true)
+        every { ownOverlayWindow.id } returns 1
+        every { ownOverlayWindow.root } returns ownOverlayRoot
+        every { ownOverlayWindow.type } returns AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY
+
+        every {
+            mockAccessibilityServiceProvider.getAccessibilityWindows()
+        } returns listOf(mockWindowInfo, ownOverlayWindow)
+
+        val result = getFreshWindows(mockTreeParser, mockAccessibilityServiceProvider, mockNodeCache)
+
+        assertEquals(1, result.windows.size)
+        assertEquals("com.example", result.windows[0].packageName)
+    }
+
+    @Test
+    @DisplayName("getFreshWindows keeps a third-party overlay window (different package, ACCESSIBILITY_OVERLAY)")
+    fun getFreshWindowsKeepsThirdPartyOverlayWindow() {
+        val thirdPartyOverlayRoot = mockk<AccessibilityNodeInfo>()
+        every { thirdPartyOverlayRoot.refresh() } returns true
+        every { thirdPartyOverlayRoot.packageName } returns "com.coloros.translate"
+
+        val thirdPartyOverlayWindow = mockk<AccessibilityWindowInfo>(relaxed = true)
+        every { thirdPartyOverlayWindow.id } returns 1
+        every { thirdPartyOverlayWindow.root } returns thirdPartyOverlayRoot
+        every { thirdPartyOverlayWindow.type } returns AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY
+        every { thirdPartyOverlayWindow.title } returns "Translate"
+        every { thirdPartyOverlayWindow.layer } returns 1
+        every { thirdPartyOverlayWindow.isFocused } returns false
+
+        every {
+            mockTreeParser.parseTree(thirdPartyOverlayRoot, "root_w1", any())
+        } returns sampleTree
+
+        every {
+            mockAccessibilityServiceProvider.getAccessibilityWindows()
+        } returns listOf(mockWindowInfo, thirdPartyOverlayWindow)
+
+        val result = getFreshWindows(mockTreeParser, mockAccessibilityServiceProvider, mockNodeCache)
+
+        assertEquals(2, result.windows.size)
+        assertTrue(result.windows.any { it.packageName == "com.coloros.translate" })
+    }
+
     @Nested
     @DisplayName("FindNodesTool")
     inner class FindNodesToolTests {

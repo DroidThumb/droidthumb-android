@@ -24,8 +24,10 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.Accessib
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeParser
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -60,6 +62,7 @@ class StepDispatcherTest {
     private lateinit var treeParser: AccessibilityTreeParser
     private lateinit var accessibilityServiceProvider: AccessibilityServiceProvider
     private lateinit var nodeCache: AccessibilityNodeCache
+    private lateinit var controlBarCoordinator: ControlBarCoordinator
     private lateinit var dispatcher: StepDispatcher
 
     private val mockRootNode = mockk<AccessibilityNodeInfo>()
@@ -89,6 +92,7 @@ class StepDispatcherTest {
         treeParser = mockk()
         accessibilityServiceProvider = mockk()
         nodeCache = mockk(relaxed = true)
+        controlBarCoordinator = mockk(relaxed = true)
         dispatcher =
             StepDispatcher(
                 getScreenState,
@@ -107,6 +111,7 @@ class StepDispatcherTest {
                 treeParser,
                 accessibilityServiceProvider,
                 nodeCache,
+                controlBarCoordinator,
             )
 
         // Auto-wait (before every selector-targeted action) and post-action idle-wait default to
@@ -243,6 +248,31 @@ class StepDispatcherTest {
             coVerify(exactly = 0) { waitForNodeTool.execute(any()) }
             coVerify(exactly = 0) { clickNodeTool.execute(any()) }
             coVerify { tapTool.execute(any()) }
+        }
+
+    @Test
+    fun `tap with at makes the bar pass-through around the raw gesture, then restores it`() =
+        runTest {
+            coEvery { accessibilityServiceProvider.isReady() } returns true
+            coEvery { accessibilityServiceProvider.getAccessibilityWindows() } returns emptyList()
+            coEvery { accessibilityServiceProvider.getRootNode() } returns null
+            coEvery { tapTool.execute(any()) } returns ok
+            val params =
+                buildJsonObject {
+                    put(
+                        "at",
+                        buildJsonObject {
+                            put("x", 10)
+                            put("y", 20)
+                        },
+                    )
+                }
+            dispatcher.dispatch(step("tap", params))
+            coVerifyOrder {
+                controlBarCoordinator.setBarTouchable(false)
+                tapTool.execute(any())
+                controlBarCoordinator.setBarTouchable(true)
+            }
         }
 
     @Test
@@ -574,5 +604,96 @@ class StepDispatcherTest {
         runTest {
             val result = dispatcher.dispatch(step("frobnicate")) as StepError
             assertEquals("InvalidParams", result.code)
+        }
+
+    // ── control bar wiring (plan 71) ────────────────────────────────────────
+
+    @Test
+    fun `task_done with a summary calls controlBarCoordinator taskDone with the summary`() =
+        runTest {
+            val params = buildJsonObject { put("summary", "Set a 10 minute timer") }
+            dispatcher.dispatch(step("task_done", params))
+            coVerify { controlBarCoordinator.taskDone("Set a 10 minute timer") }
+        }
+
+    @Test
+    fun `task_done with no params calls controlBarCoordinator taskDone with null`() =
+        runTest {
+            dispatcher.dispatch(step("task_done"))
+            coVerify { controlBarCoordinator.taskDone(null) }
+        }
+
+    @Test
+    fun `read_screen never calls controlBarCoordinator beginStep`() =
+        runTest {
+            coEvery { getScreenState.execute(any()) } returns ToolResult(content = listOf(ToolContent.Text("tree")))
+            dispatcher.dispatch(step("read_screen"))
+            coVerify(exactly = 0) { controlBarCoordinator.beginStep(any(), any()) }
+        }
+
+    @Test
+    fun `task_done never calls controlBarCoordinator beginStep (it ends a session, not starts one)`() =
+        runTest {
+            dispatcher.dispatch(step("task_done"))
+            coVerify(exactly = 0) { controlBarCoordinator.beginStep(any(), any()) }
+        }
+
+    @ParameterizedTest
+    @CsvSource(
+        "tap",
+        "type_text",
+        "scroll_find",
+        "key",
+        "launch_app",
+        "wait_until",
+    )
+    fun `every device-action op calls controlBarCoordinator beginStep before executing`(op: String) =
+        runTest {
+            // Every op below is given just enough stubbing to not throw before beginStep's own
+            // call is reached - beginStep runs unconditionally as dispatchOp's first line once
+            // read_screen's early-return has been ruled out, so none of these need to succeed.
+            coEvery { clickNodeTool.execute(any()) } returns ok
+            coEvery { typeAppendTextTool.execute(any()) } returns ok
+            coEvery { scrollToNodeTool.execute(any()) } returns ok
+            coEvery { pressBackHandler.execute(any()) } returns ok
+            coEvery { openAppHandler.execute(any()) } returns ok
+            val params =
+                when (op) {
+                    "tap", "scroll_find" -> {
+                        selectorParams()
+                    }
+
+                    "wait_until" -> {
+                        buildJsonObject {
+                            put("selector", buildJsonObject { put("resource_id", "com.app:id/x") })
+                            put("timeout_ms", 1000)
+                        }
+                    }
+
+                    "type_text" -> {
+                        buildJsonObject {
+                            put("selector", buildJsonObject { put("text", "x") })
+                            put("text", "y")
+                        }
+                    }
+
+                    "key" -> {
+                        buildJsonObject { put("key", "back") }
+                    }
+
+                    "launch_app" -> {
+                        buildJsonObject { put("package", "com.x") }
+                    }
+
+                    else -> {
+                        JsonObject(emptyMap())
+                    }
+                }
+            val merged = params
+            dispatcher.dispatch(step(op, merged))
+            // nowMs defaults to System.currentTimeMillis() at the call site - matching an exact
+            // value here would compare the PRODUCTION call's timestamp against a FRESH one taken
+            // right now by this verify block itself, which never equals it; any() is correct.
+            coVerify { controlBarCoordinator.beginStep(op, merged, any()) }
         }
 }

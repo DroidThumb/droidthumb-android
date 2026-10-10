@@ -30,8 +30,12 @@ import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClie
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClientImpl
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClient
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClientImpl
+import com.danielealbano.androidremotecontrolmcp.services.apps.AppLabelResolver
+import com.danielealbano.androidremotecontrolmcp.services.apps.AppLabelResolverImpl
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManagerImpl
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.CurrentForegroundAppProvider
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.CurrentForegroundAppProviderImpl
 import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCrypto
 import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCryptoImpl
 import com.danielealbano.androidremotecontrolmcp.services.identity.DefaultDeviceInfoProvider
@@ -57,7 +61,9 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import javax.inject.Singleton
 
 /** Extension property for creating the Preferences DataStore on [Context]. */
@@ -83,6 +89,18 @@ object AppModule {
     @Provides
     @IoDispatcher
     fun provideIoDispatcher(): CoroutineDispatcher = Dispatchers.IO
+
+    /**
+     * A process-lifetime [CoroutineScope] for singletons' own background coroutines (e.g.
+     * [com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator]'s
+     * session-fallback timer) - injected so a unit test can substitute `runTest`'s own
+     * `backgroundScope` instead of a real [Dispatchers.Default], making timer-based behavior
+     * testable under virtual time.
+     */
+    @Provides
+    @Singleton
+    @ApplicationScope
+    fun provideApplicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 }
 
 @Module
@@ -193,4 +211,12 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindAccountApiClient(impl: AccountApiClientImpl): AccountApiClient
+
+    @Binds
+    @Singleton
+    abstract fun bindAppLabelResolver(impl: AppLabelResolverImpl): AppLabelResolver
+
+    @Binds
+    @Singleton
+    abstract fun bindCurrentForegroundAppProvider(impl: CurrentForegroundAppProviderImpl): CurrentForegroundAppProvider
 }

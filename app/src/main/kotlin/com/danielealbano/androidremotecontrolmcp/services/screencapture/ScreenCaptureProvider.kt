@@ -28,11 +28,17 @@ interface ScreenCaptureProvider {
      *
      * @param maxWidth Maximum width in pixels, or null.
      * @param maxHeight Maximum height in pixels, or null.
+     * @param windowId The focused window's id, when known (plan 71, D-39) — used to exclude
+     *   DroidThumb's own floating control bar/glow overlay from the capture: a per-window capture
+     *   on API levels that support it, or the existing overlay hidden-and-restored around a
+     *   whole-display capture otherwise. `null` (e.g. degraded multi-window mode) always falls
+     *   back to whole-display capture.
      * @return A [Result] containing the resized [Bitmap].
      */
     suspend fun captureScreenshotBitmap(
         maxWidth: Int? = null,
         maxHeight: Int? = null,
+        windowId: Int? = null,
     ): Result<Bitmap>
 
     fun isScreenCaptureAvailable(): Boolean

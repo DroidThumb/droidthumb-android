@@ -4,6 +4,7 @@ package com.danielealbano.androidremotecontrolmcp.mcp.tools
 
 import android.util.Log
 import android.view.accessibility.AccessibilityWindowInfo
+import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.mcp.McpToolException
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeCache
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityNodeData
@@ -579,6 +580,66 @@ internal fun getFreshWindows(
         getFreshWindowsLocked(treeParser, accessibilityServiceProvider, nodeCache)
     }
 
+/**
+ * Parses one window into a [WindowData], or `null` to skip it entirely: no root node, or
+ * DroidThumb's own floating control bar/glow overlay (plan 71, D-39) - the device owner's own
+ * control surface, never the AI's to see. A genuine third-party overlay (different package) is
+ * unaffected and still parses normally. Null-root and own-overlay are checked before
+ * `refresh()`/`parseTree` - no point parsing a tree about to be discarded.
+ */
+@Suppress("ReturnCount")
+private fun parseWindowOrNull(
+    window: AccessibilityWindowInfo,
+    treeParser: AccessibilityTreeParser,
+    accumulatedNodeMap: MutableMap<String, CachedNode>,
+    currentPackageName: String?,
+    currentActivityName: String?,
+): WindowData? {
+    val rootNode = window.root ?: return null
+    if (rootNode.packageName?.toString() == BuildConfig.APPLICATION_ID) return null
+
+    // Force the accessibility framework to re-query the underlying AccessibilityNodeProvider
+    // (e.g., Compose's virtual node provider). Without this, window.root can return stale cached
+    // snapshots — particularly problematic for Jetpack Compose apps where
+    // TYPE_WINDOW_CONTENT_CHANGED events may be throttled or missed.
+    rootNode.refresh()
+
+    // Extract metadata BEFORE parsing
+    val wId = window.id
+    val windowPackage = rootNode.packageName?.toString()
+    val windowTitle = window.title?.toString()
+    val windowType = window.type
+    val windowLayer = window.layer
+    val windowFocused = window.isFocused
+
+    // Root nodes are NOT recycled — they are stored in accumulatedNodeMap and owned by the cache.
+    // On API 33+ recycle() is a no-op, but we avoid calling it on cached nodes for semantic
+    // clarity (Critical Finding 2).
+    val tree = treeParser.parseTree(rootNode, "root_w$wId", accumulatedNodeMap)
+
+    // Best-effort activity name: only for focused APPLICATION window matching tracked package
+    val activityName =
+        if (windowFocused &&
+            windowType == AccessibilityWindowInfo.TYPE_APPLICATION &&
+            windowPackage == currentPackageName
+        ) {
+            currentActivityName
+        } else {
+            null
+        }
+
+    return WindowData(
+        windowId = wId,
+        windowType = AccessibilityTreeParser.mapWindowType(windowType),
+        packageName = windowPackage,
+        title = windowTitle,
+        activityName = activityName,
+        layer = windowLayer,
+        focused = windowFocused,
+        tree = tree,
+    )
+}
+
 @Suppress("LongMethod", "NestedBlockDepth", "ThrowsCount")
 private fun getFreshWindowsLocked(
     treeParser: AccessibilityTreeParser,
@@ -617,51 +678,15 @@ private fun getFreshWindowsLocked(
             val windowDataList = mutableListOf<WindowData>()
 
             for (window in accessibilityWindows) {
-                val rootNode = window.root ?: continue
-
-                // Force the accessibility framework to re-query the underlying
-                // AccessibilityNodeProvider (e.g., Compose's virtual node provider).
-                // Without this, window.root can return stale cached snapshots —
-                // particularly problematic for Jetpack Compose apps where
-                // TYPE_WINDOW_CONTENT_CHANGED events may be throttled or missed.
-                rootNode.refresh()
-
-                // Extract metadata BEFORE parsing
-                val wId = window.id
-                val windowPackage = rootNode.packageName?.toString()
-                val windowTitle = window.title?.toString()
-                val windowType = window.type
-                val windowLayer = window.layer
-                val windowFocused = window.isFocused
-
-                // Root nodes are NOT recycled — they are stored in accumulatedNodeMap
-                // and owned by the cache. On API 33+ recycle() is a no-op, but we
-                // avoid calling it on cached nodes for semantic clarity (Critical Finding 2).
-                val tree = treeParser.parseTree(rootNode, "root_w$wId", accumulatedNodeMap)
-
-                // Best-effort activity name: only for focused APPLICATION window matching tracked package
-                val activityName =
-                    if (windowFocused &&
-                        windowType == AccessibilityWindowInfo.TYPE_APPLICATION &&
-                        windowPackage == currentPackageName
-                    ) {
-                        currentActivityName
-                    } else {
-                        null
-                    }
-
-                windowDataList.add(
-                    WindowData(
-                        windowId = wId,
-                        windowType = AccessibilityTreeParser.mapWindowType(windowType),
-                        packageName = windowPackage,
-                        title = windowTitle,
-                        activityName = activityName,
-                        layer = windowLayer,
-                        focused = windowFocused,
-                        tree = tree,
-                    ),
-                )
+                val windowData =
+                    parseWindowOrNull(
+                        window,
+                        treeParser,
+                        accumulatedNodeMap,
+                        currentPackageName,
+                        currentActivityName,
+                    ) ?: continue
+                windowDataList.add(windowData)
             }
 
             if (windowDataList.isEmpty()) {

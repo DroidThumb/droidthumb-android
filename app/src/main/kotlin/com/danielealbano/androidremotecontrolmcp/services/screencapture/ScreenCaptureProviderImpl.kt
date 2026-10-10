@@ -74,6 +74,7 @@ class ScreenCaptureProviderImpl
         override suspend fun captureScreenshotBitmap(
             maxWidth: Int?,
             maxHeight: Int?,
+            windowId: Int?,
         ): Result<Bitmap> {
             val validation = validateService()
             if (validation is ServiceValidation.Invalid) {
@@ -82,7 +83,7 @@ class ScreenCaptureProviderImpl
             val service = (validation as ServiceValidation.Valid).service
 
             val bitmap =
-                service.takeScreenshotBitmap()
+                captureExcludingOverlay(service, windowId)
                     ?: return Result.failure(
                         McpToolException.ActionFailed("Screenshot capture failed or timed out"),
                     )
@@ -101,6 +102,27 @@ class ScreenCaptureProviderImpl
                 Result.failure(
                     McpToolException.ActionFailed("Screenshot resize failed"),
                 )
+            }
+        }
+
+        /** Captures a bitmap that never contains DroidThumb's own floating control bar/glow
+         *  overlay (plan 71, D-39): on API 34+, a per-window capture of [windowId] when known;
+         *  otherwise (API 33, or no [windowId] known) the existing whole-display capture, with the
+         *  overlay hidden immediately before and restored immediately after. */
+        private suspend fun captureExcludingOverlay(
+            service: McpAccessibilityService,
+            windowId: Int?,
+        ): Bitmap? {
+            if (windowId != null && apiLevelProvider.getSdkInt() >= API_LEVEL_UPSIDE_DOWN_CAKE) {
+                service.takeScreenshotOfWindowBitmap(windowId)?.let { return it }
+                // Resolution failed (e.g. the window closed between read_screen's tree parse and
+                // this capture) - fall through to whole-display capture rather than fail outright.
+            }
+            service.setOverlayHidden(true)
+            return try {
+                service.takeScreenshotBitmap()
+            } finally {
+                service.setOverlayHidden(false)
             }
         }
 
@@ -149,5 +171,8 @@ class ScreenCaptureProviderImpl
 
             /** Android 11 (API 30) — minimum for AccessibilityService.takeScreenshot(). */
             private const val API_LEVEL_R = 30
+
+            /** Android 14 (API 34) — minimum for AccessibilityService.takeScreenshotOfWindow(). */
+            private const val API_LEVEL_UPSIDE_DOWN_CAKE = 34
         }
     }

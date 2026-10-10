@@ -126,7 +126,7 @@ class ScreenIntrospectionIntegrationTest {
             // Mock captureScreenshotBitmap to return a relaxed mock Bitmap
             val mockBitmap = mockk<Bitmap>(relaxed = true)
             coEvery {
-                deps.screenCaptureProvider.captureScreenshotBitmap(any(), any())
+                deps.screenCaptureProvider.captureScreenshotBitmap(any(), any(), any())
             } returns Result.success(mockBitmap)
 
             // Mock annotator to return the same mock bitmap (no Android Canvas needed)
@@ -195,7 +195,7 @@ class ScreenIntrospectionIntegrationTest {
                 assertTrue(result.content[0] is ToolContent.Text)
 
                 coVerify(exactly = 0) {
-                    deps.screenCaptureProvider.captureScreenshotBitmap(any(), any())
+                    deps.screenCaptureProvider.captureScreenshotBitmap(any(), any(), any())
                 }
             }
         }
@@ -227,7 +227,7 @@ class ScreenIntrospectionIntegrationTest {
 
             val mockBitmap = mockk<Bitmap>(relaxed = true)
             coEvery {
-                deps.screenCaptureProvider.captureScreenshotBitmap(any(), any())
+                deps.screenCaptureProvider.captureScreenshotBitmap(any(), any(), any())
             } returns Result.success(mockBitmap)
 
             // Simulate annotation failure

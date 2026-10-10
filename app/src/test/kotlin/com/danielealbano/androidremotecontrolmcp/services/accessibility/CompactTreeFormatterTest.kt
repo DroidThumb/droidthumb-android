@@ -871,6 +871,42 @@ class CompactTreeFormatterTest {
         }
 
         @Test
+        @DisplayName("a third-party ACCESSIBILITY_OVERLAY window is prefixed with the ignore-unless-blocking note")
+        fun buildWindowHeaderLabelsThirdPartyOverlay() {
+            val wd =
+                WindowData(
+                    windowId = 3,
+                    windowType = "ACCESSIBILITY_OVERLAY",
+                    packageName = "com.coloros.translate",
+                    title = "Translate",
+                    activityName = null,
+                    layer = 9,
+                    focused = false,
+                    tree = makeNode(id = "node_x"),
+                )
+            val header = formatter.buildWindowHeader(wd)
+            assertTrue(header.contains("note:third-party overlay — ignore unless it blocks the target"))
+        }
+
+        @Test
+        @DisplayName("an APPLICATION window is never labeled as a third-party overlay")
+        fun buildWindowHeaderNeverLabelsApplicationWindow() {
+            val wd =
+                WindowData(
+                    windowId = 0,
+                    windowType = "APPLICATION",
+                    packageName = "com.example",
+                    title = "Main",
+                    activityName = null,
+                    layer = 0,
+                    focused = true,
+                    tree = makeNode(id = "node_x"),
+                )
+            val header = formatter.buildWindowHeader(wd)
+            assertTrue(!header.contains("third-party overlay"))
+        }
+
+        @Test
         @DisplayName("each window has hierarchy section")
         fun eachWindowHasHierarchySection() {
             val appTree = makeNode(id = "node_app", text = "App", clickable = true, visible = true)
