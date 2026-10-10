@@ -133,10 +133,13 @@ When implementing a plan (git workflow):
   1. Push any remaining unpushed commits
   2. Create the PR via `gh pr create` following the PR convention in TOOLS.md
 - You MUST report the PR URL to the user when done
-- **You MUST NOT merge the PR yourself** (droidthumb-server plan 03 milestone 1 onward). CI builds
-  and attaches a debug APK to the PR (`.github/workflows/ci.yml`'s `build-release` job, commented
-  with a link to the run); the founder tests against it and `droidthumb-server`'s matching staging
-  deploy, then merges. Report what CI produced and stop there.
+- **The main session may merge its own PR** once CI is fully green (including the attached debug
+  APK build, `.github/workflows/ci.yml`'s `build-release` job) and nothing was skipped. There's no
+  staging surface for a client APK, so that condition doesn't apply here — a green CI is enough.
+  Merge order for a cross-repo change is always protocol → server → android. Subagents and review
+  forks never push, open PRs, or merge — they report back to the main session, which merges.
+  Report what was merged to the founder. Still stop and ask before: switching production's auth
+  mode, anything that deletes production data, or anything that needs `sudo`.
 
 When performing ad-hoc code changes (outside of plan workflows):
 - After completing the code changes, you SHOULD spawn the `code-reviewer` subagent to audit the changes.
@@ -511,6 +514,9 @@ Local development requires Android SDK, emulator/device, and standard Android de
 ### Environment setup
 - Set `ANDROID_HOME` environment variable (e.g., `export ANDROID_HOME=~/Android/Sdk`).
 - Add Android SDK tools to PATH: `export PATH=$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH`.
+- A full JDK (not just a JRE) lives at `~/toolchain/jdk-17.0.20.1+1` — set
+  `JAVA_HOME=~/toolchain/jdk-17.0.20.1+1` before running Gradle if the system JDK is missing or
+  incomplete (e.g. only `openjdk-17-jre-headless` installed, no `javac`). No `sudo` needed.
 - Verify setup: `make check-deps` (checks for all required tools).
 
 ### Build workflow
