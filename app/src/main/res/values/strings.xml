@@ -47,9 +47,9 @@
     <string name="permission_warning_title">Accessibility permission required</string>
     <string name="permission_warning_action">Go to permissions</string>
 
-    <!-- Battery Optimization -->
-    <string name="battery_optimization_card_title">Keep the Event Channel running</string>
-    <string name="battery_optimization_card_action">Disable battery optimization</string>
+    <!-- Battery Optimization (founder phone-test feedback, PR #9 round 1, exact wording) -->
+    <string name="battery_optimization_card_title">The connection may drop while your phone is idle</string>
+    <string name="battery_optimization_card_action">Fix</string>
 
     <!-- Server Logs -->
     <string name="server_logs_title">Logs</string>

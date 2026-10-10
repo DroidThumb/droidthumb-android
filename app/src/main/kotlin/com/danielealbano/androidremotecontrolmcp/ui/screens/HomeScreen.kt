@@ -31,6 +31,7 @@ import com.danielealbano.androidremotecontrolmcp.ui.components.AiClientsSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.BatteryOptimizationCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.CalloutCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.HomeStatusIndicator
+import com.danielealbano.androidremotecontrolmcp.ui.components.OemBackgroundGuidanceSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.SavedFlowsSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.ThisDeviceSection
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountClaimState
@@ -110,6 +111,12 @@ fun HomeScreen(
                 BatteryOptimizationCard(
                     onRequestExemption = { viewModel.requestBatteryOptimizationExemption() },
                 )
+                // OEM-specific background-manager guidance (founder phone-test feedback, PR #9
+                // round 1) — a small non-blocking addition right below the existing card, shown
+                // for as long as the standard exemption isn't granted, same condition as the card.
+                // No extra horizontal padding here — the enclosing Column already applies 16.dp to
+                // every child, including BatteryOptimizationCard right above it.
+                OemBackgroundGuidanceSection()
                 Spacer(Modifier.height(16.dp))
             }
 

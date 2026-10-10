@@ -143,4 +143,39 @@ class OnboardingViewModelTest {
 
         assertEquals(OnboardingStep.DONE, viewModel.step.value)
     }
+
+    @Test
+    fun `skipBattery moves past BATTERY to sign-in, and a later refresh does not bounce back this session`() =
+        runTest(testDispatcher) {
+            stubAccessibility(true)
+            every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns false
+
+            viewModel.refresh(context, accountId = null)
+            assertEquals(OnboardingStep.BATTERY, viewModel.step.value)
+
+            viewModel.skipBattery(context, accountId = null)
+            advanceUntilIdle()
+            assertEquals(OnboardingStep.GOOGLE_SIGN_IN, viewModel.step.value)
+
+            // Still not re-ignored (the owner chose not to, didn't actually grant it) - must not
+            // bounce back to BATTERY on the next refresh this same session.
+            viewModel.refresh(context, accountId = null)
+            advanceUntilIdle()
+            assertEquals(OnboardingStep.GOOGLE_SIGN_IN, viewModel.step.value)
+        }
+
+    @Test
+    fun `skipBattery with an already-claimed account lands on done, not a stale sign-in prompt`() =
+        runTest(testDispatcher) {
+            stubAccessibility(true)
+            every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns false
+
+            // A real regression this guards against: skipBattery must use the CALLER'S real
+            // accountId, not assume null - an already-signed-in device skipping battery must not
+            // be routed back through GOOGLE_SIGN_IN as if it had never signed in.
+            viewModel.skipBattery(context, accountId = "acc_1")
+            advanceUntilIdle()
+
+            assertEquals(OnboardingStep.DONE, viewModel.step.value)
+        }
 }

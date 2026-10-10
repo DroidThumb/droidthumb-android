@@ -2,9 +2,6 @@
 
 package com.danielealbano.androidremotecontrolmcp.ui.screens
 
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +32,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.R
+import com.danielealbano.androidremotecontrolmcp.ui.components.OemBackgroundGuidanceSection
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountClaimState
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
@@ -109,7 +107,10 @@ fun OnboardingScreen(
                 }
 
                 OnboardingStep.BATTERY -> {
-                    BatteryStep(onAllowClick = { mainViewModel.requestBatteryOptimizationExemption() })
+                    BatteryStep(
+                        onAllowClick = { mainViewModel.requestBatteryOptimizationExemption() },
+                        onSkipClick = { onboardingViewModel.skipBattery(context, accountId) },
+                    )
                 }
 
                 OnboardingStep.GOOGLE_SIGN_IN -> {
@@ -169,18 +170,24 @@ private fun AccessibilityStep() {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(12.dp))
-    TextButton(onClick = { context.startActivity(appInfoIntent(context.packageName)) }) {
+    TextButton(onClick = { PermissionUtils.openAppInfoSettings(context) }) {
         Text(stringResource(R.string.onboarding_accessibility_restricted_action))
     }
 }
 
 @Composable
-private fun BatteryStep(onAllowClick: () -> Unit) {
+private fun BatteryStep(
+    onAllowClick: () -> Unit,
+    onSkipClick: () -> Unit,
+) {
     Text(stringResource(R.string.onboarding_battery_title), style = MaterialTheme.typography.headlineSmall)
     Spacer(Modifier.height(12.dp))
     Text(stringResource(R.string.onboarding_battery_body), style = MaterialTheme.typography.bodyMedium)
     Spacer(Modifier.height(24.dp))
     Button(onClick = onAllowClick) { Text(stringResource(R.string.onboarding_battery_action)) }
+    Spacer(Modifier.height(8.dp))
+    TextButton(onClick = onSkipClick) { Text("Skip for now") }
+    OemBackgroundGuidanceSection()
 }
 
 @Composable
@@ -217,9 +224,3 @@ private fun GoogleSignInStep(
     Spacer(Modifier.height(8.dp))
     TextButton(onClick = onSkipClick) { Text(stringResource(R.string.onboarding_signin_skip)) }
 }
-
-private fun appInfoIntent(packageName: String): Intent =
-    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-        data = Uri.fromParts("package", packageName, null)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
