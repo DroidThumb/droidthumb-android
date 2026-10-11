@@ -71,7 +71,6 @@ class ControlBarCoordinatorTest {
             val state = coordinator.state.value as ControlBarState.Running
             assertEquals(fixedTarget, state.returnTarget)
             assertEquals("Tapping \"x\"…", state.caption)
-            assertTrue(!state.collapsed)
         }
 
     @Test
@@ -115,6 +114,35 @@ class ControlBarCoordinatorTest {
             val state = coordinator.state.value as ControlBarState.Ended
             assertEquals("Set a timer", state.summary)
             assertEquals(fixedTarget, state.returnTarget)
+        }
+
+    @Test
+    fun `Ended auto-dismisses to Hidden 5s after taskDone, with no further action needed`() =
+        runTest {
+            val coordinator = newCoordinator(scope = backgroundScope)
+            coordinator.beginStep("tap", tapParams)
+            coordinator.taskDone("Set a timer")
+            runCurrent()
+            assertTrue(coordinator.state.value is ControlBarState.Ended)
+            advanceTimeBy(ControlBarCoordinator.ENDED_AUTO_CLOSE_MS + 1)
+            runCurrent()
+            assertEquals(ControlBarState.Hidden, coordinator.state.value)
+        }
+
+    @Test
+    fun `a new beginStep before the 5s Ended auto-close never hides the new session`() =
+        runTest {
+            val coordinator = newCoordinator(scope = backgroundScope)
+            coordinator.beginStep("tap", tapParams)
+            coordinator.taskDone("Set a timer")
+            runCurrent()
+            advanceTimeBy(ControlBarCoordinator.ENDED_AUTO_CLOSE_MS - 1_000)
+            runCurrent()
+            coordinator.beginStep("tap", tapParams) // a brand new session starts before the old Ended would auto-close
+            runCurrent()
+            advanceTimeBy(2_000) // past the OLD Ended timer's original deadline
+            runCurrent()
+            assertTrue(coordinator.state.value is ControlBarState.Running)
         }
 
     @Test
@@ -179,6 +207,27 @@ class ControlBarCoordinatorTest {
             assertTrue(cancelled)
             assertTrue(pauseFlow.value.isPaused)
             assertEquals(null, pauseFlow.value.resumeAtEpochMs)
+        }
+
+    @Test
+    fun `stop cancels the session's own fallback-end timer - Paused never flips to Ended while paused`() =
+        runTest {
+            val pauseFlow = MutableStateFlow(PauseState())
+            val coordinator = newCoordinator(pauseFlow = pauseFlow, scope = backgroundScope)
+            coordinator.registerCurrentStep { }
+            coordinator.beginStep("tap", tapParams) // arms the 30s fallback-end timer
+            coordinator.stop()
+            runCurrent()
+            assertTrue(coordinator.state.value is ControlBarState.Paused)
+
+            advanceTimeBy(ControlBarCoordinator.SESSION_FALLBACK_END_MS + 1_000)
+            runCurrent()
+
+            // Without stop() cancelling the fallback timer, this would have fired taskDone(null)
+            // and then auto-closed to Hidden 5s later - while the device is still paused the whole
+            // time (found in code review, round 2).
+            assertTrue(coordinator.state.value is ControlBarState.Paused)
+            assertTrue(pauseFlow.value.isPaused)
         }
 
     @Test

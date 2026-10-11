@@ -442,7 +442,7 @@ class DeviceTransportClientImpl
             /** Reply to every `step` while paused (design doc §8.8 revision) — the connection stays
              *  up and replies immediately, so an AI client sees a clear, fast rejection instead of
              *  the step timing out as if the device had simply gone unresponsive. */
-            const val PAUSED_STEP_MESSAGE = "This device was paused by its owner"
+            const val PAUSED_STEP_MESSAGE = "Paused by the device owner"
 
             /** Reply when the floating control bar's Stop button cancels an in-flight step (plan
              *  71, D-39) - distinct from [PAUSED_STEP_MESSAGE], which is a step that never started

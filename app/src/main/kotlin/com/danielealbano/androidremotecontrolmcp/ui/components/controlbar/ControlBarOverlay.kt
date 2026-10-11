@@ -10,15 +10,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -29,45 +26,42 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarState
-import com.danielealbano.androidremotecontrolmcp.services.controlbar.dragToReposition
 
 private val BarBackground = Color(0xFF1C1C20)
 private val Accent = Color(0xFF60C8FF)
+private val PausedGrey = Color(0xFF9E9E9E)
 private val CaptionColor = Color(0xFFD7D7DA)
 private val DestructiveColor = Color(0xFFFF6B6B)
 private val DoneColor = Color(0xFF9BE39B)
-private val IconButtonBackground = Color(0xFF2A2A2E)
-private val DisabledIconColor = Color(0xFF5A5A5E)
 
 /** Callbacks the floating control bar's buttons invoke — all delegate straight to
  *  [com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator]'s own
- *  methods; this composable holds no business logic of its own (plan 71 US2). */
+ *  methods; this composable holds no business logic of its own (plan 71 US2, simplified round 2
+ *  per founder phone-test feedback: no collapse, no drag, no record button). */
 data class ControlBarCallbacks(
-    val onCollapseToggle: (collapsed: Boolean) -> Unit,
     val onStop: () -> Unit,
     val onPauseOrResume: () -> Unit,
     val onBackToApp: () -> Unit,
     val onClose: () -> Unit,
-    val onDrag: (dxPx: Float, dyPx: Float) -> Unit,
 )
 
 /** Thin, fully pass-through edge glow shown while an AI session is live (plan 71, D-39) - the
  *  caller (McpAccessibilityService) never adds this composable's window with touchable flags, so
- *  it never intercepts touches regardless of what's drawn here. [dim] matches the mockup's dimmer
- *  glow while paused. */
+ *  it never intercepts touches regardless of what's drawn here. Grey while paused - unmistakable
+ *  at a glance, not just a dimmer version of the running color (founder phone-test feedback round
+ *  2: "I couldn't tell whether Pause worked"). */
 @Composable
-fun EdgeGlow(dim: Boolean) {
-    val alpha = if (dim) 0.3f else 0.55f
+fun EdgeGlow(paused: Boolean) {
+    val color = if (paused) PausedGrey else Accent
     Box(
         modifier =
             Modifier
                 .fillMaxSize()
-                .border(BorderStroke(3.dp, Accent.copy(alpha = alpha))),
+                .border(BorderStroke(3.dp, color.copy(alpha = 0.55f))),
     )
 }
 
@@ -83,15 +77,11 @@ fun ControlBarOverlay(
         is ControlBarState.Hidden -> {}
 
         is ControlBarState.Running -> {
-            if (state.collapsed) {
-                CollapsedDot(onExpand = { callbacks.onCollapseToggle(false) }, onDrag = callbacks.onDrag)
-            } else {
-                RunningBar(state.caption, callbacks)
-            }
+            RunningBar(state.caption, callbacks)
         }
 
         is ControlBarState.Paused -> {
-            PausedBar(state.returnTarget.label, callbacks)
+            PausedBar(callbacks)
         }
 
         is ControlBarState.Ended -> {
@@ -105,94 +95,37 @@ private fun RunningBar(
     caption: String,
     callbacks: ControlBarCallbacks,
 ) {
-    Row(
-        modifier =
-            Modifier
-                .widthIn(max = 330.dp)
-                .background(BarBackground, RoundedCornerShape(percent = 50))
-                .padding(horizontal = 14.dp, vertical = 8.dp)
-                .dragToReposition(callbacks.onDrag),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(
-            onClick = { callbacks.onCollapseToggle(true) },
-            modifier = Modifier.size(28.dp).semantics { contentDescription = "Collapse" },
-        ) {
-            Text("‹", color = CaptionColor)
-        }
-        RoundIconButton(onClick = callbacks.onPauseOrResume) {
+    BarRow {
+        Text(
+            caption,
+            color = CaptionColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = callbacks.onPauseOrResume) {
             Icon(Icons.Filled.Pause, contentDescription = "Pause", tint = Color.White)
         }
-        RoundIconButton(onClick = callbacks.onStop) {
+        IconButton(onClick = callbacks.onStop) {
             Icon(Icons.Filled.Stop, contentDescription = "Stop", tint = DestructiveColor)
         }
-        RoundIconButton(onClick = {}, enabled = false) {
-            Icon(Icons.Filled.FiberManualRecord, contentDescription = "Record (coming soon)", tint = DisabledIconColor)
-        }
-        Text(caption, color = CaptionColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-private fun RoundIconButton(
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    content: @Composable () -> Unit,
-) {
-    IconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.size(28.dp).background(IconButtonBackground, CircleShape),
-        content = content,
-    )
-}
-
-@Composable
-private fun CollapsedDot(
-    onExpand: () -> Unit,
-    onDrag: (dxPx: Float, dyPx: Float) -> Unit,
-) {
-    Box(
-        modifier =
-            Modifier
-                .size(width = 22.dp, height = 56.dp)
-                .background(BarBackground, RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp))
-                .dragToReposition(onDrag),
-        contentAlignment = Alignment.Center,
-    ) {
-        IconButton(
-            onClick = onExpand,
-            modifier = Modifier.fillMaxSize().semantics { contentDescription = "Expand control bar" },
-        ) {
-            Box(modifier = Modifier.size(8.dp).background(Accent, CircleShape))
-        }
-    }
-}
-
-@Composable
-private fun PausedBar(
-    returnTargetLabel: String,
-    callbacks: ControlBarCallbacks,
-) {
-    Row(
-        modifier =
-            Modifier
-                .background(BarBackground, RoundedCornerShape(percent = 50))
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+private fun PausedBar(callbacks: ControlBarCallbacks) {
+    BarRow {
+        Text(
+            "Paused",
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
         IconButton(onClick = callbacks.onPauseOrResume) {
             Icon(Icons.Filled.PlayArrow, contentDescription = "Resume", tint = Accent)
         }
-        Text(
-            "Back to $returnTargetLabel",
-            color = CaptionColor,
-            modifier = Modifier.clickable(onClick = callbacks.onBackToApp),
-        )
-        IconButton(onClick = callbacks.onClose) {
-            Icon(Icons.Filled.Close, contentDescription = "Close", tint = DisabledIconColor)
+        IconButton(onClick = callbacks.onStop) {
+            Icon(Icons.Filled.Stop, contentDescription = "Stop", tint = DestructiveColor)
         }
     }
 }
@@ -203,31 +136,54 @@ private fun EndedBar(
     returnTargetLabel: String,
     callbacks: ControlBarCallbacks,
 ) {
-    Box(
-        modifier =
-            Modifier
-                .widthIn(max = 330.dp)
-                .background(BarBackground, RoundedCornerShape(20.dp))
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-    ) {
-        Column {
-            Text("Done", color = DoneColor)
+    BarRow(onClick = callbacks.onClose, onClickLabel = "Dismiss") {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Done", color = DoneColor, fontWeight = FontWeight.Bold)
             if (summary != null) {
                 Text(summary, color = CaptionColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Back to $returnTargetLabel",
-                    color = Accent,
-                    modifier = Modifier.clickable(onClick = callbacks.onBackToApp),
-                )
-                IconButton(onClick = callbacks.onClose) {
-                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = DisabledIconColor)
-                }
-            }
         }
+        Text(
+            "Back to $returnTargetLabel",
+            color = Accent,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable(onClick = callbacks.onBackToApp),
+        )
     }
+}
+
+/** Shared bar chrome: fixed at the top of the screen (plan 71 round 2 - no more drag/collapse),
+ *  a single readable row. [onClick], when given, makes the WHOLE row clickable (the Ended bar's
+ *  "tap anywhere dismisses it" behavior, with an [onClickLabel] so TalkBack announces what
+ *  activating it does - found in code review, round 2, that the row replacing round 1's explicit
+ *  "Close" `IconButton` had dropped that affordance's `contentDescription` entirely) - any nested
+ *  `clickable` child (like "Back to") still consumes its own tap first, per Compose's normal
+ *  pointer-input hit-testing, so it never triggers [onClick] too.
+ *
+ *  `fillMaxWidth()` with side margins, not a fixed `widthIn(max = ...)` - the hosting window is a
+ *  small, explicit, density-aware pixel width capped to the screen's own width (see
+ *  `McpAccessibilityService.barLayoutParams`), so this is what actually keeps the pill from
+ *  stretching edge-to-edge within that window while the "Back to <app>" text itself truncates
+ *  with an ellipsis rather than relying on window size alone to avoid clipping (found live on
+ *  redroid, round 2; the window sizing itself was revisited again in code review, round 2, after
+ *  an initial `MATCH_PARENT` fix turned out to create a screen-wide invisible touch-dead-zone). */
+@Composable
+private fun BarRow(
+    onClick: (() -> Unit)? = null,
+    onClickLabel: String? = null,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .background(BarBackground, RoundedCornerShape(16.dp))
+                .let { if (onClick != null) it.clickable(onClickLabel = onClickLabel, onClick = onClick) else it }
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
 }

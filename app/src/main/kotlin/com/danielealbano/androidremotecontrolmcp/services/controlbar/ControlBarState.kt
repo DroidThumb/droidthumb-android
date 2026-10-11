@@ -15,7 +15,6 @@ sealed interface ControlBarState {
 
     data class Running(
         val caption: String,
-        val collapsed: Boolean,
         val returnTarget: ReturnTarget,
     ) : ControlBarState
 
