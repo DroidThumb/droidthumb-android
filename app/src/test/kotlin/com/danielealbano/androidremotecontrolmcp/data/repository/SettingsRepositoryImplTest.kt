@@ -14,12 +14,14 @@ class SettingsRepositoryImplTest {
     private val connectorUrlSettings = mockk<ConnectorUrlSettings>(relaxed = true)
     private val accountSettings = mockk<AccountSettings>(relaxed = true)
     private val pauseSettings = mockk<PauseSettings>(relaxed = true)
+    private val controlBarSettings = mockk<ControlBarSettings>(relaxed = true)
     private val repository =
         SettingsRepositoryImpl(
             transportSettings,
             connectorUrlSettings,
             accountSettings,
             pauseSettings,
+            controlBarSettings,
         )
 
     @Test

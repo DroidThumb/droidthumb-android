@@ -8,6 +8,8 @@ import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettingsImpl
+import com.danielealbano.androidremotecontrolmcp.data.repository.ControlBarSettings
+import com.danielealbano.androidremotecontrolmcp.data.repository.ControlBarSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettingsImpl
 import com.danielealbano.androidremotecontrolmcp.data.repository.ServerLogRepository
@@ -138,6 +140,12 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindPauseSettings(impl: PauseSettingsImpl): PauseSettings
+
+    /** Binds the floating control bar kill-switch slice (plan 71 round 3) that
+     *  [SettingsRepositoryImpl] delegates to. */
+    @Binds
+    @Singleton
+    abstract fun bindControlBarSettings(impl: ControlBarSettingsImpl): ControlBarSettings
 }
 
 @Module

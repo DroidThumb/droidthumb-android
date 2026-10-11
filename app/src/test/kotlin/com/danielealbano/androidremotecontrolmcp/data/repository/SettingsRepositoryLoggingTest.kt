@@ -67,6 +67,7 @@ class SettingsRepositoryLoggingTest {
                 ConnectorUrlSettingsImpl(dataStore, identityCrypto, changeLogger),
                 AccountSettingsImpl(dataStore, changeLogger),
                 PauseSettingsImpl(dataStore, changeLogger),
+                ControlBarSettingsImpl(dataStore, changeLogger),
             )
     }
 

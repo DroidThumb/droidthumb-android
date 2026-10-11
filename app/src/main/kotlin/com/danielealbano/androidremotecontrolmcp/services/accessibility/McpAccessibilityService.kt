@@ -22,6 +22,7 @@ import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
+import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarState
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.OverlayLifecycleOwner
@@ -52,6 +53,8 @@ class McpAccessibilityService : AccessibilityService() {
         fun nodeCache(): AccessibilityNodeCache
 
         fun controlBarCoordinator(): ControlBarCoordinator
+
+        fun settingsRepository(): SettingsRepository
     }
 
     private var serviceScope: CoroutineScope? = null
@@ -341,7 +344,16 @@ class McpAccessibilityService : AccessibilityService() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         serviceScope = scope
         nodeCache = resolveNodeCache()
-        resolveControlBarCoordinator()?.let { setupControlBarOverlay(it) }
+        // Kill-switch (plan 71 round 3, default OFF): found live on a real OnePlus that every
+        // tap/type_text step failed with "Only the original thread that created a view hierarchy
+        // can touch its views" - the bar's touch-passthrough toggle ran off the main thread. With
+        // the setting off, the overlay is never set up at all - zero behavior difference from a
+        // build that never had the bar, not just an invisible/inert one.
+        scope.launch {
+            if (resolveSettingsRepository()?.getControlBarEnabled() == true) {
+                resolveControlBarCoordinator()?.let { setupControlBarOverlay(it) }
+            }
+        }
         cacheInvalidationDebouncer =
             CacheInvalidationDebouncer(
                 scope = scope,
@@ -564,6 +576,16 @@ class McpAccessibilityService : AccessibilityService() {
                 .controlBarCoordinator()
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Could not resolve control bar coordinator", e)
+            null
+        }
+
+    private fun resolveSettingsRepository(): SettingsRepository? =
+        try {
+            EntryPointAccessors
+                .fromApplication(applicationContext, NodeCacheEntryPoint::class.java)
+                .settingsRepository()
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Could not resolve settings repository", e)
             null
         }
 

@@ -5,7 +5,7 @@ import javax.inject.Inject
 /**
  * DataStore-backed [SettingsRepository]. Every member is delegated to its feature slice
  * ([TransportSettingsImpl], [ConnectorUrlSettingsImpl], [AccountSettingsImpl],
- * [PauseSettingsImpl]), which share the same Preferences DataStore.
+ * [PauseSettingsImpl], [ControlBarSettingsImpl]), which share the same Preferences DataStore.
  */
 class SettingsRepositoryImpl
     @Inject
@@ -14,8 +14,10 @@ class SettingsRepositoryImpl
         connectorUrlSettings: ConnectorUrlSettings,
         accountSettings: AccountSettings,
         pauseSettings: PauseSettings,
+        controlBarSettings: ControlBarSettings,
     ) : SettingsRepository,
         TransportSettings by transportSettings,
         ConnectorUrlSettings by connectorUrlSettings,
         AccountSettings by accountSettings,
-        PauseSettings by pauseSettings
+        PauseSettings by pauseSettings,
+        ControlBarSettings by controlBarSettings
