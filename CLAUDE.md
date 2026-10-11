@@ -128,18 +128,11 @@ When implementing a plan (git workflow):
   1. `git checkout main && git pull origin main`
   2. `git checkout -b feat/<plan-description>` (following the naming convention in TOOLS.md)
 - You MUST commit changes in an **ordered, logical, and sensible** sequence as you implement the plan. Each commit MUST be a coherent, self-contained unit of work (see TOOLS.md commit conventions).
-- You MUST push commits to the remote regularly (at minimum after each user story or major task).
-- When all plan work is complete and all quality gates pass, you MUST create a Pull Request:
-  1. Push any remaining unpushed commits
-  2. Create the PR via `gh pr create` following the PR convention in TOOLS.md
-- You MUST report the PR URL to the user when done
-- **The main session may merge its own PR** once CI is fully green (including the attached debug
-  APK build, `.github/workflows/ci.yml`'s `build-release` job) and nothing was skipped. There's no
-  staging surface for a client APK, so that condition doesn't apply here — a green CI is enough.
-  Merge order for a cross-repo change is always protocol → server → android. Subagents and review
-  forks never push, open PRs, or merge — they report back to the main session, which merges.
-  Report what was merged to the founder. Still stop and ask before: switching production's auth
-  mode, anything that deletes production data, or anything that needs `sudo`.
+- Never push, open PRs, merge or tag. When all plan work is complete and all quality gates pass,
+  report the branch name, commits and test results; the founder pushes, opens the PR and merges.
+  Merge order for a cross-repo change is always protocol → server → android. Still stop and ask
+  before: switching production's auth mode, anything that deletes production data, or anything
+  that needs `sudo`.
 
 When performing ad-hoc code changes (outside of plan workflows):
 - After completing the code changes, you SHOULD spawn the `code-reviewer` subagent to audit the changes.
