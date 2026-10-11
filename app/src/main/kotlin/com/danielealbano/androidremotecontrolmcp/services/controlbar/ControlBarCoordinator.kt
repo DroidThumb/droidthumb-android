@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -42,6 +43,7 @@ class ControlBarCoordinator
         private val foregroundAppProvider: CurrentForegroundAppProvider,
         private val appLabelResolver: AppLabelResolver,
         @ApplicationScope private val scope: CoroutineScope,
+        private val timeoutScheduler: ControlBarTimeoutScheduler,
     ) {
         // Written from the step-dispatch path (IO dispatcher, via StepDispatcher/DeviceTransportClient)
         // and read/written from bar button taps (Main dispatcher) - @Volatile for the same reason
@@ -56,6 +58,18 @@ class ControlBarCoordinator
 
         @Volatile
         private var endedAutoCloseJob: Job? = null
+
+        /** Staleness guard for [timeoutScheduler]'s AlarmManager backstop - see
+         *  [ControlBarTimeoutScheduler]'s doc comment on `token`. Every arm AND every cancel of
+         *  either timer assigns a fresh value from this single shared sequence (sharing it between
+         *  both timers is fine - uniqueness only matters within each field's own comparisons). */
+        private val armTokenSeq = AtomicLong(0)
+
+        @Volatile
+        private var fallbackArmToken: Long = NO_ARM_TOKEN
+
+        @Volatile
+        private var endedAutoCloseArmToken: Long = NO_ARM_TOKEN
 
         @Volatile
         private var currentStepCancel: (() -> Unit)? = null
@@ -109,8 +123,8 @@ class ControlBarCoordinator
             val now = nowMs
             val idleGapMs = now - lastStepAtMs
             lastStepAtMs = now
-            fallbackEndJob?.cancel()
-            endedAutoCloseJob?.cancel() // a new session starting must never be hidden by a stale Ended-dismiss timer
+            cancelFallbackEndTimer()
+            cancelEndedAutoCloseTimer() // a new session starting must never be hidden by a stale Ended-dismiss timer
 
             val wasOpen = sessionShownState.value is ControlBarState.Running
             val returnTarget =
@@ -132,15 +146,44 @@ class ControlBarCoordinator
         // fallbackEndJob/lastStepAtMs are @Volatile, but keep that invariant in mind before adding
         // any new non-atomic state touched from this timer.
         private fun armFallbackEndTimer() {
+            val token = armTokenSeq.incrementAndGet()
+            fallbackArmToken = token
             fallbackEndJob =
                 scope.launch {
                     delay(SESSION_FALLBACK_END_MS)
                     taskDone(summary = null)
                 }
+            // AlarmManager backstop alongside the coroutine above - see
+            // ControlBarTimeoutScheduler's doc comment for why both exist.
+            timeoutScheduler.scheduleFallbackEnd(SESSION_FALLBACK_END_MS, token)
+        }
+
+        /** Cancels both the coroutine and the AlarmManager backstop, AND invalidates
+         *  [fallbackArmToken] so a stale alarm the OS already dispatched before this cancel could
+         *  reach it is a no-op in [onFallbackTimerFired] - see [ControlBarTimeoutScheduler]'s doc
+         *  comment on `token` (code-review finding: without this, a stale fallback-end alarm could
+         *  fire into a session [beginStep] already restarted, or overwrite an already-real
+         *  `task_done` summary with `null`). */
+        private fun cancelFallbackEndTimer() {
+            fallbackArmToken = armTokenSeq.incrementAndGet()
+            fallbackEndJob?.cancel()
+            timeoutScheduler.cancelFallbackEnd()
+        }
+
+        /** Fired by [ControlBarTimeoutReceiver] if the AlarmManager backstop wins the race against
+         *  [armFallbackEndTimer]'s own coroutine - see [ControlBarTimeoutScheduler]'s doc comment.
+         *  [taskDone] is idempotent (a second call just re-sets the same Ended state and restarts
+         *  its own already-idempotent auto-close timer), so no ordering guarantee is needed between
+         *  the two paths - but [token] must still match the CURRENT arm, or this is a stale alarm
+         *  the OS already dispatched before a later [cancelFallbackEndTimer]/[armFallbackEndTimer]
+         *  could suppress it (see that function's doc comment). */
+        fun onFallbackTimerFired(token: Long) {
+            if (token != fallbackArmToken) return
+            taskDone(summary = null)
         }
 
         fun taskDone(summary: String?) {
-            fallbackEndJob?.cancel()
+            cancelFallbackEndTimer()
             val target =
                 (sessionShownState.value as? ControlBarState.Running)?.returnTarget
                     ?: foregroundAppProvider.current()
@@ -152,11 +195,34 @@ class ControlBarCoordinator
          *  (founder phone-test feedback round 2: "can't be closed and never goes away" - the bar
          *  had no dedicated close affordance before and nothing timed it out). */
         private fun armEndedAutoCloseTimer() {
+            val token = armTokenSeq.incrementAndGet()
+            endedAutoCloseArmToken = token
             endedAutoCloseJob =
                 scope.launch {
                     delay(ENDED_AUTO_CLOSE_MS)
                     close()
                 }
+            // AlarmManager backstop alongside the coroutine above - see
+            // ControlBarTimeoutScheduler's doc comment for why both exist.
+            timeoutScheduler.scheduleEndedAutoClose(ENDED_AUTO_CLOSE_MS, token)
+        }
+
+        /** Cancels both the coroutine and the AlarmManager backstop, AND invalidates
+         *  [endedAutoCloseArmToken] - see [cancelFallbackEndTimer]'s doc comment, same reasoning. */
+        private fun cancelEndedAutoCloseTimer() {
+            endedAutoCloseArmToken = armTokenSeq.incrementAndGet()
+            endedAutoCloseJob?.cancel()
+            timeoutScheduler.cancelEndedAutoClose()
+        }
+
+        /** Fired by [ControlBarTimeoutReceiver] if the AlarmManager backstop wins the race against
+         *  [armEndedAutoCloseTimer]'s own coroutine - see [ControlBarTimeoutScheduler]'s doc
+         *  comment. [close] is idempotent (a second call just re-sets the already-Hidden state) -
+         *  but [token] must still match the CURRENT arm, same reasoning as
+         *  [onFallbackTimerFired]. */
+        fun onEndedAutoCloseFired(token: Long) {
+            if (token != endedAutoCloseArmToken) return
+            close()
         }
 
         /** Registers the currently in-flight step's cancellation hook - only one step is ever in
@@ -228,12 +294,16 @@ class ControlBarCoordinator
         }
 
         fun close() {
-            fallbackEndJob?.cancel()
-            endedAutoCloseJob?.cancel()
+            cancelFallbackEndTimer()
+            cancelEndedAutoCloseTimer()
             sessionShownState.value = ControlBarState.Hidden
         }
 
         companion object {
+            /** Sentinel for [fallbackArmToken]/[endedAutoCloseArmToken] before either timer has
+             *  ever been armed - [armTokenSeq] starts real tokens at `1`, so this never matches a
+             *  real arm. */
+            private const val NO_ARM_TOKEN = 0L
             internal const val SESSION_IDLE_THRESHOLD_MS = 120_000L
             internal const val SESSION_FALLBACK_END_MS = 30_000L
 

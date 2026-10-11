@@ -97,6 +97,12 @@
         <receiver
             android:name=".services.transport.TransportPauseActionReceiver"
             android:exported="false" />
+
+        <!-- AlarmManager backstop for the floating control bar's fallback-end/auto-close timers
+             (round 4 phone-feedback regression) - see ControlBarTimeoutScheduler's doc comment -->
+        <receiver
+            android:name=".services.controlbar.ControlBarTimeoutReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

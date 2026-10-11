@@ -18,4 +18,14 @@ interface PauseSettings {
     suspend fun pauseUntil(resumeAtEpochMs: Long?)
 
     suspend fun resume()
+
+    /** How long [com.danielealbano.androidremotecontrolmcp.services.transport
+     *  .DeviceTransportClientImpl] holds an incoming step while paused, waiting for Resume, before
+     *  giving up and replying `device_paused` (round 4 phone-feedback redesign) - see
+     *  [PauseSettingsImpl] for the current default and why. */
+    val pauseHoldCapMs: Flow<Long>
+
+    suspend fun getPauseHoldCapMs(): Long
+
+    suspend fun setPauseHoldCapMs(capMs: Long)
 }

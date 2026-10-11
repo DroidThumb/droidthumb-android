@@ -6,6 +6,9 @@ import com.danielealbano.androidremotecontrolmcp.services.apps.AppLabelResolver
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
+import io.mockk.verifyOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -22,6 +25,7 @@ import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.util.concurrent.Executors
 
@@ -65,7 +69,31 @@ class ControlBarCoordinatorTest {
         val foregroundAppProvider =
             mockk<CurrentForegroundAppProvider> { every { current() } answers { foregroundTarget() } }
         val appLabelResolver = mockk<AppLabelResolver> { every { labelFor(any()) } answers { firstArg() } }
-        return ControlBarCoordinator(settingsRepository, foregroundAppProvider, appLabelResolver, scope)
+        val timeoutScheduler = mockk<ControlBarTimeoutScheduler>(relaxed = true)
+        return ControlBarCoordinator(
+            settingsRepository,
+            foregroundAppProvider,
+            appLabelResolver,
+            scope,
+            timeoutScheduler,
+        )
+    }
+
+    /** Like [newCoordinator] but also returns the [ControlBarTimeoutScheduler] mock, for tests
+     *  verifying the AlarmManager-backstop wiring itself rather than the state transitions. */
+    private fun newCoordinatorWithScheduler(
+        scope: kotlinx.coroutines.CoroutineScope,
+    ): Pair<ControlBarCoordinator, ControlBarTimeoutScheduler> {
+        val settingsRepository =
+            mockk<SettingsRepository> {
+                every { pauseState } returns MutableStateFlow(PauseState())
+            }
+        val foregroundAppProvider = mockk<CurrentForegroundAppProvider> { every { current() } returns fixedTarget }
+        val appLabelResolver = mockk<AppLabelResolver> { every { labelFor(any()) } answers { firstArg() } }
+        val timeoutScheduler = mockk<ControlBarTimeoutScheduler>(relaxed = true)
+        val coordinator =
+            ControlBarCoordinator(settingsRepository, foregroundAppProvider, appLabelResolver, scope, timeoutScheduler)
+        return coordinator to timeoutScheduler
     }
 
     @Test
@@ -187,6 +215,168 @@ class ControlBarCoordinatorTest {
             runCurrent()
             assertTrue(coordinator.state.value is ControlBarState.Running)
         }
+
+    @Nested
+    @DisplayName("AlarmManager backstop (round 4 phone-feedback regression)")
+    inner class AlarmManagerBackstop {
+        @Test
+        @DisplayName("beginStep schedules the AlarmManager fallback-end backstop for the same delay")
+        fun `beginStep schedules the alarm backstop`() =
+            runTest {
+                val (coordinator, scheduler) = newCoordinatorWithScheduler(scope = backgroundScope)
+                coordinator.beginStep("tap", tapParams)
+                runCurrent()
+                verify { scheduler.scheduleFallbackEnd(ControlBarCoordinator.SESSION_FALLBACK_END_MS, any()) }
+            }
+
+        @Test
+        @DisplayName("a new beginStep cancels the previous alarm backstop before scheduling a new one")
+        fun `beginStep cancels the previous alarm backstop`() =
+            runTest {
+                val (coordinator, scheduler) = newCoordinatorWithScheduler(scope = backgroundScope)
+                coordinator.beginStep("tap", tapParams)
+                runCurrent()
+                coordinator.beginStep("tap", tapParams)
+                runCurrent()
+                verifyOrder {
+                    scheduler.scheduleFallbackEnd(any(), any())
+                    scheduler.cancelFallbackEnd()
+                    scheduler.scheduleFallbackEnd(any(), any())
+                }
+            }
+
+        @Test
+        @DisplayName("taskDone cancels the fallback-end alarm and schedules the Ended auto-close alarm")
+        fun `taskDone cancels fallback-end and schedules auto-close`() =
+            runTest {
+                val (coordinator, scheduler) = newCoordinatorWithScheduler(scope = backgroundScope)
+                coordinator.beginStep("tap", tapParams)
+                runCurrent()
+                coordinator.taskDone("done")
+                runCurrent()
+                verify { scheduler.cancelFallbackEnd() }
+                verify { scheduler.scheduleEndedAutoClose(ControlBarCoordinator.ENDED_AUTO_CLOSE_MS, any()) }
+            }
+
+        @Test
+        @DisplayName("close cancels both alarm backstops")
+        fun `close cancels both alarm backstops`() =
+            runTest {
+                val (coordinator, scheduler) = newCoordinatorWithScheduler(scope = backgroundScope)
+                coordinator.beginStep("tap", tapParams)
+                runCurrent()
+                coordinator.close()
+                runCurrent()
+                verify { scheduler.cancelFallbackEnd() }
+                verify { scheduler.cancelEndedAutoClose() }
+            }
+
+        @Test
+        @DisplayName(
+            "onFallbackTimerFired (the alarm winning the race) ends the session into Ended, " +
+                "same as the coroutine path",
+        )
+        fun `onFallbackTimerFired ends the session`() =
+            runTest {
+                val (coordinator, scheduler) = newCoordinatorWithScheduler(scope = backgroundScope)
+                val token = slot<Long>()
+                coordinator.beginStep("tap", tapParams)
+                runCurrent()
+                verify { scheduler.scheduleFallbackEnd(any(), capture(token)) }
+
+                coordinator.onFallbackTimerFired(token.captured)
+                runCurrent()
+                val state = coordinator.state.value as ControlBarState.Ended
+                assertEquals(null, state.summary)
+            }
+
+        @Test
+        @DisplayName(
+            "onEndedAutoCloseFired (the alarm winning the race) dismisses the bar to Hidden, " +
+                "same as the coroutine path",
+        )
+        fun `onEndedAutoCloseFired dismisses the bar`() =
+            runTest {
+                val (coordinator, scheduler) = newCoordinatorWithScheduler(scope = backgroundScope)
+                val token = slot<Long>()
+                coordinator.taskDone("done")
+                runCurrent()
+                verify { scheduler.scheduleEndedAutoClose(any(), capture(token)) }
+
+                coordinator.onEndedAutoCloseFired(token.captured)
+                runCurrent()
+                assertEquals(ControlBarState.Hidden, coordinator.state.value)
+            }
+
+        @Test
+        @DisplayName("the coroutine path firing first, then the alarm firing late with its original token, is a no-op")
+        fun `both paths firing is idempotent`() =
+            runTest {
+                val (coordinator, scheduler) = newCoordinatorWithScheduler(scope = backgroundScope)
+                val token = slot<Long>()
+                coordinator.beginStep("tap", tapParams)
+                runCurrent()
+                verify { scheduler.scheduleFallbackEnd(any(), capture(token)) }
+
+                advanceTimeBy(ControlBarCoordinator.SESSION_FALLBACK_END_MS + 1)
+                runCurrent() // the coroutine path fires first, taskDone(null) -> Ended
+                coordinator.onFallbackTimerFired(token.captured) // the alarm backstop, arriving late
+                runCurrent()
+                val state = coordinator.state.value as ControlBarState.Ended
+                assertEquals(null, state.summary)
+            }
+
+        @Test
+        @DisplayName(
+            "a stale fallback-end alarm from a PREVIOUS session must not end a session beginStep " +
+                "already restarted (code-review finding: cancel() can't recall an already-dispatched alarm)",
+        )
+        fun `a stale fallback-end alarm never ends a session that already moved on`() =
+            runTest {
+                val (coordinator, scheduler) = newCoordinatorWithScheduler(scope = backgroundScope)
+                val firstToken = slot<Long>()
+                coordinator.beginStep("tap", tapParams, nowMs = 0L)
+                runCurrent()
+                verify { scheduler.scheduleFallbackEnd(any(), capture(firstToken)) }
+
+                // A new session starts - beginStep cancels (bumping the token) and re-arms.
+                coordinator.beginStep("tap", tapParams, nowMs = ControlBarCoordinator.SESSION_IDLE_THRESHOLD_MS)
+                runCurrent()
+
+                // The FIRST alarm, already dispatched by the OS before the cancel above could stop
+                // it, now arrives - its captured token no longer matches the current arm.
+                coordinator.onFallbackTimerFired(firstToken.captured)
+                runCurrent()
+
+                assertTrue(coordinator.state.value is ControlBarState.Running)
+            }
+
+        @Test
+        @DisplayName(
+            "a stale fallback-end alarm never overwrites an already-real task_done summary with null " +
+                "(code-review finding, same root cause as the test above)",
+        )
+        fun `a stale fallback-end alarm never overwrites a real task_done summary`() =
+            runTest {
+                val (coordinator, scheduler) = newCoordinatorWithScheduler(scope = backgroundScope)
+                val token = slot<Long>()
+                coordinator.beginStep("tap", tapParams)
+                runCurrent()
+                verify { scheduler.scheduleFallbackEnd(any(), capture(token)) }
+
+                // The AI calls task_done with a real summary before the alarm arrives - this also
+                // cancels (bumps) the fallback token.
+                coordinator.taskDone("done talking to the owner")
+                runCurrent()
+
+                // The stale alarm, carrying the ORIGINAL (now-invalidated) token, arrives late.
+                coordinator.onFallbackTimerFired(token.captured)
+                runCurrent()
+
+                val state = coordinator.state.value as ControlBarState.Ended
+                assertEquals("done talking to the owner", state.summary)
+            }
+    }
 
     @Test
     fun `pause applies an indefinite pause WITHOUT invoking any registered cancel hook`() =

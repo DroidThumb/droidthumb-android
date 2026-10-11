@@ -36,6 +36,8 @@ import com.danielealbano.androidremotecontrolmcp.services.apps.AppLabelResolver
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppLabelResolverImpl
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManager
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppManagerImpl
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarTimeoutScheduler
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarTimeoutSchedulerImpl
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.CurrentForegroundAppProvider
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.CurrentForegroundAppProviderImpl
 import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCrypto
@@ -227,4 +229,8 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindCurrentForegroundAppProvider(impl: CurrentForegroundAppProviderImpl): CurrentForegroundAppProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindControlBarTimeoutScheduler(impl: ControlBarTimeoutSchedulerImpl): ControlBarTimeoutScheduler
 }

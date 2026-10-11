@@ -409,10 +409,12 @@ class McpAccessibilityService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // See isForeignWindowStateChange's doc comment: DroidThumb's own overlay windows
-                // fire this same event type when added, and must never be tracked as "the
-                // foreground app" themselves.
-                if (isForeignWindowStateChange(event.packageName?.toString(), BuildConfig.APPLICATION_ID)) {
+                // See isForeignWindowStateChange's doc comment: DroidThumb's own overlay windows,
+                // the IME, and other non-TYPE_APPLICATION windows (status bar, recents, system
+                // dialogs) fire this same event type and must never be tracked as "the foreground
+                // app" themselves.
+                val windowType = getAccessibilityWindows().firstOrNull { it.id == event.windowId }?.type
+                if (isForeignWindowStateChange(event.packageName?.toString(), BuildConfig.APPLICATION_ID, windowType)) {
                     event.packageName?.toString()?.let { pkg -> currentPackageName = pkg }
                     event.className?.toString()?.let { className -> currentActivityName = className }
                 }
@@ -793,19 +795,42 @@ internal fun invalidateCache(cache: AccessibilityNodeCache?) {
 
 /**
  * Returns true if a [AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED] event naming [eventPackageName]
- * should update the tracked foreground package/activity - i.e. [eventPackageName] is NOT
- * [selfPackageName]. DroidThumb's own floating control bar/glow overlay windows (plan 71, D-39)
- * fire this same event type when added; a real bug found live during phone-test round 2's redroid
- * verification: "Back to <app>" showed "Back to DroidThumb" instead of the real foreground app,
- * because the overlay's own appearance had overwritten the tracked foreground package with
- * DroidThumb's own package right as a session started.
+ * (from a window of [windowType]) should update the tracked foreground package/activity.
+ *
+ * Two independent exclusions, found live on redroid against this build (round 4 phone-feedback
+ * regression - "Back to <app>" did nothing for a real app, recorded as "Back to Android Keyboard
+ * (AOSP)" instead):
+ *  - [eventPackageName] is NOT [selfPackageName]. DroidThumb's own floating control bar/glow
+ *    overlay windows (plan 71, D-39) fire this same event type when added; a real bug found live
+ *    during phone-test round 2's redroid verification: "Back to <app>" showed "Back to
+ *    DroidThumb" instead of the real foreground app, because the overlay's own appearance had
+ *    overwritten the tracked foreground package with DroidThumb's own package right as a session
+ *    started.
+ *  - [windowType] is [AccessibilityWindowInfo.TYPE_APPLICATION] (or unresolvable, `null`, kept as
+ *    foreign so a failed window lookup never regresses past behavior). A session's very first
+ *    step is very often a tap into a text field followed by typing, which brings up the IME -
+ *    itself a [AccessibilityWindowInfo.TYPE_INPUT_METHOD] window, not
+ *    `TYPE_APPLICATION`, but one that still fires its OWN `TYPE_WINDOW_STATE_CHANGED` under the
+ *    keyboard app's own package (e.g. `com.android.inputmethod.latin`). Without this check, that
+ *    event could overwrite the tracked foreground package with the keyboard's right as
+ *    [ControlBarCoordinator.beginStep] captures a session's return target, recording "Back to
+ *    Android Keyboard" instead of the app actually being automated - and since an IME package has
+ *    no launcher activity, tapping it later is a silent no-op
+ *    ([McpAccessibilityService.backToForegroundApp]'s `getLaunchIntentForPackage(pkg) ?: return`).
+ *    The same reasoning excludes every other non-[AccessibilityWindowInfo.TYPE_APPLICATION]
+ *    window (status bar, quick settings, recents, system dialogs) by window *type* rather than by
+ *    package name, so it holds across OEM System UI package names rather than special-casing
+ *    `com.android.systemui`.
  *
  * Top-level and `internal` so the decision can be unit-tested without instantiating the service.
  */
 internal fun isForeignWindowStateChange(
     eventPackageName: String?,
     selfPackageName: String,
-): Boolean = eventPackageName != selfPackageName
+    windowType: Int? = null,
+): Boolean =
+    eventPackageName != selfPackageName &&
+        (windowType == null || windowType == AccessibilityWindowInfo.TYPE_APPLICATION)
 
 /**
  * Returns true if the floating control bar/glow overlay windows should be present for [state] -
