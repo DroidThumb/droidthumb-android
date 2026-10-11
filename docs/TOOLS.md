@@ -42,10 +42,8 @@ feat/<description-with-dashes>
 
 1. Always branch from `main` (latest)
 2. Implement the plan on the feature branch
-3. Push to remote with `-u` flag
-4. Create PR via `gh pr create`
-5. User reviews and merges the PR
-6. Agent pulls updated `main` before starting the next plan
+3. Stop and report (branch, commits, test results); the founder pushes, creates the PR and merges
+4. Agent pulls updated `main` before starting the next plan
 
 ---
 
@@ -176,6 +174,8 @@ Plan <N>: <Short descriptive title>
 ---
 
 ## Release Workflow
+
+Releases and tags are done by the founder only — agents never create or push tags.
 
 ### Overview
 
