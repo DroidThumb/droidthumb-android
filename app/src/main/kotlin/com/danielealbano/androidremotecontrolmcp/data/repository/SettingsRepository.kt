@@ -9,13 +9,15 @@ package com.danielealbano.androidremotecontrolmcp.data.repository
  *
  * Settings live in per-feature slices this interface extends: [TransportSettings] (the M2 device
  * WebSocket transport), [ConnectorUrlSettings] (the M3 per-device secret connector URL),
- * [AccountSettings] (the account this device is claimed by, design doc D-33), and [PauseSettings]
- * (the owner-controlled pause, design doc §8.8 revision). The Event Channel slice this interface
- * used to also extend was removed along with the rest of the Event Channel (plan 70 US1) — a
- * future trigger's own notification access doesn't need a settings slice of its own.
+ * [AccountSettings] (the account this device is claimed by, design doc D-33), [PauseSettings]
+ * (the owner-controlled pause, design doc §8.8 revision), and [ControlBarSettings] (the floating
+ * control bar kill-switch, plan 71 round 3). The Event Channel slice this interface used to also
+ * extend was removed along with the rest of the Event Channel (plan 70 US1) — a future trigger's
+ * own notification access doesn't need a settings slice of its own.
  */
 interface SettingsRepository :
     TransportSettings,
     ConnectorUrlSettings,
     AccountSettings,
-    PauseSettings
+    PauseSettings,
+    ControlBarSettings
