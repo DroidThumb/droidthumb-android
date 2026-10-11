@@ -6,11 +6,16 @@ import com.danielealbano.androidremotecontrolmcp.services.apps.AppLabelResolver
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -18,6 +23,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import java.util.concurrent.Executors
 
 /**
  * [ControlBarCoordinator.state] is a `stateIn(scope, SharingStarted.Eagerly, ...)` StateFlow: its
@@ -196,38 +202,51 @@ class ControlBarCoordinatorTest {
         }
 
     @Test
-    fun `stop invokes the registered cancel hook and applies an indefinite pause`() =
+    fun `stop invokes the registered cancel hook and ends the session into Ended - NOT Paused`() =
         runTest {
             val pauseFlow = MutableStateFlow(PauseState())
             val coordinator = newCoordinator(pauseFlow = pauseFlow, scope = backgroundScope)
             var cancelled = false
             coordinator.registerCurrentStep { cancelled = true }
+            coordinator.beginStep("tap", tapParams)
             coordinator.stop()
-            runCurrent() // let the launched pauseUntil coroutine run
+            runCurrent()
+
             assertTrue(cancelled)
-            assertTrue(pauseFlow.value.isPaused)
-            assertEquals(null, pauseFlow.value.resumeAtEpochMs)
+            // Round 3 phone-feedback fix: Stop used to also pause, so the bar showed "Paused" and
+            // never dismissed - founder: "Stop behaves like Pause... Stop must end the session".
+            assertTrue(!pauseFlow.value.isPaused)
+            val state = coordinator.state.value as ControlBarState.Ended
+            assertEquals(ControlBarCoordinator.STOP_SUMMARY, state.summary)
+            assertEquals(fixedTarget, state.returnTarget)
         }
 
     @Test
-    fun `stop cancels the session's own fallback-end timer - Paused never flips to Ended while paused`() =
+    fun `stop's Ended bar auto-dismisses to Hidden 5s later, same as any other Ended`() =
         runTest {
-            val pauseFlow = MutableStateFlow(PauseState())
-            val coordinator = newCoordinator(pauseFlow = pauseFlow, scope = backgroundScope)
+            val coordinator = newCoordinator(scope = backgroundScope)
             coordinator.registerCurrentStep { }
-            coordinator.beginStep("tap", tapParams) // arms the 30s fallback-end timer
+            coordinator.beginStep("tap", tapParams)
             coordinator.stop()
             runCurrent()
-            assertTrue(coordinator.state.value is ControlBarState.Paused)
+            assertTrue(coordinator.state.value is ControlBarState.Ended)
 
-            advanceTimeBy(ControlBarCoordinator.SESSION_FALLBACK_END_MS + 1_000)
+            advanceTimeBy(ControlBarCoordinator.ENDED_AUTO_CLOSE_MS + 1)
             runCurrent()
 
-            // Without stop() cancelling the fallback timer, this would have fired taskDone(null)
-            // and then auto-closed to Hidden 5s later - while the device is still paused the whole
-            // time (found in code review, round 2).
-            assertTrue(coordinator.state.value is ControlBarState.Paused)
-            assertTrue(pauseFlow.value.isPaused)
+            assertEquals(ControlBarState.Hidden, coordinator.state.value)
+        }
+
+    @Test
+    fun `stop with no in-flight step still ends the session - the cancel hook is a safe no-op`() =
+        runTest {
+            val coordinator = newCoordinator(scope = backgroundScope)
+            coordinator.beginStep("tap", tapParams)
+            coordinator.stop() // no registerCurrentStep call - nothing to cancel
+            runCurrent()
+
+            val state = coordinator.state.value as ControlBarState.Ended
+            assertEquals(ControlBarCoordinator.STOP_SUMMARY, state.summary)
         }
 
     @Test
@@ -281,5 +300,105 @@ class ControlBarCoordinatorTest {
             advanceTimeBy(ControlBarCoordinator.SESSION_FALLBACK_END_MS + 1_000)
             runCurrent()
             assertEquals(ControlBarState.Hidden, coordinator.state.value) // fallback never fired after close()
+        }
+
+    // --- Full transition-matrix tests (round 3 phone-feedback, explicitly requested) ---------
+
+    @Test
+    @DisplayName("start -> running -> paused -> resumed -> stopped -> done -> dismissed")
+    fun `full transition matrix - start, pause, resume, stop, done, dismissed`() =
+        runTest {
+            val pauseFlow = MutableStateFlow(PauseState())
+            val coordinator = newCoordinator(pauseFlow = pauseFlow, scope = backgroundScope)
+            var cancelled = false
+            coordinator.registerCurrentStep { cancelled = true }
+
+            // start -> running
+            coordinator.beginStep("tap", tapParams)
+            runCurrent()
+            assertTrue(coordinator.state.value is ControlBarState.Running)
+
+            // running -> paused
+            coordinator.pause()
+            runCurrent()
+            assertTrue(coordinator.state.value is ControlBarState.Paused)
+            assertTrue(!cancelled) // pause() never touches an in-flight step
+
+            // paused -> resumed (back to the real Running state, nothing lost)
+            coordinator.resume()
+            runCurrent()
+            val resumed = coordinator.state.value as ControlBarState.Running
+            assertEquals(fixedTarget, resumed.returnTarget)
+
+            // resumed -> stopped -> done (NOT paused)
+            coordinator.stop()
+            runCurrent()
+            assertTrue(cancelled)
+            assertTrue(!pauseFlow.value.isPaused)
+            val ended = coordinator.state.value as ControlBarState.Ended
+            assertEquals(ControlBarCoordinator.STOP_SUMMARY, ended.summary)
+
+            // done -> dismissed
+            advanceTimeBy(ControlBarCoordinator.ENDED_AUTO_CLOSE_MS + 1)
+            runCurrent()
+            assertEquals(ControlBarState.Hidden, coordinator.state.value)
+        }
+
+    @Test
+    @DisplayName("start -> 30s timeout -> done -> dismissed")
+    fun `full transition matrix - start, 30s timeout, done, dismissed`() =
+        runTest {
+            val coordinator = newCoordinator(scope = backgroundScope)
+
+            // start -> running
+            coordinator.beginStep("tap", tapParams)
+            runCurrent()
+            assertTrue(coordinator.state.value is ControlBarState.Running)
+
+            // running -> (30s, no further step or task_done) -> done, no summary
+            advanceTimeBy(ControlBarCoordinator.SESSION_FALLBACK_END_MS + 1)
+            runCurrent()
+            val ended = coordinator.state.value as ControlBarState.Ended
+            assertEquals(null, ended.summary)
+
+            // done -> dismissed
+            advanceTimeBy(ControlBarCoordinator.ENDED_AUTO_CLOSE_MS + 1)
+            runCurrent()
+            assertEquals(ControlBarState.Hidden, coordinator.state.value)
+        }
+
+    // --- Main-thread dispatch guarantee (round 3 phone-feedback regression) -----------------
+
+    @Test
+    @DisplayName(
+        "setBarTouchable always invokes the registered toggle on Dispatchers.Main, " +
+            "regardless of the calling thread",
+    )
+    fun `setBarTouchable dispatches the toggle on Main even when called from a background thread`() =
+        runTest {
+            val mainExecutor = Executors.newSingleThreadExecutor { Thread(it, "test-main") }
+            val backgroundExecutor = Executors.newSingleThreadExecutor { Thread(it, "test-background") }
+            val mainDispatcher = mainExecutor.asCoroutineDispatcher()
+            val backgroundDispatcher = backgroundExecutor.asCoroutineDispatcher()
+            Dispatchers.setMain(mainDispatcher)
+            try {
+                val coordinator = newCoordinator(scope = backgroundScope)
+                var invokingThreadName: String? = null
+                coordinator.registerBarTouchToggle { invokingThreadName = Thread.currentThread().name }
+
+                // Exactly what StepDispatcher.tapAtCoordinate does: call setBarTouchable from its
+                // own (background) dispatch context, found live on a real OnePlus to crash with
+                // "Only the original thread that created a view hierarchy can touch its views"
+                // before this fix.
+                withContext(backgroundDispatcher) {
+                    coordinator.setBarTouchable(false)
+                }
+
+                assertEquals("test-main", invokingThreadName)
+            } finally {
+                Dispatchers.resetMain()
+                mainExecutor.shutdown()
+                backgroundExecutor.shutdown()
+            }
         }
 }

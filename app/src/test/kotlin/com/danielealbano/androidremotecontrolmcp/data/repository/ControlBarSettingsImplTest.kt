@@ -67,26 +67,15 @@ class ControlBarSettingsImplTest {
     }
 
     @Test
-    @DisplayName("a fresh install (no saved value) defaults to disabled")
-    fun `defaults to disabled with no saved value`() =
+    @DisplayName("a fresh install (no saved value) defaults to enabled")
+    fun `defaults to enabled with no saved value`() =
         testScope.runTest {
-            assertFalse(settings.getControlBarEnabled())
-        }
-
-    @Test
-    fun `setControlBarEnabled persists and is read back`() =
-        testScope.runTest {
-            settings.setControlBarEnabled(true)
-            advanceUntilIdle()
-
             assertTrue(settings.getControlBarEnabled())
         }
 
     @Test
-    fun `setControlBarEnabled back to false persists`() =
+    fun `setControlBarEnabled false persists and is read back`() =
         testScope.runTest {
-            settings.setControlBarEnabled(true)
-            advanceUntilIdle()
             settings.setControlBarEnabled(false)
             advanceUntilIdle()
 
@@ -94,13 +83,24 @@ class ControlBarSettingsImplTest {
         }
 
     @Test
-    fun `enabling logs a settings-change entry`() =
+    fun `setControlBarEnabled back to true persists`() =
         testScope.runTest {
+            settings.setControlBarEnabled(false)
+            advanceUntilIdle()
             settings.setControlBarEnabled(true)
             advanceUntilIdle()
 
+            assertTrue(settings.getControlBarEnabled())
+        }
+
+    @Test
+    fun `disabling logs a settings-change entry`() =
+        testScope.runTest {
+            settings.setControlBarEnabled(false)
+            advanceUntilIdle()
+
             assertEquals(
-                "Floating control bar enabled",
+                "Floating control bar disabled",
                 serverLog.ofType(ServerLogEntry.Type.SETTINGS).map { it.message }.single(),
             )
         }

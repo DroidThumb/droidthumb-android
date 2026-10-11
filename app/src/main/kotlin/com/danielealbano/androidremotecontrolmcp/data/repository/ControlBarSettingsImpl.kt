@@ -10,9 +10,16 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 /** [ControlBarSettings] backed by the same Preferences DataStore as [SettingsRepositoryImpl], same
- *  pattern as [PauseSettingsImpl]/[TransportSettingsImpl]. Default `false` - see that interface's
- *  own doc comment for why; an existing install with no saved value yet (a fresh install, or one
- *  from before this setting existed) gets the safe default the same way a brand-new one does. */
+ *  pattern as [PauseSettingsImpl]/[TransportSettingsImpl].
+ *
+ *  Default `true` (round 3 phone-feedback regression, re-enabled): the kill-switch shipped
+ *  default-OFF while the root cause (the touch-passthrough toggle running off the main thread,
+ *  breaking every tap/`type_text` step) and the Stop/dismiss lifecycle bugs were fixed. Both are
+ *  now fixed and verified live on redroid - a real coordinate tap and `type_text` both succeed
+ *  with the bar visible, Stop correctly ends the session into Done and dismisses, and the glow is
+ *  removed along with the bar - so the bar defaults back on. An existing install with no saved
+ *  value yet (a fresh install, or one from before this setting existed) gets this default the same
+ *  way a brand-new one does. */
 class ControlBarSettingsImpl
     @Inject
     constructor(
@@ -20,7 +27,7 @@ class ControlBarSettingsImpl
         private val settingsChangeLogger: SettingsChangeLogger,
     ) : ControlBarSettings {
         override val controlBarEnabled: Flow<Boolean> =
-            dataStore.data.map { prefs -> prefs[CONTROL_BAR_ENABLED_KEY] ?: false }
+            dataStore.data.map { prefs -> prefs[CONTROL_BAR_ENABLED_KEY] ?: true }
 
         override suspend fun getControlBarEnabled(): Boolean = controlBarEnabled.first()
 

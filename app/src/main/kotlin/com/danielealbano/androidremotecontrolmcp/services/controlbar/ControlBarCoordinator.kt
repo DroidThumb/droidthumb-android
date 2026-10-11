@@ -4,6 +4,7 @@ import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsReposit
 import com.danielealbano.androidremotecontrolmcp.di.ApplicationScope
 import com.danielealbano.androidremotecontrolmcp.services.apps.AppLabelResolver
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -169,9 +171,27 @@ class ControlBarCoordinator
         }
 
         /** Briefly makes the bar pass-through (or restores it) around a raw-coordinate gesture
-         *  dispatch - see [barTouchToggle]. A safe no-op before the overlay exists. */
-        fun setBarTouchable(touchable: Boolean) {
-            barTouchToggle?.invoke(touchable)
+         *  dispatch - see [barTouchToggle]. A safe no-op before the overlay exists.
+         *
+         *  `suspend` + [withContext] (round 3 phone-feedback regression): [barTouchToggle] is
+         *  [McpAccessibilityService.setBarTouchable], which calls `WindowManager.updateViewLayout`
+         *  directly - a real Android `View`/window operation that MUST run on the thread that
+         *  created the view hierarchy. The caller here
+         *  ([com.danielealbano.androidremotecontrolmcp.wireprotocol.StepDispatcher.tapAtCoordinate])
+         *  runs on the step-dispatch path's own background dispatcher, NOT the main thread - found
+         *  live on a real OnePlus: every tap (and, transitively, every step sharing that session's
+         *  overlay state) failed with "Only the original thread that created a view hierarchy can
+         *  touch its views". `withContext(Dispatchers.Main)` both fixes that directly AND
+         *  serializes this call against [McpAccessibilityService]'s own main-thread-confined
+         *  overlay add/remove collector, eliminating a second, subtler hazard: a background-thread
+         *  touchability toggle racing a same-moment Stop/session-end that is concurrently removing
+         *  the very view this call reads - the most plausible explanation for "the bar/glow
+         *  sometimes never dismisses", also reported this round. This function returning only
+         *  after the toggle has actually applied (not fire-and-forget) is required for
+         *  correctness: the caller dispatches the real touch immediately after, which must land
+         *  only once the window is actually pass-through. */
+        suspend fun setBarTouchable(touchable: Boolean) {
+            withContext(Dispatchers.Main) { barTouchToggle?.invoke(touchable) }
         }
 
         fun clearCurrentStep() {
@@ -185,23 +205,22 @@ class ControlBarCoordinator
             scope.launch { settingsRepository.pauseUntil(null) }
         }
 
-        /** Stop: cancels the in-flight step (if any), cancels the session's own 30s no-step
-         *  fallback-end timer, and applies the indefinite pause - a strict superset of [pause],
-         *  for the dedicated Stop button. Resume: clears it. All three delegate to
-         *  [SettingsRepository] - the single source of pause truth.
+        /** Stop: aborts the in-flight step (if any - it replies to the AI with
+         *  `stopped_by_owner`/"Stopped by the device owner", wired by
+         *  [com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient]'s
+         *  own registration of [registerCurrentStep]'s hook) and ends the session exactly like
+         *  [taskDone] does - Done, with a fixed summary making clear the OWNER stopped it, 5s
+         *  auto-dismiss like any other Ended bar.
          *
-         *  The fallback-end cancellation matters specifically here (not in [pause], which never
-         *  touches an in-flight step at all): without it, the ALREADY-ARMED timer from this
-         *  session's last [beginStep] would still fire ~30s after Stop regardless of the pause,
-         *  flipping the bar from the just-asserted, "unmistakable" Paused state to Ended (then,
-         *  5s later, to Hidden) while the device remains paused the whole time - found in code
-         *  review, round 2, as a regression of this very round's own "Paused must be unmistakable"
-         *  fix. Stop is the right place for this: it's the one action that explicitly ends the
-         *  current interaction, so there is nothing left for the fallback to legitimately end. */
+         *  Deliberately does NOT pause (round 3 phone-feedback fix - founder: "Stop behaves like
+         *  Pause: it shows 'Paused' and the bar stays... Stop must end the session"). Stop and
+         *  [pause] are now fully orthogonal: Stop ends THIS interaction without affecting whether
+         *  the AI can start a new one; Pause gates FUTURE steps indefinitely without touching one
+         *  already running. Conflating the two was the actual bug - a real Stop tap left the owner
+         *  with no visible way to tell whether anything had happened, and no way to dismiss it. */
         fun stop() {
-            fallbackEndJob?.cancel()
             currentStepCancel?.invoke()
-            pause()
+            taskDone(STOP_SUMMARY)
         }
 
         fun resume() {
@@ -221,5 +240,13 @@ class ControlBarCoordinator
             /** How long the Done bar stays up before auto-dismissing (founder phone-test
              *  feedback round 2). */
             internal const val ENDED_AUTO_CLOSE_MS = 5_000L
+
+            /** [stop]'s own Ended summary - deliberately the same wording as
+             *  [com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient]'s
+             *  `STOPPED_BY_OWNER_MESSAGE` (the in-flight step's own error text), not a shared
+             *  constant: the two live at different layers (wire-protocol error vs. bar display)
+             *  that don't otherwise depend on each other, but the phrase itself should read
+             *  identically wherever the owner sees it. */
+            internal const val STOP_SUMMARY = "Stopped by the device owner"
         }
     }
