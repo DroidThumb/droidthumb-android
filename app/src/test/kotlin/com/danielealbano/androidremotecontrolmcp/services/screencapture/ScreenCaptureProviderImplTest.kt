@@ -157,7 +157,7 @@ class ScreenCaptureProviderImplTest {
 
                 assertTrue(result.isSuccess)
                 coVerify(exactly = 0) { mockService.takeScreenshotBitmap() }
-                verify(exactly = 0) { mockService.setOverlayHidden(any()) }
+                coVerify(exactly = 0) { mockService.setOverlayHidden(any()) }
             }
 
         @Test

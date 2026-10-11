@@ -40,6 +40,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
@@ -97,9 +98,20 @@ class McpAccessibilityService : AccessibilityService() {
     /** Hides (or restores) DroidThumb's own floating control bar/glow overlay around a
      *  whole-display screenshot capture on API levels below the per-window capture API (plan 71,
      *  D-39) — a whole-display capture would otherwise include them. A no-op when no overlay views
-     *  exist yet (nothing to hide). */
-    fun setOverlayHidden(hidden: Boolean) {
-        overlayViews?.forEach { it.visibility = if (hidden) android.view.View.GONE else android.view.View.VISIBLE }
+     *  exist yet (nothing to hide).
+     *
+     *  `suspend` + `withContext(Dispatchers.Main)` (round 3 phone-feedback regression, found via
+     *  code audit): `View.visibility`'s setter is a real Android View operation that requires the
+     *  thread that created the view hierarchy, same as [setBarTouchable]'s own
+     *  `WindowManager.updateViewLayout` call - and this one's caller,
+     *  `ScreenCaptureProviderImpl.captureExcludingOverlay`, runs on the step-dispatch path's own
+     *  background dispatcher too. Returning only once the change has actually applied (not
+     *  fire-and-forget) matters here too: the caller takes the screenshot immediately after,
+     *  which must never race the overlay actually being hidden. */
+    suspend fun setOverlayHidden(hidden: Boolean) {
+        withContext(Dispatchers.Main) {
+            overlayViews?.forEach { it.visibility = if (hidden) android.view.View.GONE else android.view.View.VISIBLE }
+        }
     }
 
     /** Toggles the bar window's `FLAG_NOT_TOUCHABLE` bit - registered with
@@ -126,6 +138,19 @@ class McpAccessibilityService : AccessibilityService() {
      *  windows are only attached while [ControlBarCoordinator.state] is NOT [ControlBarState.Hidden]
      *  - torn down and recreated fresh on every Hidden<->non-Hidden transition, driven by a plain
      *  coroutine collecting [ControlBarCoordinator.state] in this service's own [serviceScope].
+     *
+     *  Thread-safety audit (round 3 phone-feedback regression - [setBarTouchable]/
+     *  [setOverlayHidden] needed an explicit `withContext(Dispatchers.Main)` fix because their
+     *  callers run on a background dispatcher; this collector does NOT, and deliberately has no
+     *  such wrapping): [serviceScope] is created with `Dispatchers.Main`, so every emission this
+     *  `collect` block processes - and therefore every [ensureOverlayWindows]/[removeOverlayWindows]
+     *  call below - already runs on the main thread, regardless of which thread's call to
+     *  [com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator.beginStep]/
+     *  `taskDone`/`stop` etc. caused the emission - Kotlin's structured concurrency confines a
+     *  collecting coroutine's resumptions to its OWN dispatcher, not the emitting thread's.
+     *  [teardownControlBarOverlay]'s own call to [removeOverlayWindows] is likewise safe without
+     *  wrapping: it only ever runs from `onDestroy()`, which Android itself guarantees is called on
+     *  the main thread for every `Service`/`AccessibilityService` lifecycle callback.
      *
      *  Found live on a real device (redroid, round 2): leaving the windows permanently attached and
      *  relying on Compose recomposition alone to render "nothing" for Hidden left the Done bar's
@@ -194,9 +219,19 @@ class McpAccessibilityService : AccessibilityService() {
         overlayViews = listOf(glow, bar)
     }
 
+    /** Removes the glow/bar windows if present. Mirrors [ensureOverlayWindows]'s own defensive
+     *  handling (round 3 phone-feedback regression, found via code audit): an uncaught exception
+     *  from either `removeView` call here would propagate out of the state collector's `collect`
+     *  block in [setupControlBarOverlay] and kill that coroutine permanently - after which NO
+     *  further overlay state change would ever be applied again for the rest of the service's
+     *  life, matching exactly the "the bar/glow sometimes never dismisses" symptom reported this
+     *  round. Each view is removed independently so a failure removing one (e.g. a view already
+     *  detached by some other racing caller) never prevents the other from being cleaned up, and
+     *  never kills the collector - same `runCatching` best-effort pattern as [ensureOverlayWindows]'s
+     *  own cleanup-on-failure path. */
     private fun removeOverlayWindows(windowManager: WindowManager) {
-        barView?.let { windowManager.removeView(it) }
-        glowView?.let { windowManager.removeView(it) }
+        barView?.let { runCatching { windowManager.removeView(it) } }
+        glowView?.let { runCatching { windowManager.removeView(it) } }
         barLifecycleOwner?.onDetach()
         glowLifecycleOwner?.onDetach()
         barView = null
@@ -344,11 +379,14 @@ class McpAccessibilityService : AccessibilityService() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         serviceScope = scope
         nodeCache = resolveNodeCache()
-        // Kill-switch (plan 71 round 3, default OFF): found live on a real OnePlus that every
-        // tap/type_text step failed with "Only the original thread that created a view hierarchy
-        // can touch its views" - the bar's touch-passthrough toggle ran off the main thread. With
-        // the setting off, the overlay is never set up at all - zero behavior difference from a
-        // build that never had the bar, not just an invisible/inert one.
+        // Kill-switch (plan 71 round 3): found live on a real OnePlus that every tap/type_text
+        // step failed with "Only the original thread that created a view hierarchy can touch its
+        // views" - the bar's touch-passthrough toggle ran off the main thread. That root cause is
+        // now fixed (ControlBarCoordinator.setBarTouchable/McpAccessibilityService.setOverlayHidden
+        // both dispatch onto Main), verified live on redroid, and the setting defaults back to
+        // enabled (ControlBarSettingsImpl) - this check, and the setting itself, stay as the
+        // escape hatch for the same class of regression in the future. With it off, the overlay is
+        // never set up at all - zero behavior difference from a build that never had the bar.
         scope.launch {
             if (resolveSettingsRepository()?.getControlBarEnabled() == true) {
                 resolveControlBarCoordinator()?.let { setupControlBarOverlay(it) }
