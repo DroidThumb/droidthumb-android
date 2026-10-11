@@ -1,6 +1,8 @@
 package com.danielealbano.androidremotecontrolmcp.services.accessibility
 
 import android.view.accessibility.AccessibilityEvent
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarState
+import com.danielealbano.androidremotecontrolmcp.services.controlbar.ReturnTarget
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
@@ -103,6 +105,58 @@ class McpAccessibilityServiceTest {
         @DisplayName("is a safe no-op when the cache is null")
         fun `is a safe no-op when the cache is null`() {
             assertDoesNotThrow { invalidateCache(null) }
+        }
+    }
+
+    @Nested
+    @DisplayName("isForeignWindowStateChange")
+    inner class IsForeignWindowStateChange {
+        @Test
+        @DisplayName("a different package's window state change is foreign (tracked)")
+        fun `a different package is foreign`() {
+            assertTrue(isForeignWindowStateChange("com.android.contacts", "com.example.self"))
+        }
+
+        @Test
+        @DisplayName("our own package's window state change is NOT foreign (ignored)")
+        fun `our own package is not foreign`() {
+            assertFalse(isForeignWindowStateChange("com.example.self", "com.example.self"))
+        }
+
+        @Test
+        @DisplayName("a null event package is treated as foreign (tracked), matching prior behavior")
+        fun `a null event package is foreign`() {
+            assertTrue(isForeignWindowStateChange(null, "com.example.self"))
+        }
+    }
+
+    @Nested
+    @DisplayName("shouldShowOverlayWindows")
+    inner class ShouldShowOverlayWindows {
+        private val target = ReturnTarget(packageName = "com.app", label = "App")
+
+        @Test
+        @DisplayName("Hidden means the overlay windows should NOT be shown")
+        fun `hidden means not shown`() {
+            assertFalse(shouldShowOverlayWindows(ControlBarState.Hidden))
+        }
+
+        @Test
+        @DisplayName("Running means the overlay windows should be shown")
+        fun `running means shown`() {
+            assertTrue(shouldShowOverlayWindows(ControlBarState.Running("Tapping…", target)))
+        }
+
+        @Test
+        @DisplayName("Paused means the overlay windows should be shown")
+        fun `paused means shown`() {
+            assertTrue(shouldShowOverlayWindows(ControlBarState.Paused(target)))
+        }
+
+        @Test
+        @DisplayName("Ended means the overlay windows should be shown")
+        fun `ended means shown`() {
+            assertTrue(shouldShowOverlayWindows(ControlBarState.Ended("summary", target)))
         }
     }
 }

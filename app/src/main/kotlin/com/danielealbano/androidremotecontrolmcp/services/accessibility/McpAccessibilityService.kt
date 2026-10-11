@@ -14,12 +14,14 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.danielealbano.androidremotecontrolmcp.BuildConfig
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarState
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.OverlayLifecycleOwner
@@ -35,6 +37,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.Executor
@@ -68,10 +71,24 @@ class McpAccessibilityService : AccessibilityService() {
     @Volatile
     private var overlayViews: List<android.view.View>? = null
 
+    // All five @Volatile for the same reason as overlayViews above: written from the Main-
+    // dispatched serviceScope collector (ensureOverlayWindows/removeOverlayWindows), which now
+    // cycles these null<->non-null on every Hidden<->non-Hidden transition (round 2) instead of
+    // writing them once at service-connect - and read from setBarTouchable, which StepDispatcher
+    // invokes from an IO-dispatched coroutine (found in code review, round 2).
+    @Volatile
     private var barView: ComposeView? = null
+
+    @Volatile
     private var glowView: ComposeView? = null
+
+    @Volatile
     private var barLifecycleOwner: OverlayLifecycleOwner? = null
+
+    @Volatile
     private var glowLifecycleOwner: OverlayLifecycleOwner? = null
+
+    @Volatile
     private var barLayoutParams: WindowManager.LayoutParams? = null
 
     /** Hides (or restores) DroidThumb's own floating control bar/glow overlay around a
@@ -100,22 +117,71 @@ class McpAccessibilityService : AccessibilityService() {
         windowManager.updateViewLayout(view, params)
     }
 
-    /** Adds the glow (behind, full-screen, always pass-through) and bar (in front, draggable)
-     *  overlay windows via [WindowManager]/`TYPE_ACCESSIBILITY_OVERLAY` — no "display over other
-     *  apps" permission needed, since this is restricted to accessibility services (plan 71,
-     *  D-39). Both views' content reactively follows [ControlBarCoordinator.state] via plain
-     *  Compose `collectAsState()` - no manual per-emission `setContent` calls needed. */
+    /** Adds/removes the glow (behind, full-screen, always pass-through) and bar (in front) overlay
+     *  windows via [WindowManager]/`TYPE_ACCESSIBILITY_OVERLAY` — no "display over other apps"
+     *  permission needed, since this is restricted to accessibility services (plan 71, D-39). The
+     *  windows are only attached while [ControlBarCoordinator.state] is NOT [ControlBarState.Hidden]
+     *  - torn down and recreated fresh on every Hidden<->non-Hidden transition, driven by a plain
+     *  coroutine collecting [ControlBarCoordinator.state] in this service's own [serviceScope].
+     *
+     *  Found live on a real device (redroid, round 2): leaving the windows permanently attached and
+     *  relying on Compose recomposition alone to render "nothing" for Hidden left the Done bar's
+     *  LAST rendered frame stuck on screen forever, even though the coordinator's own state had
+     *  genuinely moved on to Hidden (confirmed via logging - the underlying StateFlow transitioned
+     *  correctly; only the window's displayed pixels never caught up). Growing content (e.g.
+     *  Hidden -> Ended) recomposed and displayed correctly; shrinking back to empty did not -
+     *  consistent with the WindowManager window's last-submitted buffer simply never being asked to
+     *  redraw once its measured content shrank to nothing. Removing the window outright on Hidden
+     *  makes that failure mode impossible: there is no buffer left to go stale. The bar is fixed at
+     *  the top of the screen, below the status bar - no collapse, drag or record button (removed in
+     *  round 2 per founder phone-test feedback: "simplify for now", visual design is a later pass).
+     */
     private fun setupControlBarOverlay(controlBarCoordinator: ControlBarCoordinator) {
         val windowManager = getSystemService(WindowManager::class.java) ?: return
+        controlBarCoordinator.registerBarTouchToggle(::setBarTouchable)
+
+        serviceScope?.launch {
+            controlBarCoordinator.state.collect { newState ->
+                controlBarUiState = newState
+                if (shouldShowOverlayWindows(newState)) {
+                    ensureOverlayWindows(windowManager, controlBarCoordinator)
+                } else {
+                    removeOverlayWindows(windowManager)
+                }
+            }
+        }
+    }
+
+    /** Adds the glow/bar windows if not already present. Found in code review (round 2): a stale
+     *  or invalid window token (app backgrounded mid-transition, display reconfiguration) can make
+     *  [WindowManager.addView] throw even here, same as any other overlay window add. Caught so
+     *  one bad add doesn't crash the service or leave an orphaned glow window added-but-untracked
+     *  (which [removeOverlayWindows] could then never find again) - the fields are only populated,
+     *  and the glow window only kept, once BOTH adds succeed. */
+    private fun ensureOverlayWindows(
+        windowManager: WindowManager,
+        controlBarCoordinator: ControlBarCoordinator,
+    ) {
+        if (barView != null) return
 
         val glowOwner = OverlayLifecycleOwner().also { it.onAttach() }
-        val glow = createGlowView(glowOwner, controlBarCoordinator)
-        windowManager.addView(glow, glowLayoutParams())
-
+        val glow = createGlowView(glowOwner)
         val barOwner = OverlayLifecycleOwner().also { it.onAttach() }
-        val bar = createBarView(barOwner, controlBarCoordinator, windowManager)
+        val bar = createBarView(barOwner, controlBarCoordinator)
         val barParams = barLayoutParams()
-        windowManager.addView(bar, barParams)
+
+        var glowAdded = false
+        try {
+            windowManager.addView(glow, glowLayoutParams())
+            glowAdded = true
+            windowManager.addView(bar, barParams)
+        } catch (e: WindowManager.BadTokenException) {
+            Log.w(TAG, "Failed to add control bar overlay windows: ${e.message}")
+            if (glowAdded) runCatching { windowManager.removeView(glow) }
+            glowOwner.onDetach()
+            barOwner.onDetach()
+            return
+        }
 
         glowView = glow
         barView = bar
@@ -123,21 +189,34 @@ class McpAccessibilityService : AccessibilityService() {
         barLifecycleOwner = barOwner
         this.barLayoutParams = barParams
         overlayViews = listOf(glow, bar)
-        controlBarCoordinator.registerBarTouchToggle(::setBarTouchable)
     }
 
-    private fun createGlowView(
-        owner: OverlayLifecycleOwner,
-        controlBarCoordinator: ControlBarCoordinator,
-    ): ComposeView =
+    private fun removeOverlayWindows(windowManager: WindowManager) {
+        barView?.let { windowManager.removeView(it) }
+        glowView?.let { windowManager.removeView(it) }
+        barLifecycleOwner?.onDetach()
+        glowLifecycleOwner?.onDetach()
+        barView = null
+        glowView = null
+        barLifecycleOwner = null
+        glowLifecycleOwner = null
+        barLayoutParams = null
+        overlayViews = null
+    }
+
+    /** Written only from the [setupControlBarOverlay] collector; read by both overlay views'
+     *  composables. See that function's doc comment for why this indirection exists. */
+    private var controlBarUiState by mutableStateOf<ControlBarState>(ControlBarState.Hidden)
+
+    private fun createGlowView(owner: OverlayLifecycleOwner): ComposeView =
         ComposeView(this).apply {
             setViewTreeLifecycleOwner(owner)
             setViewTreeViewModelStoreOwner(owner)
             setViewTreeSavedStateRegistryOwner(owner)
             setContent {
-                when (controlBarCoordinator.state.collectAsState().value) {
-                    is ControlBarState.Running -> EdgeGlow(dim = false)
-                    is ControlBarState.Paused -> EdgeGlow(dim = true)
+                when (controlBarUiState) {
+                    is ControlBarState.Running -> EdgeGlow(paused = false)
+                    is ControlBarState.Paused -> EdgeGlow(paused = true)
                     else -> Unit
                 }
             }
@@ -155,27 +234,21 @@ class McpAccessibilityService : AccessibilityService() {
     private fun createBarView(
         owner: OverlayLifecycleOwner,
         controlBarCoordinator: ControlBarCoordinator,
-        windowManager: WindowManager,
     ): ComposeView =
         ComposeView(this).apply {
             setViewTreeLifecycleOwner(owner)
             setViewTreeViewModelStoreOwner(owner)
             setViewTreeSavedStateRegistryOwner(owner)
             setContent {
-                val state by controlBarCoordinator.state.collectAsState()
-                ControlBarOverlay(
-                    state = state,
-                    callbacks = barCallbacks(controlBarCoordinator, state, windowManager),
-                )
+                val state = controlBarUiState
+                ControlBarOverlay(state = state, callbacks = barCallbacks(controlBarCoordinator, state))
             }
         }
 
     private fun barCallbacks(
         controlBarCoordinator: ControlBarCoordinator,
         state: ControlBarState,
-        windowManager: WindowManager,
     ) = ControlBarCallbacks(
-        onCollapseToggle = { collapsed -> controlBarCoordinator.collapseToggle(collapsed) },
         onStop = controlBarCoordinator::stop,
         onPauseOrResume = {
             if (state is ControlBarState.Paused) controlBarCoordinator.resume() else controlBarCoordinator.pause()
@@ -183,25 +256,52 @@ class McpAccessibilityService : AccessibilityService() {
         onBackToApp = {
             backToForegroundApp(state)
             // Ended has nothing left to resume - dismiss the bar once "Back to" is used (plan
-            // 71's own decision); Paused keeps it up, since Resume is still meaningful there.
+            // 71's own decision); Paused no longer offers "Back to" at all (round 2 simplification).
             if (state is ControlBarState.Ended) controlBarCoordinator.close()
         },
         onClose = controlBarCoordinator::close,
-        onDrag = { dx, dy -> moveBarBy(windowManager, dx, dy) },
     )
 
-    private fun barLayoutParams() =
-        WindowManager
+    /** A small, explicit, density-aware pixel width - deliberately NEITHER `WRAP_CONTENT` NOR
+     *  `MATCH_PARENT`. Found live (redroid, round 2): a `WRAP_CONTENT` window hosting this Compose
+     *  content measured wider than the screen for a long "Back to <app>" label, running the text
+     *  off the right edge with no way to see or tap it. Switching to `MATCH_PARENT` "fixed" that
+     *  clipping but turned the ENTIRE top strip of the screen into an invisible touch-dead-zone:
+     *  Android routes a whole touch gesture to the topmost non-`FLAG_NOT_TOUCHABLE` window under
+     *  the down-point regardless of what's actually drawn there, so empty margin pixels at the
+     *  very top of the screen silently swallowed taps meant for real app/system UI underneath
+     *  (e.g. pulling down the notification shade) - found in code review, round 2, not caught by
+     *  manual testing since it has no visible symptom. A small explicit pixel width, capped to the
+     *  screen's own width as a safety net, keeps the window's real (and therefore touchable)
+     *  footprint tight around the visible pill - what `WRAP_CONTENT` was meant to do, without its
+     *  measurement ambiguity - while `ControlBarOverlay`'s "Back to <app>" label now also
+     *  truncates with an ellipsis instead of relying on window size alone to avoid clipping. */
+    private fun barLayoutParams(): WindowManager.LayoutParams {
+        val widthPx = minOf(dpToPx(BAR_MAX_WIDTH_DP), resources.displayMetrics.widthPixels)
+        return WindowManager
             .LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
+                widthPx,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 android.graphics.PixelFormat.TRANSLUCENT,
             ).apply {
-                gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
-                y = BAR_INITIAL_BOTTOM_MARGIN_PX
+                gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+                y = statusBarHeightPx() + dpToPx(TOP_BAR_CLEARANCE_DP)
             }
+    }
+
+    private fun dpToPx(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
+
+    /** Classic cross-OEM resource lookup for the status bar's height, with a safe fallback if a
+     *  ROM doesn't define it (this overlay window isn't a normal app window, so it isn't
+     *  automatically inset-aware the way an Activity's decor view is). Good enough for "below the
+     *  status bar" as a fixed position - a later visual-design pass can replace this with a
+     *  real `WindowInsets` listener if a specific OEM proves this wrong. */
+    private fun statusBarHeightPx(): Int {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else dpToPx(FALLBACK_STATUS_BAR_HEIGHT_DP)
+    }
 
     @Suppress("ReturnCount")
     private fun backToForegroundApp(state: ControlBarState) {
@@ -218,41 +318,20 @@ class McpAccessibilityService : AccessibilityService() {
         }
         try {
             val launchIntent = packageManager.getLaunchIntentForPackage(pkg) ?: return
+            // A Service (this is one, not an Activity) MUST set FLAG_ACTIVITY_NEW_TASK or
+            // startActivity() either throws or silently no-ops depending on the OEM's framework
+            // build - this was the actual cause of "Back to <app> does nothing" (founder
+            // phone-test feedback round 2, reproduced on a real OnePlus/OxygenOS device).
+            launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(launchIntent)
         } catch (e: android.content.ActivityNotFoundException) {
             Log.w(TAG, "Could not return to $pkg: ${e.message}")
         }
     }
 
-    private fun moveBarBy(
-        windowManager: WindowManager,
-        dxPx: Float,
-        dyPx: Float,
-    ) {
-        val view = barView ?: return
-        val params = barLayoutParams ?: return
-        val screen = getScreenInfo()
-        // gravity is BOTTOM|CENTER_HORIZONTAL, so x is an offset from horizontal center - the
-        // view's own half-width must be subtracted from the half-screen bound on both sides, or
-        // dragging to either extreme pushes roughly half the bar off-screen (found in review).
-        val maxX = ((screen.width - view.width) / 2).coerceAtLeast(0)
-        params.x = (params.x + dxPx.toInt()).coerceIn(-maxX, maxX)
-        params.y = (params.y - dyPx.toInt()).coerceIn(0, screen.height - view.height)
-        windowManager.updateViewLayout(view, params)
-    }
-
     private fun teardownControlBarOverlay() {
-        val windowManager = getSystemService(WindowManager::class.java)
-        barView?.let { windowManager?.removeView(it) }
-        glowView?.let { windowManager?.removeView(it) }
-        barLifecycleOwner?.onDetach()
-        glowLifecycleOwner?.onDetach()
-        barView = null
-        glowView = null
-        barLifecycleOwner = null
-        glowLifecycleOwner = null
-        barLayoutParams = null
-        overlayViews = null
+        val windowManager = getSystemService(WindowManager::class.java) ?: return
+        removeOverlayWindows(windowManager)
     }
 
     override fun onServiceConnected() {
@@ -280,11 +359,12 @@ class McpAccessibilityService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                event.packageName?.toString()?.let { packageName ->
-                    currentPackageName = packageName
-                }
-                event.className?.toString()?.let { className ->
-                    currentActivityName = className
+                // See isForeignWindowStateChange's doc comment: DroidThumb's own overlay windows
+                // fire this same event type when added, and must never be tracked as "the
+                // foreground app" themselves.
+                if (isForeignWindowStateChange(event.packageName?.toString(), BuildConfig.APPLICATION_ID)) {
+                    event.packageName?.toString()?.let { pkg -> currentPackageName = pkg }
+                    event.className?.toString()?.let { className -> currentActivityName = className }
                 }
                 Log.d(
                     TAG,
@@ -576,9 +656,23 @@ class McpAccessibilityService : AccessibilityService() {
          */
         private const val CACHE_INVALIDATION_DEBOUNCE_MS = 250L
 
-        /** Initial resting position of the floating control bar (plan 71, D-39): bottom-center,
-         *  with this much clearance above the screen's bottom edge/gesture-nav area. */
-        private const val BAR_INITIAL_BOTTOM_MARGIN_PX = 140
+        /** Fixed position of the floating control bar (plan 71, D-39, round 2): top-center, this
+         *  much clearance below the status bar. Density-aware (dp, converted via [dpToPx]) -
+         *  found in code review, round 2, that the round-2 original (`24` raw pixels) wasn't. */
+        private const val TOP_BAR_CLEARANCE_DP = 8
+
+        /** Used only if a ROM doesn't define the `status_bar_height` resource at all - a
+         *  conservative, not device-accurate approximation. Expressed in dp (Android's own status
+         *  bar height is a near-constant physical size across densities when expressed this way),
+         *  converted via [dpToPx] - found in code review, round 2, that the round-2 original
+         *  (`100` raw pixels, justified by a comment computing to ~63px at 420dpi) was neither
+         *  density-aware nor consistent with its own justification. */
+        private const val FALLBACK_STATUS_BAR_HEIGHT_DP = 24
+
+        /** Caps the bar window's own width (see [barLayoutParams]) - wide enough for a real
+         *  "Back to <app name>" label without the window spanning (and touch-blocking, see
+         *  [barLayoutParams]'s own doc comment) the full screen width. */
+        private const val BAR_MAX_WIDTH_DP = 360
 
         /**
          * Singleton instance of the accessibility service.
@@ -636,3 +730,32 @@ internal fun scheduleCacheInvalidationIfNeeded(
 internal fun invalidateCache(cache: AccessibilityNodeCache?) {
     cache?.clear()
 }
+
+/**
+ * Returns true if a [AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED] event naming [eventPackageName]
+ * should update the tracked foreground package/activity - i.e. [eventPackageName] is NOT
+ * [selfPackageName]. DroidThumb's own floating control bar/glow overlay windows (plan 71, D-39)
+ * fire this same event type when added; a real bug found live during phone-test round 2's redroid
+ * verification: "Back to <app>" showed "Back to DroidThumb" instead of the real foreground app,
+ * because the overlay's own appearance had overwritten the tracked foreground package with
+ * DroidThumb's own package right as a session started.
+ *
+ * Top-level and `internal` so the decision can be unit-tested without instantiating the service.
+ */
+internal fun isForeignWindowStateChange(
+    eventPackageName: String?,
+    selfPackageName: String,
+): Boolean = eventPackageName != selfPackageName
+
+/**
+ * Returns true if the floating control bar/glow overlay windows should be present for [state] -
+ * i.e. [state] is anything other than [ControlBarState.Hidden]. Drives the add/remove decision in
+ * [McpAccessibilityService.setupControlBarOverlay]'s state collector (plan 71, round 2): the
+ * windows are only attached while there is something to show, torn down and recreated fresh on
+ * every Hidden<->non-Hidden transition, rather than left permanently attached and relying on
+ * Compose recomposition alone to represent "nothing" (round 2's own fix for the Done bar's stale
+ * rendered frame getting stuck on screen forever - see that function's doc comment).
+ *
+ * Top-level and `internal` so the decision can be unit-tested without instantiating the service.
+ */
+internal fun shouldShowOverlayWindows(state: ControlBarState): Boolean = state !is ControlBarState.Hidden

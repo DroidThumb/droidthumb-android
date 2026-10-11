@@ -53,6 +53,9 @@ class ControlBarCoordinator
         private var fallbackEndJob: Job? = null
 
         @Volatile
+        private var endedAutoCloseJob: Job? = null
+
+        @Volatile
         private var currentStepCancel: (() -> Unit)? = null
 
         /** Set by [McpAccessibilityService]'s own overlay setup once the bar view exists; null
@@ -105,6 +108,7 @@ class ControlBarCoordinator
             val idleGapMs = now - lastStepAtMs
             lastStepAtMs = now
             fallbackEndJob?.cancel()
+            endedAutoCloseJob?.cancel() // a new session starting must never be hidden by a stale Ended-dismiss timer
 
             val wasOpen = sessionShownState.value is ControlBarState.Running
             val returnTarget =
@@ -116,7 +120,7 @@ class ControlBarCoordinator
                 }
 
             val caption = stepCaption(op, params) { pkg -> appLabelResolver.labelFor(pkg) }
-            sessionShownState.value = ControlBarState.Running(caption, collapsed = false, returnTarget)
+            sessionShownState.value = ControlBarState.Running(caption, returnTarget)
             armFallbackEndTimer()
         }
 
@@ -139,6 +143,18 @@ class ControlBarCoordinator
                 (sessionShownState.value as? ControlBarState.Running)?.returnTarget
                     ?: foregroundAppProvider.current()
             sessionShownState.value = ControlBarState.Ended(summary, target)
+            armEndedAutoCloseTimer()
+        }
+
+        /** The Done bar auto-dismisses 5s after it appears if the owner doesn't tap it first
+         *  (founder phone-test feedback round 2: "can't be closed and never goes away" - the bar
+         *  had no dedicated close affordance before and nothing timed it out). */
+        private fun armEndedAutoCloseTimer() {
+            endedAutoCloseJob =
+                scope.launch {
+                    delay(ENDED_AUTO_CLOSE_MS)
+                    close()
+                }
         }
 
         /** Registers the currently in-flight step's cancellation hook - only one step is ever in
@@ -162,12 +178,6 @@ class ControlBarCoordinator
             currentStepCancel = null
         }
 
-        fun collapseToggle(collapsed: Boolean) {
-            (sessionShownState.value as? ControlBarState.Running)?.let {
-                sessionShownState.value = it.copy(collapsed = collapsed)
-            }
-        }
-
         /** The bar's own Pause button: applies the indefinite pause ONLY - gates future steps,
          *  same as the notification/Home-dialog pause, but never cancels one already in flight
          *  (that's [stop]'s job, via the dedicated Stop button). */
@@ -175,10 +185,21 @@ class ControlBarCoordinator
             scope.launch { settingsRepository.pauseUntil(null) }
         }
 
-        /** Stop: cancels the in-flight step (if any) AND applies the indefinite pause - a strict
-         *  superset of [pause], for the dedicated Stop button. Resume: clears it. All three
-         *  delegate to [SettingsRepository] - the single source of pause truth. */
+        /** Stop: cancels the in-flight step (if any), cancels the session's own 30s no-step
+         *  fallback-end timer, and applies the indefinite pause - a strict superset of [pause],
+         *  for the dedicated Stop button. Resume: clears it. All three delegate to
+         *  [SettingsRepository] - the single source of pause truth.
+         *
+         *  The fallback-end cancellation matters specifically here (not in [pause], which never
+         *  touches an in-flight step at all): without it, the ALREADY-ARMED timer from this
+         *  session's last [beginStep] would still fire ~30s after Stop regardless of the pause,
+         *  flipping the bar from the just-asserted, "unmistakable" Paused state to Ended (then,
+         *  5s later, to Hidden) while the device remains paused the whole time - found in code
+         *  review, round 2, as a regression of this very round's own "Paused must be unmistakable"
+         *  fix. Stop is the right place for this: it's the one action that explicitly ends the
+         *  current interaction, so there is nothing left for the fallback to legitimately end. */
         fun stop() {
+            fallbackEndJob?.cancel()
             currentStepCancel?.invoke()
             pause()
         }
@@ -189,11 +210,16 @@ class ControlBarCoordinator
 
         fun close() {
             fallbackEndJob?.cancel()
+            endedAutoCloseJob?.cancel()
             sessionShownState.value = ControlBarState.Hidden
         }
 
         companion object {
             internal const val SESSION_IDLE_THRESHOLD_MS = 120_000L
             internal const val SESSION_FALLBACK_END_MS = 30_000L
+
+            /** How long the Done bar stays up before auto-dismissing (founder phone-test
+             *  feedback round 2). */
+            internal const val ENDED_AUTO_CLOSE_MS = 5_000L
         }
     }
