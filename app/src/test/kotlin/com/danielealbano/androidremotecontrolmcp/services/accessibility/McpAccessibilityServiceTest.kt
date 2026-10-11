@@ -1,6 +1,7 @@
 package com.danielealbano.androidremotecontrolmcp.services.accessibility
 
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarState
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ReturnTarget
 import io.mockk.mockk
@@ -127,6 +128,52 @@ class McpAccessibilityServiceTest {
         @DisplayName("a null event package is treated as foreign (tracked), matching prior behavior")
         fun `a null event package is foreign`() {
             assertTrue(isForeignWindowStateChange(null, "com.example.self"))
+        }
+
+        @Test
+        @DisplayName("a different package's TYPE_APPLICATION window is foreign (tracked)")
+        fun `a different package's application window is foreign`() {
+            assertTrue(
+                isForeignWindowStateChange(
+                    "com.android.contacts",
+                    "com.example.self",
+                    AccessibilityWindowInfo.TYPE_APPLICATION,
+                ),
+            )
+        }
+
+        @Test
+        @DisplayName(
+            "the IME's own window state change is NOT foreign (ignored) - round 4 phone-feedback " +
+                "regression: the keyboard showing while typing must never overwrite the recorded " +
+                "return target with 'Back to Android Keyboard'",
+        )
+        fun `the IME window is not foreign`() {
+            assertFalse(
+                isForeignWindowStateChange(
+                    "com.android.inputmethod.latin",
+                    "com.example.self",
+                    AccessibilityWindowInfo.TYPE_INPUT_METHOD,
+                ),
+            )
+        }
+
+        @Test
+        @DisplayName("a system window (status bar / recents / quick settings) is NOT foreign (ignored)")
+        fun `a system window is not foreign`() {
+            assertFalse(
+                isForeignWindowStateChange(
+                    "com.android.systemui",
+                    "com.example.self",
+                    AccessibilityWindowInfo.TYPE_SYSTEM,
+                ),
+            )
+        }
+
+        @Test
+        @DisplayName("an unresolvable window type (null) is treated as foreign, matching prior behavior")
+        fun `a null window type is foreign`() {
+            assertTrue(isForeignWindowStateChange("com.android.contacts", "com.example.self", windowType = null))
         }
     }
 

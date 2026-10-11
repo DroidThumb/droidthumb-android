@@ -58,6 +58,7 @@ abstract class DeviceTransportClientTestBase {
         pauseSettings: PauseSettings =
             mockk {
                 coEvery { getPauseState() } returns PauseState()
+                coEvery { getPauseHoldCapMs() } returns 60_000L
             },
         controlBarCoordinator: ControlBarCoordinator = mockk(relaxed = true),
     ): DeviceTransportClientImpl =

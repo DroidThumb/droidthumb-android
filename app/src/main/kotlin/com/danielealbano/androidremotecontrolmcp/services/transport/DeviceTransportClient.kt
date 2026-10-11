@@ -303,7 +303,19 @@ class DeviceTransportClientImpl
          *  `message` was [Welcome] — `runSession` uses that to set its own `welcomed` flag, since
          *  this is a separate function (not a local one) specifically so detekt's per-function
          *  complexity/length limits measure it apart from `runSession`'s own connection-lifecycle
-         *  logic. */
+         *  logic.
+         *
+         *  Code-review finding, round 4 pause redesign, accepted as-is rather than fixed: a `Step`
+         *  held while paused (`runStepCancellable`) now blocks this whole function - and therefore
+         *  the `for (frame in incoming)` loop in `runSession` that calls it - for up to
+         *  `PauseSettings.getPauseHoldCapMs` (default 60s) before the NEXT inbound frame
+         *  (`SecretRegenerated`, `Claimed`/`ClaimRejected`, or the server closing the socket) is even
+         *  read. Previously a paused step replied instantly, so this was a non-issue. Accepted
+         *  because: only one step is ever in flight per connection by design (serialized dispatch,
+         *  documented on `registerCurrentStep`) and the device owner driving a session while ALSO
+         *  mid-`regenerateSecret()`/`claimAccount()` on the very same connection is already an edge
+         *  case; a real fix (processing other inbound messages concurrently with a held step) is a
+         *  larger structural change than this round's scope. */
         private suspend fun DefaultClientWebSocketSession.handleIncomingMessage(message: WireMessage): Boolean {
             when (message) {
                 is Challenge -> {
@@ -347,24 +359,38 @@ class DeviceTransportClientImpl
         /** Runs [step] in a CHILD coroutine of this session (launched from the
          *  [DefaultClientWebSocketSession] receiver, which is itself a [CoroutineScope]) so
          *  [ControlBarCoordinator.stop] can cancel JUST this step - cancelling this session's own
-         *  job would tear down the whole connection, which Stop must never do. */
+         *  job would tear down the whole connection, which Stop must never do.
+         *
+         *  Round 4 phone-feedback redesign: a step arriving while paused no longer fails
+         *  immediately with `device_paused`. A paused device can't resume the AI's own turn later -
+         *  once a tool call has already failed, there is no "try again" signal the AI will see on
+         *  its own - so instead this HOLDS the step (neither executing nor failing it) until
+         *  [PauseSettings.getPauseHoldCapMs] elapses or the owner taps Resume, whichever comes
+         *  first, via [awaitResumeOrCapExpired]. [controlBarCoordinator]'s cancel hook wraps the
+         *  WHOLE hold-then-dispatch [dispatchJob], not just the dispatch half, so Stop aborts a
+         *  held-but-not-yet-dispatched step exactly as immediately as it already aborted an
+         *  in-flight one - the device owner's Stop button must never be slower than a step that
+         *  hasn't even started yet. */
         private suspend fun DefaultClientWebSocketSession.runStepCancellable(step: Step): WireMessage {
-            if (pauseSettings.getPauseState().isEffectivePause(System.currentTimeMillis())) {
-                return StepError(step.stepId, code = "device_paused", message = PAUSED_STEP_MESSAGE)
-            }
-            val deferred = CompletableDeferred<WireMessage>()
-            val job =
+            val resultDeferred = CompletableDeferred<WireMessage>()
+            val dispatchJob =
                 launch {
-                    deferred.complete(stepDispatcher.dispatch(step))
+                    if (!awaitResumeOrCapExpired(pauseSettings)) {
+                        resultDeferred.complete(
+                            StepError(step.stepId, code = "device_paused", message = PAUSED_STEP_MESSAGE),
+                        )
+                        return@launch
+                    }
+                    resultDeferred.complete(stepDispatcher.dispatch(step))
                 }
             controlBarCoordinator.registerCurrentStep {
-                job.cancel()
-                deferred.complete(
+                dispatchJob.cancel()
+                resultDeferred.complete(
                     StepError(step.stepId, code = "stopped_by_owner", message = STOPPED_BY_OWNER_MESSAGE),
                 )
             }
             return try {
-                deferred.await()
+                resultDeferred.await()
             } finally {
                 controlBarCoordinator.clearCurrentStep()
             }
@@ -439,9 +465,9 @@ class DeviceTransportClientImpl
             private const val REGENERATE_TIMEOUT_MS = 5_000L
             private const val CLAIM_TIMEOUT_MS = 5_000L
 
-            /** Reply to every `step` while paused (design doc §8.8 revision) — the connection stays
-             *  up and replies immediately, so an AI client sees a clear, fast rejection instead of
-             *  the step timing out as if the device had simply gone unresponsive. */
+            /** Reply to a `step` that was HELD while paused (round 4 redesign of design doc §8.8's
+             *  original "replies immediately" behavior - see [runStepCancellable]'s doc comment)
+             *  once [awaitResumeOrCapExpired] gives up without the owner resuming in time. */
             const val PAUSED_STEP_MESSAGE = "Paused by the device owner"
 
             /** Reply when the floating control bar's Stop button cancels an in-flight step (plan
@@ -451,6 +477,30 @@ class DeviceTransportClientImpl
             private val BACKOFF_SCHEDULE_MS = listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L)
         }
     }
+
+/** `true` the instant [pauseSettings] reports the device isn't (or stops being) paused - the
+ *  common, un-paused case returns immediately with no delay at all. Polls
+ *  [PauseSettings.getPauseState] every [PAUSE_HOLD_POLL_INTERVAL_MS] rather than collecting
+ *  [PauseSettings.pauseState]'s Flow, because a TIMED pause's deadline simply elapsing writes
+ *  nothing to the DataStore - a collector would never see a new emission to re-check
+ *  [PauseState.isEffectivePause] against, and would hold right past the deadline. `false` if
+ *  [PauseSettings.getPauseHoldCapMs] elapses while still paused. A top-level function, not a class
+ *  member - keeps [DeviceTransportClientImpl] under detekt's `TooManyFunctions` threshold without
+ *  an unjustified suppression, same reasoning as [decodeOrNull] below. */
+private suspend fun awaitResumeOrCapExpired(pauseSettings: PauseSettings): Boolean {
+    if (!pauseSettings.getPauseState().isEffectivePause(System.currentTimeMillis())) return true
+    val capMs = pauseSettings.getPauseHoldCapMs()
+    return withTimeoutOrNull(capMs) {
+        while (pauseSettings.getPauseState().isEffectivePause(System.currentTimeMillis())) {
+            delay(PAUSE_HOLD_POLL_INTERVAL_MS)
+        }
+        true
+    } ?: false
+}
+
+/** How often [awaitResumeOrCapExpired] re-checks [PauseSettings.getPauseState] while holding a
+ *  step - see that function's doc comment for why this polls instead of collecting the Flow. */
+private const val PAUSE_HOLD_POLL_INTERVAL_MS = 500L
 
 /** Decodes one inbound frame, or null for a non-text frame or a malformed payload (logged and
  *  skipped rather than tearing down the whole session over one bad frame). A top-level function,
