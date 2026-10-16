@@ -1,19 +1,29 @@
 package com.danielealbano.androidremotecontrolmcp.utils
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.ContentResolver
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Bundle
+import android.os.Parcelable
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService
 import com.danielealbano.androidremotecontrolmcp.services.notifications.McpNotificationListenerService
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
+import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
+import io.mockk.slot
+import io.mockk.unmockkAll
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -384,6 +394,77 @@ class PermissionUtilsTest {
             assertFalse(
                 PermissionUtils.isNotificationListenerEnabled(mockContext, Any::class.java),
             )
+        }
+    }
+
+    @Nested
+    @DisplayName("buildAccessibilityServiceSettingsIntent")
+    inner class BuildAccessibilityServiceSettingsIntent {
+        @Test
+        fun `api 31+ builds the per-service details intent with our component`() {
+            mockkConstructor(Intent::class)
+            mockkConstructor(ComponentName::class)
+            every { anyConstructed<Intent>().setAction(any()) } answers { self as Intent }
+            every {
+                anyConstructed<Intent>().putExtra(any<String>(), any<Parcelable>())
+            } answers { self as Intent }
+            val action = slot<String>()
+            try {
+                PermissionUtils.buildAccessibilityServiceSettingsIntent(
+                    "com.danielealbano.androidremotecontrolmcp",
+                    McpAccessibilityService::class.java,
+                    31,
+                )
+
+                verify(exactly = 1) { anyConstructed<Intent>().setAction(capture(action)) }
+                assertEquals("android.settings.ACCESSIBILITY_DETAILS_SETTINGS", action.captured)
+                verify(exactly = 1) {
+                    anyConstructed<Intent>()
+                        .putExtra(Intent.EXTRA_COMPONENT_NAME, capture(slot<ComponentName>()))
+                }
+                verify(exactly = 0) { anyConstructed<Intent>().putExtra(any<String>(), any<String>()) }
+            } finally {
+                unmockkAll()
+            }
+        }
+
+        @Test
+        fun `below api 31 falls back to the plain accessibility settings intent with fragment args`() {
+            mockkConstructor(Intent::class)
+            mockkConstructor(ComponentName::class)
+            mockkConstructor(Bundle::class)
+            every { anyConstructed<Intent>().setAction(any()) } answers { self as Intent }
+            every { anyConstructed<Intent>().putExtra(any<String>(), any<String>()) } answers { self as Intent }
+            every {
+                anyConstructed<Intent>().putExtra(any<String>(), any<Parcelable>())
+            } answers { self as Intent }
+            every { anyConstructed<ComponentName>().flattenToString() } returns "com.example/com.example.S"
+            every { anyConstructed<Bundle>().putString(any(), any()) } just Runs
+            val action = slot<String>()
+            try {
+                PermissionUtils.buildAccessibilityServiceSettingsIntent(
+                    "com.danielealbano.androidremotecontrolmcp",
+                    McpAccessibilityService::class.java,
+                    30,
+                )
+
+                verify(exactly = 1) { anyConstructed<Intent>().setAction(capture(action)) }
+                assertEquals(Settings.ACTION_ACCESSIBILITY_SETTINGS, action.captured)
+                verify(exactly = 1) {
+                    anyConstructed<Intent>()
+                        .putExtra(PermissionUtils.FRAGMENT_ARGS_KEY_EXTRA, "com.example/com.example.S")
+                }
+                verify(exactly = 1) {
+                    anyConstructed<Intent>()
+                        .putExtra(PermissionUtils.SHOW_FRAGMENT_ARGS_EXTRA, capture(slot<Bundle>()))
+                }
+                verify(exactly = 1) {
+                    anyConstructed<Bundle>()
+                        .putString(PermissionUtils.FRAGMENT_ARGS_KEY_EXTRA, "com.example/com.example.S")
+                }
+            } finally {
+                unmockkAll()
+            }
         }
     }
 }

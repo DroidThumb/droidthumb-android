@@ -50,7 +50,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -164,7 +166,12 @@ class DeviceTransportClientImpl
         override val updateInfo: StateFlow<UpdateInfo?> = _updateInfo.asStateFlow()
 
         private var job: Job? = null
-        private val client by lazy { HttpClient(OkHttp) { install(WebSockets) } }
+        private val client by lazy {
+            HttpClient(OkHttp) {
+                engine { preconfigured = transportOkHttpClient() }
+                install(WebSockets)
+            }
+        }
         private val registered = AtomicBoolean(false)
 
         @Volatile
@@ -475,8 +482,27 @@ class DeviceTransportClientImpl
              *  because the device was already paused. */
             const val STOPPED_BY_OWNER_MESSAGE = "Stopped by the device owner"
             private val BACKOFF_SCHEDULE_MS = listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L)
+
+            /** OkHttp WS heartbeat cadence - see [transportOkHttpClient]. */
+            internal const val PING_INTERVAL_SECONDS = 30L
         }
     }
+
+/** Builds the OkHttpClient the transport WebSocket runs on. Sets a 30s ping interval so a
+ *  half-open/dead connection (phone left Wi-Fi, NAT timeout, server lost the socket without a
+ *  close frame) is detected within ~2 pings: OkHttp fails the WebSocket when no pong comes back,
+ *  which throws through [DeviceTransportClientImpl.runSession]'s existing failure path and lets
+ *  the reconnect loop take the status out of `Connected` - 16 Oct phone test: Home showed a green
+ *  "Connected" while the server had lost the phone, because without a heartbeat nothing detects
+ *  a dead socket. The Node `ws` server answers pings automatically; no server change.
+ *
+ * Top-level and `internal` so the built client's ping configuration can be unit-tested without
+ * instantiating the transport client. */
+internal fun transportOkHttpClient(): OkHttpClient =
+    OkHttpClient
+        .Builder()
+        .pingInterval(DeviceTransportClientImpl.PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
+        .build()
 
 /** `true` the instant [pauseSettings] reports the device isn't (or stops being) paused - the
  *  common, un-paused case returns immediately with no delay at all. Polls

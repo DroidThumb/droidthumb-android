@@ -1,20 +1,32 @@
 package com.danielealbano.androidremotecontrolmcp.utils
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import androidx.core.content.ContextCompat
 
 /**
  * Utility functions for checking and requesting Android permissions.
  */
 object PermissionUtils {
+    private const val TAG = "MCP:PermissionUtils"
     private const val ENABLED_SERVICES_SEPARATOR = ':'
     private const val COMPONENT_SEPARATOR = '/'
     private const val SHORT_FORM_CLASS_PREFIX = '.'
+
+    /** AOSP Settings' undocumented extra keys that make the accessibility settings screen
+     *  highlight/scroll to a specific service row (used below API 31, where the per-service
+     *  details screen doesn't exist). */
+    internal const val FRAGMENT_ARGS_KEY_EXTRA = ":settings:fragment_args_key"
+    internal const val SHOW_FRAGMENT_ARGS_EXTRA = ":settings:show_fragment_args"
 
     /**
      * Checks whether a specific accessibility service is currently enabled.
@@ -51,6 +63,87 @@ object PermissionUtils {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         context.startActivity(intent)
+    }
+
+    /**
+     * Builds an intent that opens the accessibility settings page for this app's own
+     * accessibility service directly, so a user can re-enable the service in one tap.
+     *
+     * Pure and testable: the [sdkInt] parameter is passed in by callers (Build.VERSION.SDK_INT)
+     * so unit tests can drive both branches without a Robolectric device.
+     *
+     * On API 31+ this is `ACTION_ACCESSIBILITY_DETAILS_SETTINGS` targeting our service's
+     * [ComponentName] via [Intent.EXTRA_COMPONENT_NAME]. Below API 31 the per-service details
+     * screen does not exist, so this returns the plain accessibility-settings intent carrying
+     * AOSP's undocumented fragment-args extras, which make the Settings app highlight and scroll
+     * to our service's row when it opens.
+     *
+     * @param packageName The app's package name (`context.packageName`).
+     * @param serviceClass The accessibility service class (e.g. `McpAccessibilityService::class.java`).
+     * @param sdkInt The device's `Build.VERSION.SDK_INT`.
+     */
+    fun buildAccessibilityServiceSettingsIntent(
+        packageName: String,
+        serviceClass: Class<*>,
+        sdkInt: Int,
+    ): Intent {
+        // NOTE: ComponentName(packageName, serviceClass.name), NOT ComponentName(serviceClass) -
+        // the latter resolves the class's own package (a subpackage here), which would flatten to
+        // the wrong "package/class" key for ENABLED_ACCESSIBILITY_SERVICES matching.
+        val componentName = ComponentName(packageName, serviceClass.name)
+        return if (sdkInt >= Build.VERSION_CODES.S) {
+            // API 31+ per-service details screen. NOTE: the action string is
+            // Settings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS in AOSP, but that constant is not
+            // exposed by the public SDK stubs (verified against the compile SDK's android.jar),
+            // so the equivalent literal is used here. If a build doesn't resolve it,
+            // openAccessibilityServiceSettings falls back to the plain accessibility settings.
+            Intent().apply {
+                setAction("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+                putExtra(Intent.EXTRA_COMPONENT_NAME, componentName)
+            }
+        } else {
+            Intent().apply {
+                setAction(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                val key = componentName.flattenToString()
+                putExtra(FRAGMENT_ARGS_KEY_EXTRA, key)
+                putExtra(
+                    SHOW_FRAGMENT_ARGS_EXTRA,
+                    Bundle().apply { putString(FRAGMENT_ARGS_KEY_EXTRA, key) },
+                )
+            }
+        }
+    }
+
+    /**
+     * Opens the accessibility settings page for this app's own accessibility service directly.
+     *
+     * Uses [buildAccessibilityServiceSettingsIntent] on API 31+ and falls back to
+     * [openAccessibilitySettings] (the plain accessibility settings screen) below API 31, or
+     * whenever the details intent fails to resolve (some OEM Settings builds don't handle it).
+     *
+     * @param context Any context; `FLAG_ACTIVITY_NEW_TASK` is added so non-Activity contexts work.
+     * @param serviceClass The accessibility service class (e.g. `McpAccessibilityService::class.java`).
+     */
+    fun openAccessibilityServiceSettings(
+        context: Context,
+        serviceClass: Class<*>,
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                context.startActivity(
+                    buildAccessibilityServiceSettingsIntent(
+                        context.packageName,
+                        serviceClass,
+                        Build.VERSION.SDK_INT,
+                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) },
+                )
+                return
+            } catch (e: ActivityNotFoundException) {
+                // Log and fall through to the plain accessibility settings screen below.
+                Log.w(TAG, "Accessibility details settings not resolvable; falling back", e)
+            }
+        }
+        openAccessibilitySettings(context)
     }
 
     /**

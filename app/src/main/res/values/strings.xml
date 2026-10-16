@@ -47,6 +47,12 @@
     <string name="permission_warning_title">Accessibility permission required</string>
     <string name="permission_warning_action">Go to permissions</string>
 
+    <!-- Pause permission (main screen, one-tap accessibility pause - 16 Oct phone test, exact wording) -->
+    <string name="pause_permission_action">Pause permission</string>
+    <string name="pause_permission_dialog_title">Pause accessibility permission?</string>
+    <string name="pause_permission_dialog_body">Some apps, like banking apps, won\'t open while it\'s on. Your AI can\'t use this phone until you turn it back on.</string>
+    <string name="pause_permission_dialog_confirm">Pause</string>
+
     <!-- Battery Optimization (founder phone-test feedback, PR #9 round 1, exact wording) -->
     <string name="battery_optimization_card_title">The connection may drop while your phone is idle</string>
     <string name="battery_optimization_card_action">Fix</string>

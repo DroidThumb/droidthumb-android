@@ -115,7 +115,13 @@ class McpAccessibilityServiceTest {
         @Test
         @DisplayName("a different package's window state change is foreign (tracked)")
         fun `a different package is foreign`() {
-            assertTrue(isForeignWindowStateChange("com.android.contacts", "com.example.self"))
+            assertTrue(
+                isForeignWindowStateChange(
+                    "com.android.contacts",
+                    "com.example.self",
+                    AccessibilityWindowInfo.TYPE_APPLICATION,
+                ),
+            )
         }
 
         @Test
@@ -127,7 +133,7 @@ class McpAccessibilityServiceTest {
         @Test
         @DisplayName("a null event package is treated as foreign (tracked), matching prior behavior")
         fun `a null event package is foreign`() {
-            assertTrue(isForeignWindowStateChange(null, "com.example.self"))
+            assertTrue(isForeignWindowStateChange(null, "com.example.self", AccessibilityWindowInfo.TYPE_APPLICATION))
         }
 
         @Test
@@ -171,9 +177,57 @@ class McpAccessibilityServiceTest {
         }
 
         @Test
-        @DisplayName("an unresolvable window type (null) is treated as foreign, matching prior behavior")
+        @DisplayName(
+            "an unresolvable window type (null) IS foreign (tracked) - the window lookup most " +
+                "often fails exactly when a newly launched app's first window-state event fires, " +
+                "and A5's launch_app wait needs the package recorded; IME/System UI/own-package " +
+                "events are excluded by isBackToTargetPackageForbidden at the recording site",
+        )
         fun `a null window type is foreign`() {
             assertTrue(isForeignWindowStateChange("com.android.contacts", "com.example.self", windowType = null))
+        }
+    }
+
+    @Nested
+    @DisplayName("isBackToTargetPackageForbidden")
+    inner class IsBackToTargetPackageForbidden {
+        @Test
+        @DisplayName("a normal app package is allowed (not forbidden)")
+        fun `a normal app package is allowed`() {
+            assertFalse(
+                isBackToTargetPackageForbidden("com.android.contacts", "com.example.self", emptyList()),
+            )
+        }
+
+        @Test
+        @DisplayName("our own package is forbidden - the overlay windows must never become the return target")
+        fun `our own package is forbidden`() {
+            assertTrue(
+                isBackToTargetPackageForbidden("com.example.self", "com.example.self", emptyList()),
+            )
+        }
+
+        @Test
+        @DisplayName("System UI is forbidden - status bar/recents/system dialogs are never the return target")
+        fun `system ui is forbidden`() {
+            assertTrue(
+                isBackToTargetPackageForbidden(SYSTEM_UI_PACKAGE, "com.example.self", emptyList()),
+            )
+        }
+
+        @Test
+        @DisplayName(
+            "an enabled input method's package is forbidden - 16 Oct phone-test regression: " +
+                "'Back to Gboard' after typing in the Claude app",
+        )
+        fun `an input method package is forbidden`() {
+            assertTrue(
+                isBackToTargetPackageForbidden(
+                    "com.google.android.inputmethod.latin",
+                    "com.example.self",
+                    listOf("com.google.android.inputmethod.latin", "com.other.ime"),
+                ),
+            )
         }
     }
 

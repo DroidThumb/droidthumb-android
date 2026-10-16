@@ -23,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.danielealbano.androidremotecontrolmcp.R
-import com.danielealbano.androidremotecontrolmcp.ui.navigation.SettingsRoute
 import com.danielealbano.androidremotecontrolmcp.ui.navigation.TopLevelRoute
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
@@ -94,10 +93,6 @@ fun MainScreen(
 
             else -> {
                 HomeTabScreen(
-                    onNavigateToPermissions = {
-                        pendingSettingsRoute = SettingsRoute.Permissions.route
-                        selectedTabRoute = TopLevelRoute.Settings.route
-                    },
                     modifier = Modifier.padding(paddingValues),
                     viewModel = viewModel,
                     accountViewModel = accountViewModel,
