@@ -27,7 +27,6 @@ import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewMode
  */
 @Composable
 fun HomeTabScreen(
-    onNavigateToPermissions: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel(),
     accountViewModel: AccountViewModel = hiltViewModel(),
@@ -42,7 +41,6 @@ fun HomeTabScreen(
     ) {
         composable(HomeRoute.Index.route) {
             HomeScreen(
-                onNavigateToPermissions = onNavigateToPermissions,
                 onNavigateToClientDetail = { clientId ->
                     navController.navigate(HomeRoute.AiClientDetail.routeFor(clientId))
                 },
