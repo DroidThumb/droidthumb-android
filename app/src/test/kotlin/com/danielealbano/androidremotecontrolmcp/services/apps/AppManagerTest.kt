@@ -9,6 +9,7 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.pm.PackageInfoCompat
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
@@ -20,6 +21,7 @@ import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
@@ -39,6 +41,9 @@ class AppManagerTest {
     @MockK
     private lateinit var mockActivityManager: ActivityManager
 
+    @MockK
+    private lateinit var mockAccessibilityServiceProvider: AccessibilityServiceProvider
+
     private lateinit var appManager: AppManagerImpl
 
     @BeforeEach
@@ -56,7 +61,12 @@ class AppManagerTest {
         every { mockContext.packageManager } returns mockPackageManager
         every { mockContext.getSystemService(any<String>()) } returns mockActivityManager
 
-        appManager = AppManagerImpl(mockContext)
+        // Default: the tracked foreground package reads back as whatever openApp just launched,
+        // so the post-launch front check succeeds immediately (virtual-time tests below override
+        // this per scenario).
+        every { mockAccessibilityServiceProvider.getCurrentPackageName() } returns "com.test.app"
+
+        appManager = AppManagerImpl(mockContext, mockAccessibilityServiceProvider)
     }
 
     @AfterEach
@@ -223,6 +233,87 @@ class AppManagerTest {
                 // Assert
                 assertTrue(result.isFailure)
                 assertTrue(result.exceptionOrNull() is SecurityException)
+            }
+
+        @Test
+        fun `openApp succeeds with a single start when the app is in front at once`() =
+            runTest {
+                val mockIntent = mockk<Intent>(relaxed = true)
+                every {
+                    mockPackageManager.getLaunchIntentForPackage("com.test.app")
+                } returns mockIntent
+                every { mockContext.startActivity(any()) } just Runs
+                every { mockAccessibilityServiceProvider.getCurrentPackageName() } returns "com.test.app"
+
+                val result = appManager.openApp("com.test.app")
+
+                assertTrue(result.isSuccess)
+                verify(exactly = 1) { mockContext.startActivity(any()) }
+            }
+
+        @Test
+        fun `openApp retries the start once and succeeds when the app comes to the front after the retry`() =
+            runTest {
+                val mockIntent = mockk<Intent>(relaxed = true)
+                every {
+                    mockPackageManager.getLaunchIntentForPackage("com.test.app")
+                } returns mockIntent
+                every { mockContext.startActivity(any()) } just Runs
+                // The first wait budget polls 51 times (t=0..5000ms at 100ms steps) without the
+                // app ever being in front; the app is in front from the first retry poll on.
+                var reads = 0
+                every { mockAccessibilityServiceProvider.getCurrentPackageName() } answers {
+                    reads++
+                    if (reads > AppManagerImpl.FRONT_WAIT_FIRST_MS / AppManagerImpl.FRONT_POLL_INTERVAL_MS + 1) {
+                        "com.test.app"
+                    } else {
+                        "com.other.app"
+                    }
+                }
+
+                val result = appManager.openApp("com.test.app")
+
+                assertTrue(result.isSuccess)
+                verify(exactly = 2) { mockContext.startActivity(any()) }
+            }
+
+        @Test
+        fun `openApp fails with the front-report message after both wait budgets expire`() =
+            runTest {
+                val mockIntent = mockk<Intent>(relaxed = true)
+                every {
+                    mockPackageManager.getLaunchIntentForPackage("com.test.app")
+                } returns mockIntent
+                every { mockContext.startActivity(any()) } just Runs
+                every { mockAccessibilityServiceProvider.getCurrentPackageName() } returns "com.other.app"
+
+                val result = appManager.openApp("com.test.app")
+
+                assertTrue(result.isFailure)
+                verify(exactly = 2) { mockContext.startActivity(any()) }
+                assertEquals(
+                    "com.test.app did not come to the front; com.other.app is in front",
+                    result.exceptionOrNull()?.message,
+                )
+            }
+
+        @Test
+        fun `openApp reports unknown in the failure message when no foreground package is tracked`() =
+            runTest {
+                val mockIntent = mockk<Intent>(relaxed = true)
+                every {
+                    mockPackageManager.getLaunchIntentForPackage("com.test.app")
+                } returns mockIntent
+                every { mockContext.startActivity(any()) } just Runs
+                every { mockAccessibilityServiceProvider.getCurrentPackageName() } returns null
+
+                val result = appManager.openApp("com.test.app")
+
+                assertTrue(result.isFailure)
+                assertEquals(
+                    "com.test.app did not come to the front; unknown is in front",
+                    result.exceptionOrNull()?.message,
+                )
             }
     }
 
