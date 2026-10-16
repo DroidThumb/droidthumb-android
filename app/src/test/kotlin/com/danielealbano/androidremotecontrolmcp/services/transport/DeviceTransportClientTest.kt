@@ -69,6 +69,12 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                     if (connections.incrementAndGet() == 1) {
                         incoming.receive() // hello
                         send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                        // flush() puts the Welcome bytes on the wire before the teardown below:
+                        // cancelling the handler right after send() alone can abort the outgoing
+                        // write and drop the frame, so the client sometimes never saw Connected -
+                        // the scheduling race behind this test's one-off failure (see the A3-A6
+                        // review round). The teardown itself stays abrupt, no close frame.
+                        flush()
                         // Abrupt teardown without a close frame - what a lost Wi-Fi/NAT-dead
                         // socket looks like from the client side.
                         coroutineContext.cancel()

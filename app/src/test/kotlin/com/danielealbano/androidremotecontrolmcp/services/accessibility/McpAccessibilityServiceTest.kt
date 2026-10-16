@@ -178,12 +178,13 @@ class McpAccessibilityServiceTest {
 
         @Test
         @DisplayName(
-            "an unresolvable window type (null) is NOT foreign (ignored) - 16 Oct phone-test " +
-                "regression: a failed window lookup must not keep the door open for an IME window " +
-                "to overwrite the tracked package ('Back to Gboard')",
+            "an unresolvable window type (null) IS foreign (tracked) - the window lookup most " +
+                "often fails exactly when a newly launched app's first window-state event fires, " +
+                "and A5's launch_app wait needs the package recorded; IME/System UI/own-package " +
+                "events are excluded by isBackToTargetPackageForbidden at the recording site",
         )
-        fun `a null window type is not foreign`() {
-            assertFalse(isForeignWindowStateChange("com.android.contacts", "com.example.self", windowType = null))
+        fun `a null window type is foreign`() {
+            assertTrue(isForeignWindowStateChange("com.android.contacts", "com.example.self", windowType = null))
         }
     }
 

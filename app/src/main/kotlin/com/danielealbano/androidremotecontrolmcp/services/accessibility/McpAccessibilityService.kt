@@ -410,10 +410,12 @@ class McpAccessibilityService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // See isForeignWindowStateChange's doc comment: DroidThumb's own overlay windows,
-                // the IME, and other non-TYPE_APPLICATION windows (status bar, recents, system
-                // dialogs) fire this same event type and must never be tracked as "the foreground
-                // app" themselves.
+                // See isForeignWindowStateChange's doc comment: DroidThumb's own overlay windows
+                // and non-TYPE_APPLICATION windows (IME, status bar, recents, system dialogs)
+                // fire this same event type and must never be tracked as "the foreground app"
+                // themselves. An unresolvable (null) window type counts as foreign: the window
+                // lookup most often fails exactly when a newly launched app's first window-state
+                // event fires, and A5's launch_app wait depends on the package being recorded.
                 val windowType = getAccessibilityWindows().firstOrNull { it.id == event.windowId }?.type
                 if (isForeignWindowStateChange(event.packageName?.toString(), BuildConfig.APPLICATION_ID, windowType)) {
                     // Package-level backstop on top of the window-type check: even when the event
@@ -844,12 +846,16 @@ internal fun invalidateCache(cache: AccessibilityNodeCache?) {
  *    window (status bar, quick settings, recents, system dialogs) by window *type* rather than by
  *    package name, so it holds across OEM System UI package names rather than special-casing
  *    `com.android.systemui`.
- *  - A null (unresolvable) [windowType] is ALSO not foreign: 16 Oct phone-test round 5 ("Back to
- *    Gboard" after typing in the Claude app) showed that a failed window lookup (e.g. the window
- *    already gone by the time [McpAccessibilityService.getAccessibilityWindows] runs) must not
- *    keep the door open for an IME/system window to overwrite the tracked package. Refusing the
- *    update on an unresolvable type is always safe - the real app's next window-state change
- *    re-records it.
+ *  - A null (unresolvable) [windowType] counts as foreign (pre-A3 behavior). The original A3 rule
+ *    (null is NOT foreign) collided with A5's `launch_app` wait, which waits for
+ *    [McpAccessibilityService.getCurrentPackageName] to equal the launched package: the window
+ *    lookup most often fails exactly when a newly launched app's first window-state event fires
+ *    (its window may not be in [McpAccessibilityService.getAccessibilityWindows] yet), so the
+ *    stricter rule could make `launch_app` wait the full timeout and report failure for an app
+ *    that did come to the front. The Gboard regression this check originally guarded is instead
+ *    covered at the recording site by [isBackToTargetPackageForbidden], which excludes our own
+ *    package, System UI and every enabled input method by package name - the "Back to Gboard"
+ *    event's package WAS Gboard.
  *
  * Top-level and `internal` so the decision can be unit-tested without instantiating the service.
  */
@@ -859,7 +865,7 @@ internal fun isForeignWindowStateChange(
     windowType: Int? = null,
 ): Boolean =
     eventPackageName != selfPackageName &&
-        windowType == AccessibilityWindowInfo.TYPE_APPLICATION
+        (windowType == null || windowType == AccessibilityWindowInfo.TYPE_APPLICATION)
 
 /**
  * Returns true if [packageName] must NEVER be recorded as the tracked foreground package and
