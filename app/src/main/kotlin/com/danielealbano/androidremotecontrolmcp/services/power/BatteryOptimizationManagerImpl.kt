@@ -20,6 +20,8 @@ class BatteryOptimizationManagerImpl
     ) : BatteryOptimizationManager {
         override fun isIgnoringBatteryOptimizations(): Boolean = context.isIgnoringBatteryOptimizations()
 
+        override fun isBackgroundRestricted(): Boolean = context.isBackgroundRestricted()
+
         override fun requestExemption() {
             context.startActivity(
                 Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)

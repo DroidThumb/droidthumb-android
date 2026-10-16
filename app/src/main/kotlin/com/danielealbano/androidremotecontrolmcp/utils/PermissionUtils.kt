@@ -268,11 +268,21 @@ object PermissionUtils {
      *   so this can be called from non-Activity contexts.
      */
     fun openAppInfoSettings(context: Context) {
-        val intent =
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.fromParts("package", context.packageName, null)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        context.startActivity(intent)
+        context.startActivity(buildAppInfoSettingsIntent(context))
     }
+
+    /**
+     * Builds the intent for this app's own App Info screen (action
+     * [Settings.ACTION_APPLICATION_DETAILS_SETTINGS], `package:` data). Top-level so the action
+     * and data are unit-testable.
+     *
+     * @param context Application context. Uses [Intent.FLAG_ACTIVITY_NEW_TASK]
+     *   so this can be started from non-Activity contexts.
+     */
+    fun buildAppInfoSettingsIntent(context: Context): Intent =
+        Intent().apply {
+            setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            data = Uri.fromParts("package", context.packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
 }

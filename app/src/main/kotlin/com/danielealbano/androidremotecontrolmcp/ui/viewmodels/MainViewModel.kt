@@ -31,6 +31,9 @@ class MainViewModel
         private val _isBatteryOptimizationIgnored = MutableStateFlow(false)
         val isBatteryOptimizationIgnored: StateFlow<Boolean> = _isBatteryOptimizationIgnored.asStateFlow()
 
+        private val _isBackgroundRestricted = MutableStateFlow(false)
+        val isBackgroundRestricted: StateFlow<Boolean> = _isBackgroundRestricted.asStateFlow()
+
         private val _isNotificationListenerEnabled = MutableStateFlow(false)
         val isNotificationListenerEnabled: StateFlow<Boolean> = _isNotificationListenerEnabled.asStateFlow()
 
@@ -48,6 +51,7 @@ class MainViewModel
                     McpNotificationListenerService::class.java,
                 )
             _isBatteryOptimizationIgnored.value = batteryOptimizationManager.isIgnoringBatteryOptimizations()
+            _isBackgroundRestricted.value = batteryOptimizationManager.isBackgroundRestricted()
         }
 
         fun requestBatteryOptimizationExemption() {

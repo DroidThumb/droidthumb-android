@@ -55,6 +55,7 @@
 
     <!-- Battery Optimization (founder phone-test feedback, PR #9 round 1, exact wording) -->
     <string name="battery_optimization_card_title">The connection may drop while your phone is idle</string>
+    <string name="battery_optimization_card_body">Open DroidThumb\'s app info, tap Battery and allow background use.</string>
     <string name="battery_optimization_card_action">Fix</string>
 
     <!-- Server Logs -->

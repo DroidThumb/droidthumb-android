@@ -56,6 +56,15 @@ private const val PERMISSION_REFRESH_RETRY_DELAY_MS = 1_000L
  *  shortcut takes over). Top-level and `internal` so the decision is unit-testable. */
 internal fun shouldShowPausePermissionButton(isAccessibilityEnabled: Boolean): Boolean = isAccessibilityEnabled
 
+/** Returns whether Home should show the battery warning card: whenever the Doze exemption is
+ *  missing OR Android has restricted the app's background activity (either can silently kill
+ *  the connection while the phone is idle — 17 Oct phone test). Top-level and `internal` so the
+ *  decision is unit-testable. */
+internal fun shouldShowBatteryWarningCard(
+    isBatteryOptimizationIgnored: Boolean,
+    isBackgroundRestricted: Boolean,
+): Boolean = !isBatteryOptimizationIgnored || isBackgroundRestricted
+
 /**
  * The Home tab's main screen (plan 70 US3) — replaces the old "Server" tab's card stack with a
  * single status indicator plus the account-centric sections the approved mockup's `Main.dc.html`
@@ -78,6 +87,7 @@ fun HomeScreen(
 
     val isAccessibilityEnabled by viewModel.isAccessibilityEnabled.collectAsStateWithLifecycle()
     val isBatteryOptimizationIgnored by viewModel.isBatteryOptimizationIgnored.collectAsStateWithLifecycle()
+    val isBackgroundRestricted by viewModel.isBackgroundRestricted.collectAsStateWithLifecycle()
 
     val transportStatus by transportViewModel.transportStatus.collectAsStateWithLifecycle()
     val pauseState by transportViewModel.pauseState.collectAsStateWithLifecycle()
@@ -133,9 +143,13 @@ fun HomeScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            if (!isBatteryOptimizationIgnored) {
+            if (shouldShowBatteryWarningCard(isBatteryOptimizationIgnored, isBackgroundRestricted)) {
+                // A8 (17 Oct phone test): the card's Fix opens OUR App Info page, where the
+                // person taps Battery and allows background use — clearer than the system
+                // battery list the first-setup step still uses. Re-checks on every resume
+                // (MainActivity.onResume), so the card disappears once the exemption is on.
                 BatteryOptimizationCard(
-                    onRequestExemption = { viewModel.requestBatteryOptimizationExemption() },
+                    onFixClick = { PermissionUtils.openAppInfoSettings(context) },
                 )
                 // OEM-specific background-manager guidance (founder phone-test feedback, PR #9
                 // round 1) — a small non-blocking addition right below the existing card, shown
