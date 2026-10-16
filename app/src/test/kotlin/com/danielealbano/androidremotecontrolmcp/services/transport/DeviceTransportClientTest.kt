@@ -31,6 +31,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
@@ -51,6 +52,40 @@ import kotlin.time.Duration.Companion.seconds
  * `LargeClass` threshold; both share [DeviceTransportClientTestBase]'s fixtures.
  */
 class DeviceTransportClientTest : DeviceTransportClientTestBase() {
+    @Test
+    fun `the transport OkHttpClient is built with a 30s ping interval`() {
+        assertEquals(
+            (DeviceTransportClientImpl.PING_INTERVAL_SECONDS * 1000).toInt(),
+            transportOkHttpClient().pingIntervalMillis,
+        )
+    }
+
+    @Test
+    fun `an abrupt socket failure after welcome moves the status from Connected to Reconnecting`() =
+        runBlocking {
+            val connections = AtomicInteger(0)
+            withFakeServer(
+                handler = {
+                    if (connections.incrementAndGet() == 1) {
+                        incoming.receive() // hello
+                        send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                        // Abrupt teardown without a close frame - what a lost Wi-Fi/NAT-dead
+                        // socket looks like from the client side.
+                        coroutineContext.cancel()
+                    } else {
+                        incoming.receive() // hello
+                        close(CloseReason(4000, "test teardown"))
+                    }
+                },
+            ) { port ->
+                val client = newClient()
+                client.start("127.0.0.1", port, tls = false)
+                awaitStatus<TransportStatus.Connected>(client)
+                awaitStatus<TransportStatus.Reconnecting>(client)
+                client.stop()
+            }
+        }
+
     @Test
     fun `connects, sends a schema-shaped hello, and reaches Connected on welcome`() =
         runBlocking {
