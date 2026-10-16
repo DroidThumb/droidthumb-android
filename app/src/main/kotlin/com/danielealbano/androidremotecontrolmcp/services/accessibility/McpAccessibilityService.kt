@@ -14,6 +14,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -409,14 +410,30 @@ class McpAccessibilityService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // See isForeignWindowStateChange's doc comment: DroidThumb's own overlay windows,
-                // the IME, and other non-TYPE_APPLICATION windows (status bar, recents, system
-                // dialogs) fire this same event type and must never be tracked as "the foreground
-                // app" themselves.
+                // See isForeignWindowStateChange's doc comment: DroidThumb's own overlay windows
+                // and non-TYPE_APPLICATION windows (IME, status bar, recents, system dialogs)
+                // fire this same event type and must never be tracked as "the foreground app"
+                // themselves. An unresolvable (null) window type counts as foreign: the window
+                // lookup most often fails exactly when a newly launched app's first window-state
+                // event fires, and A5's launch_app wait depends on the package being recorded.
                 val windowType = getAccessibilityWindows().firstOrNull { it.id == event.windowId }?.type
                 if (isForeignWindowStateChange(event.packageName?.toString(), BuildConfig.APPLICATION_ID, windowType)) {
-                    event.packageName?.toString()?.let { pkg -> currentPackageName = pkg }
-                    event.className?.toString()?.let { className -> currentActivityName = className }
+                    // Package-level backstop on top of the window-type check: even when the event
+                    // looks like a real application window, our own package, System UI and every
+                    // enabled input method must never overwrite the tracked foreground package -
+                    // the control bar captures its "Back to <app>" return target from it, and an
+                    // IME package has no launcher activity (16 Oct phone test: "Back to Gboard").
+                    val recordedPackage = event.packageName?.toString()
+                    if (recordedPackage != null &&
+                        !isBackToTargetPackageForbidden(
+                            recordedPackage,
+                            BuildConfig.APPLICATION_ID,
+                            enabledInputMethodPackages(),
+                        )
+                    ) {
+                        currentPackageName = recordedPackage
+                        event.className?.toString()?.let { className -> currentActivityName = className }
+                    }
                 }
                 Log.d(
                     TAG,
@@ -523,6 +540,15 @@ class McpAccessibilityService : AccessibilityService() {
      * or null if unknown.
      */
     fun getCurrentPackageName(): String? = currentPackageName
+
+    /** Packages of every enabled input method, read at check time (the list changes rarely; no
+     *  caching needed). Empty when the input method manager is unavailable, so the package check
+     *  degrades to the own-package/System-UI exclusions only. */
+    private fun enabledInputMethodPackages(): List<String> =
+        getSystemService(InputMethodManager::class.java)
+            ?.enabledInputMethodList
+            ?.map { it.packageName }
+            .orEmpty()
 
     /**
      * Returns the class name (activity name) of the currently focused window,
@@ -806,8 +832,7 @@ internal fun invalidateCache(cache: AccessibilityNodeCache?) {
  *    DroidThumb" instead of the real foreground app, because the overlay's own appearance had
  *    overwritten the tracked foreground package with DroidThumb's own package right as a session
  *    started.
- *  - [windowType] is [AccessibilityWindowInfo.TYPE_APPLICATION] (or unresolvable, `null`, kept as
- *    foreign so a failed window lookup never regresses past behavior). A session's very first
+ *  - [windowType] is [AccessibilityWindowInfo.TYPE_APPLICATION]. A session's very first
  *    step is very often a tap into a text field followed by typing, which brings up the IME -
  *    itself a [AccessibilityWindowInfo.TYPE_INPUT_METHOD] window, not
  *    `TYPE_APPLICATION`, but one that still fires its OWN `TYPE_WINDOW_STATE_CHANGED` under the
@@ -821,6 +846,16 @@ internal fun invalidateCache(cache: AccessibilityNodeCache?) {
  *    window (status bar, quick settings, recents, system dialogs) by window *type* rather than by
  *    package name, so it holds across OEM System UI package names rather than special-casing
  *    `com.android.systemui`.
+ *  - A null (unresolvable) [windowType] counts as foreign (pre-A3 behavior). The original A3 rule
+ *    (null is NOT foreign) collided with A5's `launch_app` wait, which waits for
+ *    [McpAccessibilityService.getCurrentPackageName] to equal the launched package: the window
+ *    lookup most often fails exactly when a newly launched app's first window-state event fires
+ *    (its window may not be in [McpAccessibilityService.getAccessibilityWindows] yet), so the
+ *    stricter rule could make `launch_app` wait the full timeout and report failure for an app
+ *    that did come to the front. The Gboard regression this check originally guarded is instead
+ *    covered at the recording site by [isBackToTargetPackageForbidden], which excludes our own
+ *    package, System UI and every enabled input method by package name - the "Back to Gboard"
+ *    event's package WAS Gboard.
  *
  * Top-level and `internal` so the decision can be unit-tested without instantiating the service.
  */
@@ -831,6 +866,33 @@ internal fun isForeignWindowStateChange(
 ): Boolean =
     eventPackageName != selfPackageName &&
         (windowType == null || windowType == AccessibilityWindowInfo.TYPE_APPLICATION)
+
+/**
+ * Returns true if [packageName] must NEVER be recorded as the tracked foreground package and
+ * therefore never surface as the control bar's "Back to <app>" return target, even when the
+ * window type check in [isForeignWindowStateChange] passes.
+ *
+ * Belt-and-braces package-level exclusion alongside the window-type check above (16 Oct phone
+ * test: the bar said "Back to Gboard" after typing in the Claude app, because a window whose
+ * type could not be resolved passed the old null-tolerant check). Excludes DroidThumb's own
+ * package (the overlay windows), `com.android.systemui` (status bar/recents/system dialogs),
+ * and every enabled input method's package - an IME has no launcher activity, so tapping it as
+ * a return target is a silent no-op. An IME can also legitimately present a
+ * TYPE_APPLICATION-mode window on some OEM keyboards, which the type check alone would miss.
+ *
+ * Top-level and `internal` so the decision can be unit-tested without instantiating the service.
+ */
+internal fun isBackToTargetPackageForbidden(
+    packageName: String,
+    ownPackage: String,
+    imePackages: List<String>,
+): Boolean =
+    packageName == ownPackage ||
+        packageName == SYSTEM_UI_PACKAGE ||
+        packageName in imePackages
+
+/** Stock Android's System UI package, excluded by name because it never is "the foreground app". */
+internal const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 
 /**
  * Returns true if the floating control bar/glow overlay windows should be present for [state] -

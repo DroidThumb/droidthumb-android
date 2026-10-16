@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -19,6 +20,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -26,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.R
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService
 import com.danielealbano.androidremotecontrolmcp.ui.components.AccountAvatarMenu
 import com.danielealbano.androidremotecontrolmcp.ui.components.AiClientsSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.BatteryOptimizationCard
@@ -38,6 +44,17 @@ import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountClaimState
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewModel
+import com.danielealbano.androidremotecontrolmcp.utils.PermissionUtils
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/** Second permission-status refresh after disableSelf(), long enough for the system setting to have caught up. */
+private const val PERMISSION_REFRESH_RETRY_DELAY_MS = 1_000L
+
+/** Returns whether Home should show the "Pause permission" button under the status indicator:
+ *  only while the accessibility service is running (once it's off, the warning card's re-enable
+ *  shortcut takes over). Top-level and `internal` so the decision is unit-testable. */
+internal fun shouldShowPausePermissionButton(isAccessibilityEnabled: Boolean): Boolean = isAccessibilityEnabled
 
 /**
  * The Home tab's main screen (plan 70 US3) — replaces the old "Server" tab's card stack with a
@@ -50,7 +67,6 @@ import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewMode
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onNavigateToPermissions: () -> Unit,
     onNavigateToClientDetail: (clientId: String) -> Unit,
     onNavigateToAddClient: () -> Unit,
     modifier: Modifier = Modifier,
@@ -103,7 +119,17 @@ fun HomeScreen(
                     .padding(16.dp),
         ) {
             if (!isAccessibilityEnabled) {
-                PermissionWarningCard(onClick = onNavigateToPermissions)
+                PermissionWarningCard(
+                    onClick = {
+                        // 16 Oct phone test: open OUR service's own settings page directly, not
+                        // the generic Permissions screen - re-enabling the accessibility service
+                        // is a multi-tap hunt otherwise.
+                        PermissionUtils.openAccessibilityServiceSettings(
+                            context,
+                            McpAccessibilityService::class.java,
+                        )
+                    },
+                )
                 Spacer(Modifier.height(16.dp))
             }
 
@@ -128,6 +154,64 @@ fun HomeScreen(
                 onPauseIndefinitely = transportViewModel::pauseIndefinitely,
                 onResumeClick = transportViewModel::resume,
             )
+
+            // One-tap pause of the accessibility permission itself (16 Oct phone test: banking
+            // apps like Viettel Tammi refuse to open while ANY accessibility service is on).
+            // Shown only while the service is on - once it's off, the warning card above takes
+            // over with the re-enable shortcut. disableSelf() turns the service off system-wide
+            // without the user having to find it in Settings; refreshing the permission status
+            // immediately surfaces that warning card, and again after 1s because disableSelf()
+            // may not have updated the system setting by the time the immediate refresh reads it.
+            if (shouldShowPausePermissionButton(isAccessibilityEnabled)) {
+                var showPausePermissionDialog by remember { mutableStateOf(false) }
+                val scope = rememberCoroutineScope()
+                TextButton(
+                    onClick = { showPausePermissionDialog = true },
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Text(stringResource(R.string.pause_permission_action))
+                }
+
+                if (showPausePermissionDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showPausePermissionDialog = false },
+                        title = { Text(stringResource(R.string.pause_permission_dialog_title)) },
+                        text = {
+                            Text(stringResource(R.string.pause_permission_dialog_body))
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showPausePermissionDialog = false
+                                    val service = McpAccessibilityService.instance
+                                    if (service != null) {
+                                        service.disableSelf()
+                                        viewModel.refreshPermissionStatus(context)
+                                        scope.launch {
+                                            delay(PERMISSION_REFRESH_RETRY_DELAY_MS)
+                                            viewModel.refreshPermissionStatus(context)
+                                        }
+                                    } else {
+                                        // Setting says enabled but the service isn't bound:
+                                        // the user switches it off on our service's settings page.
+                                        PermissionUtils.openAccessibilityServiceSettings(
+                                            context,
+                                            McpAccessibilityService::class.java,
+                                        )
+                                    }
+                                },
+                            ) {
+                                Text(stringResource(R.string.pause_permission_dialog_confirm))
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showPausePermissionDialog = false }) {
+                                Text(stringResource(R.string.server_logs_clear_dialog_cancel))
+                            }
+                        },
+                    )
+                }
+            }
 
             Spacer(Modifier.height(20.dp))
 
