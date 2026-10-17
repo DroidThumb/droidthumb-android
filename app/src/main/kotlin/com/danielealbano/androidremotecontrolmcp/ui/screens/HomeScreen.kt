@@ -29,10 +29,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService
 import com.danielealbano.androidremotecontrolmcp.ui.components.AccountAvatarMenu
+import com.danielealbano.androidremotecontrolmcp.ui.components.AccountSessionCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.AiClientsSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.BatteryOptimizationCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.CalloutCard
@@ -96,7 +98,15 @@ fun HomeScreen(
     val claimState by accountViewModel.claimState.collectAsStateWithLifecycle()
     val connectionsState by accountViewModel.connectionsState.collectAsStateWithLifecycle()
     val accountProfile by accountViewModel.accountProfile.collectAsStateWithLifecycle()
-    val thisDeviceState by accountViewModel.thisDeviceState.collectAsStateWithLifecycle()
+    val sessionState by accountViewModel.sessionState.collectAsStateWithLifecycle()
+
+    // The authoritative session check (plan A1a): runs when Home starts and every time the app
+    // resumes. Single-flight in the view model — overlapping triggers start nothing extra, and
+    // there is no retry or timer anywhere: one trigger is one attempt.
+    LifecycleResumeEffect(Unit) {
+        accountViewModel.checkSession(context)
+        onPauseOrDispose { }
+    }
 
     // Same durable-claim semantics as the old ServerScreen: an automatic refresh on reopening the
     // app must never put up Google's own account-picker UI by itself (founder feedback, PR #8
@@ -104,7 +114,6 @@ fun HomeScreen(
     LaunchedEffect(accountId) {
         if (accountId != null && claimState !is AccountClaimState.Claimed) {
             accountViewModel.loadConnections(context, allowInteractive = false)
-            accountViewModel.loadThisDevice(context)
         }
     }
 
@@ -115,6 +124,7 @@ fun HomeScreen(
             actions = {
                 AccountAvatarMenu(
                     profile = accountProfile,
+                    sessionState = sessionState,
                     onSignInClick = { accountViewModel.signInAndClaim(context) },
                     onSignOutClick = { accountViewModel.signOut(context) },
                     modifier = Modifier.padding(end = 12.dp),
@@ -229,6 +239,18 @@ fun HomeScreen(
 
             Spacer(Modifier.height(20.dp))
 
+            // One sign-in status card driven by the single AccountSessionState (plan A1a); hidden
+            // entirely in the signed-in-and-claimed steady state.
+            AccountSessionCard(
+                sessionState = sessionState,
+                onSignInClick = { accountViewModel.signInAndClaim(context) },
+                // "Link this phone" runs the claim (plan A1b) — the same one-pass chain.
+                onLinkPhoneClick = { accountViewModel.signInAndClaim(context) },
+                onRetryClick = { accountViewModel.checkSession(context) },
+            )
+
+            Spacer(Modifier.height(20.dp))
+
             AiClientsSection(
                 connectionsState = connectionsState,
                 onClientClick = onNavigateToClientDetail,
@@ -243,7 +265,7 @@ fun HomeScreen(
 
             ThisDeviceSection(
                 deviceModel = accountViewModel.deviceModel,
-                thisDeviceState = thisDeviceState,
+                sessionState = sessionState,
             )
         }
     }

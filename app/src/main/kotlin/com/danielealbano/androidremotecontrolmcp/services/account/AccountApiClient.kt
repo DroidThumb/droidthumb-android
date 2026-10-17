@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -83,6 +84,16 @@ sealed interface RenameResult {
     ) : RenameResult
 }
 
+/** Why a call failed — distinguishes what the person looking at the screen can do about it:
+ *  retry later because the network is unreachable ([Network]), sign in again because the server
+ *  rejected the token ([Rejected], HTTP 401/403), or nothing but waiting for the server
+ *  ([Server], any other HTTP status). */
+enum class ApiErrorKind {
+    Network,
+    Rejected,
+    Server,
+}
+
 sealed interface DevicesResult {
     data class Success(
         val devices: List<AccountDevice>,
@@ -90,7 +101,10 @@ sealed interface DevicesResult {
     ) : DevicesResult
 
     data class Failed(
+        val kind: ApiErrorKind,
         val message: String,
+        val httpStatus: Int? = null,
+        val exceptionClass: String? = null,
     ) : DevicesResult
 }
 
@@ -380,12 +394,34 @@ class AccountApiClientImpl
                             )
                         }
 
+                        HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden -> {
+                            DevicesResult.Failed(
+                                kind = ApiErrorKind.Rejected,
+                                message = "HTTP ${response.status.value}",
+                                httpStatus = response.status.value,
+                            )
+                        }
+
                         else -> {
-                            DevicesResult.Failed("HTTP ${response.status.value}")
+                            DevicesResult.Failed(
+                                kind = ApiErrorKind.Server,
+                                message = "HTTP ${response.status.value}",
+                                httpStatus = response.status.value,
+                            )
                         }
                     }
+                } catch (e: IOException) {
+                    DevicesResult.Failed(
+                        kind = ApiErrorKind.Network,
+                        message = e.message ?: "network unreachable",
+                        exceptionClass = e::class.java.simpleName,
+                    )
                 } catch (e: Exception) {
-                    DevicesResult.Failed(e.message ?: "devices request failed")
+                    DevicesResult.Failed(
+                        kind = ApiErrorKind.Network,
+                        message = e.message ?: "devices request failed",
+                        exceptionClass = e::class.java.simpleName,
+                    )
                 }
             }
 

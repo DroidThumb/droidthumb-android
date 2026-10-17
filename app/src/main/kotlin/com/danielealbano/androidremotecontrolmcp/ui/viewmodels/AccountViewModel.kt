@@ -8,6 +8,7 @@ import com.danielealbano.androidremotecontrolmcp.di.IoDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClient
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountConnection
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountDevice
+import com.danielealbano.androidremotecontrolmcp.services.account.ApiErrorKind
 import com.danielealbano.androidremotecontrolmcp.services.account.ClaimTokenResult
 import com.danielealbano.androidremotecontrolmcp.services.account.ConnectionsResult
 import com.danielealbano.androidremotecontrolmcp.services.account.DevicesResult
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 /** State of the sign-in -> claim-token -> claim_account chain (design doc D-33). */
@@ -76,23 +78,30 @@ data class AccountProfile(
     val profilePictureUri: String?,
 )
 
-/** State of fetching this device's own claimed-device record (plan 70 US3's "This device"
- *  section; `droidthumb-server` plan 05 US3). */
-sealed interface ThisDeviceState {
-    data object Idle : ThisDeviceState
+/** The single source of truth for the app's sign-in state (plan A1a): derived only from the
+ *  server's answer to `POST /v1/accounts/devices` after a fresh silent Google id token — never
+ *  from timers, cached flags or blind retries. Home, the avatar menu and the This device card
+ *  all read this one state. */
+sealed interface AccountSessionState {
+    data object Checking : AccountSessionState
 
-    data object Loading : ThisDeviceState
+    /** [claimed] `true` means this phone's derived device id is in the server's returned device
+     *  list, and [device] is that device's own record; `false` (and a `null` [device]) means the
+     *  server accepted the token but this phone isn't linked to the account yet. */
+    data class SignedIn(
+        val claimed: Boolean,
+        val device: AccountDevice? = null,
+    ) : AccountSessionState
 
-    data class Loaded(
-        /** `null` if the server's device list doesn't (yet) include this device — e.g. right
-         *  after a fresh claim, before this device's own registration round-trips. */
-        val device: AccountDevice?,
-        val deviceLimit: Int?,
-    ) : ThisDeviceState
+    data object SignedOut : AccountSessionState
 
-    data class Failed(
-        val message: String,
-    ) : ThisDeviceState
+    data class Unreachable(
+        val reason: String,
+    ) : AccountSessionState
+
+    data class ServerError(
+        val httpStatus: Int,
+    ) : AccountSessionState
 }
 
 @HiltViewModel
@@ -124,8 +133,12 @@ class AccountViewModel
         private val _accountProfile = MutableStateFlow<AccountProfile?>(null)
         val accountProfile: StateFlow<AccountProfile?> = _accountProfile.asStateFlow()
 
-        private val _thisDeviceState = MutableStateFlow<ThisDeviceState>(ThisDeviceState.Idle)
-        val thisDeviceState: StateFlow<ThisDeviceState> = _thisDeviceState.asStateFlow()
+        private val _sessionState = MutableStateFlow<AccountSessionState>(AccountSessionState.Checking)
+        val sessionState: StateFlow<AccountSessionState> = _sessionState.asStateFlow()
+
+        /** Single-flight guard for [checkSession]: only one authoritative check at a time — a new
+         *  trigger while one is in flight does not start another. */
+        private val sessionCheckInFlight = AtomicBoolean(false)
 
         /** Runs the full Google sign-in -> claim-token -> claim_account chain (design doc D-33).
          *  `context` must be an Activity context — Credential Manager's account picker UI needs it. */
@@ -182,7 +195,10 @@ class AccountViewModel
                         // straight back to a SECOND interactive picker, right after the first one
                         // (founder phone-test feedback, PR #9 round 1 - "double sign-in").
                         loadConnectionsWithToken(idToken)
-                        loadThisDeviceWithToken(idToken)
+                        // The This device card's state comes from the same authoritative session
+                        // check everything else reads, not a second device-list call with this
+                        // token (plan A1a/A1b: after a sign-in completes, the A1a check runs).
+                        checkSession(context)
                     }
 
                     is ClaimResult.Rejected -> {
@@ -287,56 +303,85 @@ class AccountViewModel
             }
         }
 
-        /** This device's own claimed-device record (plan 70 US3's "This device" section): filters
-         *  the account's full device list down to the one whose id matches this phone's own
-         *  (derived locally from its identity key, same as [DeviceTransportClient]'s handshake —
-         *  no new server concept, just a new list call). */
-        fun loadThisDevice(context: Context) {
-            viewModelScope.launch(ioDispatcher) {
-                _thisDeviceState.value = ThisDeviceState.Loading
-                val idToken = freshIdTokenOrNull(context, allowInteractive = false)
-                if (idToken == null) {
-                    _thisDeviceState.value = ThisDeviceState.Failed("Sign in to view this device")
-                    return@launch
-                }
-                loadThisDeviceWithToken(idToken)
-            }
-        }
-
-        /** Does the actual fetch once a caller already has a usable `idToken` in hand - same split
-         *  as [loadConnectionsWithToken], and for the same reason ([signInAndClaim] skips a second
-         *  Credential Manager round-trip). Every step after the network call - including
-         *  [currentDeviceId]'s Android Keystore access, which has no try/catch of its own and can
-         *  throw on real devices - is wrapped here so an unexpected failure always resolves to
-         *  [ThisDeviceState.Failed] rather than leaving [ThisDeviceState.Loading] (a spinner with no
-         *  way out) on screen forever (founder phone-test feedback, PR #9 round 1). The network call
-         *  itself already can't hang indefinitely - [AccountApiClient]'s ktor client has its own
-         *  request/connect timeouts and turns those into [DevicesResult.Failed]. */
+        /** The authoritative session check (plan A1a): one silent Google id token fetch, then
+         *  `POST /v1/accounts/devices`. Runs when Home starts, when the app resumes, after a
+         *  sign-in completes and when the user taps Retry. Single-flight via
+         *  [sessionCheckInFlight]: a trigger while one check is in flight starts nothing. There
+         *  is deliberately NO retry, timer or second attempt anywhere: one trigger is one
+         *  attempt, and the state shown always comes from this check's result. */
         @Suppress("TooGenericExceptionCaught")
-        private suspend fun loadThisDeviceWithToken(idToken: String) {
-            _thisDeviceState.value = ThisDeviceState.Loading
-            try {
-                val config = settingsRepository.getTransportConfig()
-                when (val result = accountApiClient.listDevices(config.host, config.port, config.tls, idToken)) {
-                    is DevicesResult.Success -> {
-                        val thisDeviceId = currentDeviceId()
-                        _thisDeviceState.value =
-                            ThisDeviceState.Loaded(
-                                device = result.devices.firstOrNull { it.deviceId == thisDeviceId },
-                                deviceLimit = result.deviceLimit,
-                            )
-                    }
+        fun checkSession(context: Context) {
+            if (!sessionCheckInFlight.compareAndSet(false, true)) return
+            viewModelScope.launch(ioDispatcher) {
+                try {
+                    _sessionState.value = AccountSessionState.Checking
+                    val idToken =
+                        when (val signIn = googleSignInClient.signIn(context, filterByAuthorizedAccounts = true)) {
+                            is GoogleSignInResult.Success -> {
+                                // The silent fetch also repopulates the in-memory profile, so the
+                                // avatar is right even straight after process death.
+                                _accountProfile.value =
+                                    AccountProfile(signIn.displayName, signIn.email, signIn.profilePictureUri)
+                                signIn.idToken
+                            }
 
-                    is DevicesResult.Failed -> {
-                        _thisDeviceState.value = ThisDeviceState.Failed(result.message)
+                            is GoogleSignInResult.NoCredential -> {
+                                _sessionState.value = AccountSessionState.SignedOut
+                                return@launch
+                            }
+
+                            is GoogleSignInResult.Failed -> {
+                                _sessionState.value = AccountSessionState.Unreachable(signIn.message)
+                                return@launch
+                            }
+                        }
+
+                    val config = settingsRepository.getTransportConfig()
+                    when (val result = accountApiClient.listDevices(config.host, config.port, config.tls, idToken)) {
+                        is DevicesResult.Success -> {
+                            // currentDeviceId() touches the Android Keystore, which can throw on
+                            // real devices; the outer catch maps that to Unreachable (its class)
+                            // so the state never sticks on Checking.
+                            val thisDeviceId = currentDeviceId()
+                            val device = result.devices.firstOrNull { it.deviceId == thisDeviceId }
+                            _sessionState.value =
+                                AccountSessionState.SignedIn(claimed = device != null, device = device)
+                        }
+
+                        is DevicesResult.Failed -> {
+                            _sessionState.value = sessionStateFor(result)
+                        }
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _sessionState.value = AccountSessionState.Unreachable(e::class.java.simpleName)
+                } finally {
+                    sessionCheckInFlight.set(false)
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _thisDeviceState.value = ThisDeviceState.Failed(e.message ?: "Could not load this device")
             }
         }
+
+        /** Maps a failed device-list call to the session state it means — [ApiErrorKind.Rejected]
+         *  (HTTP 401/403) means the token was rejected, so SignedOut; [ApiErrorKind.Server] is the
+         *  server's own problem; [ApiErrorKind.Network] is an IOException of any kind (the client
+         *  records the exception's class for logging) — a short reason for the screen. */
+        private fun sessionStateFor(result: DevicesResult.Failed): AccountSessionState =
+            when (result.kind) {
+                ApiErrorKind.Rejected -> {
+                    AccountSessionState.SignedOut
+                }
+
+                ApiErrorKind.Server -> {
+                    AccountSessionState.ServerError(result.httpStatus ?: 0)
+                }
+
+                ApiErrorKind.Network -> {
+                    AccountSessionState.Unreachable(
+                        result.message ?: result.exceptionClass ?: "network unreachable",
+                    )
+                }
+            }
 
         /** Clears this device's local account association ("Sign out", plan 70 US3's account
          *  avatar menu) — mirrors [GoogleSignInClient.signOut]'s own contract: nothing server-side
@@ -348,7 +393,9 @@ class AccountViewModel
                 _accountProfile.value = null
                 _claimState.value = AccountClaimState.Idle
                 _connectionsState.value = ConnectionsState.Idle
-                _thisDeviceState.value = ThisDeviceState.Idle
+                // The next authoritative check (next Home resume / Retry) re-derives this from the
+                // server; SignedOut is the state this device is in until then (no credential left).
+                _sessionState.value = AccountSessionState.SignedOut
             }
         }
 

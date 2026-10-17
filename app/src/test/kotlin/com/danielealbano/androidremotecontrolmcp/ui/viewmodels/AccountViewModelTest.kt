@@ -6,6 +6,7 @@ import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsReposit
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClient
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountConnection
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountDevice
+import com.danielealbano.androidremotecontrolmcp.services.account.ApiErrorKind
 import com.danielealbano.androidremotecontrolmcp.services.account.ClaimTokenResult
 import com.danielealbano.androidremotecontrolmcp.services.account.ConnectionsResult
 import com.danielealbano.androidremotecontrolmcp.services.account.DevicesResult
@@ -22,6 +23,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,31 +82,36 @@ class AccountViewModelTest {
     @Test
     fun `signInAndClaim runs the full chain and ends Claimed on success`() =
         runTest {
+            val publicKeyBytes = byteArrayOf(1, 2, 3)
+            every { deviceIdentityKeyStore.ensurePublicKeyBase64() } returns
+                Base64.getEncoder().encodeToString(publicKeyBytes)
+            val thisDeviceId = deriveDeviceId(publicKeyBytes)
             coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
                 GoogleSignInResult.Success("id-token")
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.mintClaimToken("h", 1, false, "id-token") } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
             coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.Claimed("acc_1")
             coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
                 ConnectionsResult.Success(emptyList())
-            coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
-                DevicesResult.Success(emptyList(), deviceLimit = null)
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+                DevicesResult.Success(listOf(AccountDevice(thisDeviceId, "2026-10-01", null)), deviceLimit = null)
 
             viewModel.signInAndClaim(context)
             advanceUntilIdle()
 
             assertEquals(AccountClaimState.Claimed("acc_1"), viewModel.claimState.value)
             coVerify { settingsRepository.updateAccountId("acc_1") }
-            // A fresh claim must also load "This device" - HomeScreen's own auto-refresh effect
-            // can't do it (see loadThisDevice's own doc comment: it guards on claimState not yet
-            // being Claimed, which is already false by the time that effect's recomposition runs).
-            assertTrue(viewModel.thisDeviceState.value is ThisDeviceState.Loaded)
-            // The post-claim connections/device load must reuse the id_token this interactive
-            // sign-in already obtained, never calling Credential Manager a second time - a silent
-            // (filterByAuthorizedAccounts=true) attempt right after an interactive grant isn't
-            // guaranteed to succeed, and falling back from there to a second interactive picker is
-            // exactly the "double sign-in" founder phone-test feedback (PR #9 round 1) reported.
-            coVerify(exactly = 0) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) }
+            // Plan A1b: after a successful claim the A1a session check runs, so the sign-in state
+            // comes from the server's device list, not from the claim's own outcome alone.
+            assertEquals(
+                AccountSessionState.SignedIn(
+                    claimed = true,
+                    device = AccountDevice(thisDeviceId, "2026-10-01", null),
+                ),
+                viewModel.sessionState.value,
+            )
         }
 
     @Test
@@ -253,15 +260,15 @@ class AccountViewModelTest {
         }
 
     @Test
-    fun `loadThisDevice matches this device's own id out of the account's full device list`() =
+    fun `checkSession reports SignedIn claimed when the device list includes this phone`() =
         runTest {
             val publicKeyBytes = byteArrayOf(1, 2, 3)
             every { deviceIdentityKeyStore.ensurePublicKeyBase64() } returns
                 Base64.getEncoder().encodeToString(publicKeyBytes)
             val thisDeviceId = deriveDeviceId(publicKeyBytes)
             coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
-                GoogleSignInResult.Success("token")
-            coEvery { accountApiClient.listDevices("h", 1, false, "token") } returns
+                GoogleSignInResult.Success("silent-token")
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
                 DevicesResult.Success(
                     devices =
                         listOf(
@@ -271,32 +278,165 @@ class AccountViewModelTest {
                     deviceLimit = null,
                 )
 
-            viewModel.loadThisDevice(context)
+            viewModel.checkSession(context)
             advanceUntilIdle()
 
             assertEquals(
-                ThisDeviceState.Loaded(device = AccountDevice(thisDeviceId, "2026-10-01", null), deviceLimit = null),
-                viewModel.thisDeviceState.value,
+                AccountSessionState.SignedIn(
+                    claimed = true,
+                    device = AccountDevice(thisDeviceId, "2026-10-01", null),
+                ),
+                viewModel.sessionState.value,
             )
         }
 
     @Test
-    fun `loadThisDevice resolves to Failed, not a stuck Loading, if the device identity key store throws`() =
+    fun `checkSession reports SignedIn not claimed when the device list does not include this phone`() =
         runTest {
-            // Real-device failure mode (founder phone-test feedback, PR #9 round 1 - "This device"
-            // spinner that never stopped): ensurePublicKeyBase64 is a real Android Keystore call
-            // with no try/catch of its own, so any unexpected throw here must not leave
-            // ThisDeviceState stuck on Loading forever.
-            every { deviceIdentityKeyStore.ensurePublicKeyBase64() } throws RuntimeException("keystore unavailable")
+            val publicKeyBytes = byteArrayOf(1, 2, 3)
+            every { deviceIdentityKeyStore.ensurePublicKeyBase64() } returns
+                Base64.getEncoder().encodeToString(publicKeyBytes)
             coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
-                GoogleSignInResult.Success("token")
-            coEvery { accountApiClient.listDevices("h", 1, false, "token") } returns
-                DevicesResult.Success(devices = emptyList(), deviceLimit = null)
+                GoogleSignInResult.Success("silent-token")
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+                DevicesResult.Success(
+                    devices = listOf(AccountDevice("dt_other", "2026-09-01", "2026-09-02")),
+                    deviceLimit = null,
+                )
 
-            viewModel.loadThisDevice(context)
+            viewModel.checkSession(context)
             advanceUntilIdle()
 
-            assertTrue(viewModel.thisDeviceState.value is ThisDeviceState.Failed)
+            assertEquals(
+                AccountSessionState.SignedIn(claimed = false, device = null),
+                viewModel.sessionState.value,
+            )
+        }
+
+    @Test
+    fun `checkSession reports SignedOut when the silent fetch finds no credential`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.NoCredential
+
+            viewModel.checkSession(context)
+            advanceUntilIdle()
+
+            assertEquals(AccountSessionState.SignedOut, viewModel.sessionState.value)
+            coVerify(exactly = 0) { accountApiClient.listDevices(any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `checkSession reports SignedOut on HTTP 401 and 403`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("silent-token")
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+                DevicesResult.Failed(kind = ApiErrorKind.Rejected, message = "HTTP 401", httpStatus = 401)
+
+            viewModel.checkSession(context)
+            advanceUntilIdle()
+            assertEquals(AccountSessionState.SignedOut, viewModel.sessionState.value)
+
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+                DevicesResult.Failed(kind = ApiErrorKind.Rejected, message = "HTTP 403", httpStatus = 403)
+            viewModel.checkSession(context)
+            advanceUntilIdle()
+            assertEquals(AccountSessionState.SignedOut, viewModel.sessionState.value)
+        }
+
+    @Test
+    fun `checkSession reports Unreachable when the devices call fails with an IOException`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("silent-token")
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+                DevicesResult.Failed(
+                    kind = ApiErrorKind.Network,
+                    message = "Connection refused",
+                    exceptionClass = "ConnectException",
+                )
+
+            viewModel.checkSession(context)
+            advanceUntilIdle()
+
+            assertEquals(AccountSessionState.Unreachable("Connection refused"), viewModel.sessionState.value)
+        }
+
+    @Test
+    fun `checkSession reports ServerError(500) when the server fails`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("silent-token")
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+                DevicesResult.Failed(kind = ApiErrorKind.Server, message = "HTTP 500", httpStatus = 500)
+
+            viewModel.checkSession(context)
+            advanceUntilIdle()
+
+            assertEquals(AccountSessionState.ServerError(500), viewModel.sessionState.value)
+        }
+
+    @Test
+    fun `checkSession reports Unreachable with the exception class when the identity key store throws`() =
+        runTest {
+            // Real-device failure mode (former "This device" spinner that never stopped):
+            // ensurePublicKeyBase64 is a real Android Keystore call, and any unexpected throw must
+            // not leave the session state stuck on Checking.
+            every { deviceIdentityKeyStore.ensurePublicKeyBase64() } throws RuntimeException("keystore unavailable")
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("silent-token")
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+                DevicesResult.Success(devices = emptyList(), deviceLimit = null)
+
+            viewModel.checkSession(context)
+            advanceUntilIdle()
+
+            assertEquals(AccountSessionState.Unreachable("RuntimeException"), viewModel.sessionState.value)
+        }
+
+    @Test
+    fun `a second trigger while a check is in flight starts nothing`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("silent-token")
+            val gate = CompletableDeferred<Unit>()
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } coAnswers {
+                gate.await()
+                DevicesResult.Success(devices = emptyList(), deviceLimit = null)
+            }
+
+            viewModel.checkSession(context)
+            // The first check is suspended inside listDevices; a second trigger must start nothing.
+            viewModel.checkSession(context)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) }
+            gate.complete(Unit)
+            advanceUntilIdle()
+            coVerify(exactly = 1) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) }
+        }
+
+    @Test
+    fun `checkSession repopulates the in-memory profile from the silent fetch`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success(
+                    idToken = "silent-token",
+                    displayName = "Test Person",
+                    email = "test@example.com",
+                    profilePictureUri = null,
+                )
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+                DevicesResult.Success(devices = emptyList(), deviceLimit = null)
+
+            viewModel.checkSession(context)
+            advanceUntilIdle()
+
+            assertEquals(
+                AccountProfile(displayName = "Test Person", email = "test@example.com", profilePictureUri = null),
+                viewModel.accountProfile.value,
+            )
         }
 
     @Test
@@ -311,5 +451,6 @@ class AccountViewModelTest {
             coVerify { settingsRepository.clearAccountId() }
             assertEquals(AccountClaimState.Idle, viewModel.claimState.value)
             assertEquals(ConnectionsState.Idle, viewModel.connectionsState.value)
+            assertEquals(AccountSessionState.SignedOut, viewModel.sessionState.value)
         }
 }
