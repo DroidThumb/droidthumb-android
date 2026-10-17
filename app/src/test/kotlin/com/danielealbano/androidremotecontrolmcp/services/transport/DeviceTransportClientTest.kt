@@ -31,7 +31,11 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
@@ -85,10 +89,36 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                 },
             ) { port ->
                 val client = newClient()
-                client.start("127.0.0.1", port, tls = false)
-                awaitStatus<TransportStatus.Connected>(client)
-                awaitStatus<TransportStatus.Reconnecting>(client)
-                client.stop()
+                // Record every status EMISSION instead of sampling `status.value` (plan A1
+                // review): under full-suite load a sampled read can starve past the 15 s wall
+                // clock, while an emission-based wait depends only on the events themselves.
+                val seen = MutableStateFlow<List<TransportStatus>>(emptyList())
+                val reconnecting = CompletableDeferred<Unit>()
+                val collector =
+                    launch(Dispatchers.IO) {
+                        client.status.collect { status ->
+                            val recorded = seen.value + status
+                            seen.value = recorded
+                            if (status is TransportStatus.Reconnecting) reconnecting.complete(Unit)
+                        }
+                    }
+                try {
+                    client.start("127.0.0.1", port, tls = false)
+                    // Event-driven: wait for the Reconnecting emission itself, not for a wall
+                    // clock. The guard is only a hang safety net, not the synchronisation.
+                    withTimeout(60.seconds) { reconnecting.await() }
+                    val recorded = seen.value
+                    val connectedIndex = recorded.indexOfFirst { it is TransportStatus.Connected }
+                    val reconnectingIndex = recorded.indexOfFirst { it is TransportStatus.Reconnecting }
+                    assertTrue(connectedIndex >= 0, "Connected never emitted; saw $recorded")
+                    assertTrue(
+                        reconnectingIndex > connectedIndex,
+                        "Reconnecting must come after Connected; saw $recorded",
+                    )
+                } finally {
+                    collector.cancel()
+                    client.stop()
+                }
             }
         }
 
