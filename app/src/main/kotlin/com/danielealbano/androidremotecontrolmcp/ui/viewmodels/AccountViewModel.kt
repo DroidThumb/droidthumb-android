@@ -152,6 +152,11 @@ class AccountViewModel
          *  trigger while one is in flight does not start another. */
         private val sessionCheckInFlight = AtomicBoolean(false)
 
+        /** Single-flight guard for [signInAndClaim]: only one sign-in chain at a time — a tap
+         *  while one is in flight (e.g. still waiting for the connection) starts nothing, so the
+         *  server can never receive two claims from one button (plan A1 review). */
+        private val signInInFlight = AtomicBoolean(false)
+
         /** Every [AccountSessionState] transition is logged (plan A1b) — state class names only;
          *  never tokens, emails, codes or screen content. */
         private fun setSessionState(state: AccountSessionState) {
@@ -173,21 +178,29 @@ class AccountViewModel
          *  status flow's next `Connected` emission when the transport isn't connected yet, and
          *  sends nothing at all when the connection is paused. */
         fun signInAndClaim(context: Context) {
+            if (!signInInFlight.compareAndSet(false, true)) {
+                Logger.i(TAG, "Sign-in ignored: one is already in flight")
+                return
+            }
             viewModelScope.launch(ioDispatcher) {
-                _claimState.value = AccountClaimState.SigningIn
-                Logger.i(TAG, "Sign-in started")
-                val config = settingsRepository.getTransportConfig()
-                val idToken =
-                    obtainInteractiveIdToken(context, googleSignInClient, _accountProfile, _claimState)
-                        ?: return@launch
-                val claimToken =
-                    mintClaimTokenForSignIn(idToken, accountApiClient, config, _claimState) ?: return@launch
-                _claimState.value = AccountClaimState.Claiming
-                val claimResult =
-                    guardedStep("Claim", _claimState) {
-                        sendClaimWhenConnected(claimToken, transportClient, pauseSettings, _claimState)
-                    } ?: return@launch
-                finishClaim(context, idToken, claimResult)
+                try {
+                    _claimState.value = AccountClaimState.SigningIn
+                    Logger.i(TAG, "Sign-in started")
+                    val config = settingsRepository.getTransportConfig()
+                    val idToken =
+                        obtainInteractiveIdToken(context, googleSignInClient, _accountProfile, _claimState)
+                            ?: return@launch
+                    val claimToken =
+                        mintClaimTokenForSignIn(idToken, accountApiClient, config, _claimState) ?: return@launch
+                    _claimState.value = AccountClaimState.Claiming
+                    val claimResult =
+                        guardedStep("Claim", _claimState) {
+                            sendClaimWhenConnected(claimToken, transportClient, pauseSettings, _claimState)
+                        } ?: return@launch
+                    finishClaim(idToken, claimResult)
+                } finally {
+                    signInInFlight.set(false)
+                }
             }
         }
 
@@ -195,7 +208,6 @@ class AccountViewModel
          *  server's own reason; the bounded reply wait expiring is reported as a failure and never
          *  retried on its own. */
         private suspend fun finishClaim(
-            context: Context,
             idToken: String,
             claimResult: ClaimResult,
         ) {
@@ -213,14 +225,23 @@ class AccountViewModel
                     // going through loadConnections(allowInteractive = true)/freshIdTokenOrNull,
                     // which would try Credential Manager's *silent* request first - immediately
                     // after an interactive grant, Google's own account-authorization state isn't
-                    // guaranteed to have propagated yet, so that silent attempt can fail and fall
-                    // straight back to a SECOND interactive picker, right after the first one
-                    // (founder phone-test feedback, PR #9 round 1 - "double sign-in").
+                    // guaranteed to have propagated yet, so that silent attempt can fail (plan A1
+                    // review).
                     loadConnectionsWithToken(idToken)
                     // The This device card's state comes from the same authoritative session
-                    // check everything else reads, not a second device-list call with this
-                    // token (plan A1a/A1b: after a sign-in completes, the A1a check runs).
-                    checkSession(context)
+                    // check everything else reads (plan A1a/A1b) — but with the id token the
+                    // sign-in just obtained (plan A1 review): right after an interactive grant a
+                    // fresh SILENT Google fetch can fail, which used to show "signed out"
+                    // straight after signing in. Same server call, same state mapping, no extra
+                    // Google request.
+                    authoritativeSessionCheckWithToken(
+                        sessionCheckInFlight,
+                        ::setSessionState,
+                        settingsRepository,
+                        accountApiClient,
+                        deviceIdentityKeyStore,
+                        idToken,
+                    )
                 }
 
                 is ClaimResult.Rejected -> {
@@ -345,7 +366,7 @@ class AccountViewModel
                 try {
                     setSessionState(AccountSessionState.Checking)
                     val idToken =
-                        when (val signIn = googleSignInClient.signIn(context, filterByAuthorizedAccounts = true)) {
+                        when (val signIn = googleSignInClient.signInSilently(context)) {
                             is GoogleSignInResult.Success -> {
                                 // The silent fetch also repopulates the in-memory profile, so the
                                 // avatar is right even straight after process death.
@@ -359,29 +380,26 @@ class AccountViewModel
                                 return@launch
                             }
 
+                            is GoogleSignInResult.Cancelled -> {
+                                // The silent request never shows Google UI on its own, so this
+                                // is unreachable in practice; not an error either way.
+                                Logger.w(TAG, "Silent sign-in unexpectedly reported cancelled")
+                                return@launch
+                            }
+
                             is GoogleSignInResult.Failed -> {
                                 setSessionState(AccountSessionState.Unreachable(signIn.message))
                                 return@launch
                             }
                         }
 
-                    val config = settingsRepository.getTransportConfig()
-                    when (val result = accountApiClient.listDevices(config.host, config.port, config.tls, idToken)) {
-                        is DevicesResult.Success -> {
-                            // currentDeviceId() touches the Android Keystore, which can throw on
-                            // real devices; the outer catch maps that to Unreachable (its class)
-                            // so the state never sticks on Checking.
-                            val thisDeviceId = currentDeviceId()
-                            val device = result.devices.firstOrNull { it.deviceId == thisDeviceId }
-                            setSessionState(
-                                AccountSessionState.SignedIn(claimed = device != null, device = device),
-                            )
-                        }
-
-                        is DevicesResult.Failed -> {
-                            setSessionState(sessionStateFor(result))
-                        }
-                    }
+                    applyServerSessionState(
+                        settingsRepository,
+                        accountApiClient,
+                        deviceIdentityKeyStore,
+                        idToken,
+                        ::setSessionState,
+                    )
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -406,11 +424,6 @@ class AccountViewModel
                 // server; SignedOut is the state this device is in until then (no credential left).
                 setSessionState(AccountSessionState.SignedOut)
             }
-        }
-
-        private fun currentDeviceId(): String {
-            val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
-            return deriveDeviceId(publicKeyDer)
         }
 
         fun revokeConnection(
@@ -438,21 +451,21 @@ class AccountViewModel
             }
         }
 
-        /** [GoogleSignInClient.signIn] silently first (`filterByAuthorizedAccounts = true`); only
-         *  shows the account picker if that finds nothing AND [allowInteractive] permits it — see
-         *  [loadConnections]'s own doc comment for why an automatic call must pass `false`. */
+        /** [GoogleSignInClient.signInSilently] first; only shows the interactive sheet if that
+         *  finds nothing AND [allowInteractive] permits it — see [loadConnections]'s own doc
+         *  comment for why an automatic call must pass `false`. */
         private suspend fun freshIdTokenOrNull(
             context: Context,
             allowInteractive: Boolean,
         ): String? {
-            val silent = googleSignInClient.signIn(context, filterByAuthorizedAccounts = true)
+            val silent = googleSignInClient.signInSilently(context)
             if (silent is GoogleSignInResult.Success) {
                 _accountProfile.value = AccountProfile(silent.displayName, silent.email, silent.profilePictureUri)
                 return silent.idToken
             }
             val interactive =
                 if (allowInteractive) {
-                    googleSignInClient.signIn(context, filterByAuthorizedAccounts = false)
+                    googleSignInClient.signInInteractively(context)
                 } else {
                     null
                 }
@@ -492,8 +505,10 @@ private suspend fun <T> guardedStep(
         null
     }
 
-/** The Google credential step of the sign-in chain (plan A1b): one interactive sign-in. `null`
- *  means the chain stops here (the Failed state was already set). */
+/** The Google credential step of the sign-in chain (plan A1b): one interactive sign-in —
+ *  exactly one `GetSignInWithGoogleOption` request and one sheet, never a second attempt (plan
+ *  A1 review). `null` means the chain stops here. A user-cancelled sheet is a choice, not an
+ *  error: nothing is shown and the state is left for the next session check. */
 private suspend fun obtainInteractiveIdToken(
     context: Context,
     googleSignInClient: GoogleSignInClient,
@@ -503,7 +518,7 @@ private suspend fun obtainInteractiveIdToken(
     when (
         val result =
             guardedStep("Google sign-in", claimState) {
-                googleSignInClient.signIn(context, filterByAuthorizedAccounts = false)
+                googleSignInClient.signInInteractively(context)
             }
     ) {
         null -> {
@@ -515,6 +530,13 @@ private suspend fun obtainInteractiveIdToken(
                 AccountProfile(result.displayName, result.email, result.profilePictureUri)
             Logger.i(TAG, "Google sign-in ok")
             result.idToken
+        }
+
+        is GoogleSignInResult.Cancelled -> {
+            // Not an error: the user closed the sheet. Show nothing and leave the claim state
+            // as it is; the next session check (next resume / Retry) shows the real state.
+            Logger.i(TAG, "Sign-in stopped at Google sign-in: cancelled by the user")
+            null
         }
 
         is GoogleSignInResult.NoCredential -> {
@@ -587,6 +609,78 @@ private suspend fun sendClaimWhenConnected(
         Logger.i(TAG, "Sending the claim")
     }
     return transportClient.claimAccount(claimToken)
+}
+
+/** The authoritative session check for a token already in hand (plan A1 review) — the shared
+ *  server half of [AccountViewModel.checkSession]: the same `POST /v1/accounts/devices` call and
+ *  the same mapping onto [AccountSessionState], with NO Google request. Used by [checkSession]'s
+ *  chain and by [AccountViewModel.finishClaim] after a successful claim, with the id token the
+ *  interactive sign-in itself just obtained (a fresh silent fetch right after an interactive grant
+ *  can fail). Single-flight via [sessionCheckInFlight]: if another check is in flight, this one
+ *  starts nothing. Top-level so [AccountViewModel] stays within detekt's function-count limit. */
+@Suppress("TooGenericExceptionCaught")
+private suspend fun authoritativeSessionCheckWithToken(
+    sessionCheckInFlight: AtomicBoolean,
+    setState: (AccountSessionState) -> Unit,
+    settingsRepository: SettingsRepository,
+    accountApiClient: AccountApiClient,
+    deviceIdentityKeyStore: DeviceIdentityKeyStore,
+    idToken: String,
+) {
+    if (!sessionCheckInFlight.compareAndSet(false, true)) {
+        Logger.i(TAG, "Session check with the sign-in token skipped: one already in flight")
+        return
+    }
+    try {
+        setState(AccountSessionState.Checking)
+        applyServerSessionState(
+            settingsRepository,
+            accountApiClient,
+            deviceIdentityKeyStore,
+            idToken,
+            setState,
+        )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // applyServerSessionState touches the Android Keystore via [currentDeviceId], which can
+        // throw on real devices; map that to Unreachable (its class) so the state never sticks
+        // on Checking and the chain never crashes.
+        Logger.w(TAG, "Session check with the sign-in token failed: ${e::class.java.simpleName}")
+        setState(AccountSessionState.Unreachable(e::class.java.simpleName))
+    } finally {
+        sessionCheckInFlight.set(false)
+    }
+}
+
+/** The shared server half: one device-list call and its mapping onto the session state —
+ *  [AccountViewModel.checkSession] and [authoritativeSessionCheckWithToken] use exactly this one
+ *  function. */
+private suspend fun applyServerSessionState(
+    settingsRepository: SettingsRepository,
+    accountApiClient: AccountApiClient,
+    deviceIdentityKeyStore: DeviceIdentityKeyStore,
+    idToken: String,
+    setState: (AccountSessionState) -> Unit,
+) {
+    val config = settingsRepository.getTransportConfig()
+    when (val result = accountApiClient.listDevices(config.host, config.port, config.tls, idToken)) {
+        is DevicesResult.Success -> {
+            val thisDeviceId = currentDeviceId(deviceIdentityKeyStore)
+            val device = result.devices.firstOrNull { it.deviceId == thisDeviceId }
+            setState(AccountSessionState.SignedIn(claimed = device != null, device = device))
+        }
+
+        is DevicesResult.Failed -> {
+            setState(sessionStateFor(result))
+        }
+    }
+}
+
+/** This phone's derived device id — a real Android Keystore read, which can throw on devices. */
+private fun currentDeviceId(deviceIdentityKeyStore: DeviceIdentityKeyStore): String {
+    val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
+    return deriveDeviceId(publicKeyDer)
 }
 
 /** Maps a failed device-list call to the session state it means — [ApiErrorKind.Rejected] (HTTP

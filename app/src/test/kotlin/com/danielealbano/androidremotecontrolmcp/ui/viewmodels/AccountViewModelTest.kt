@@ -95,16 +95,14 @@ class AccountViewModelTest {
             every { deviceIdentityKeyStore.ensurePublicKeyBase64() } returns
                 Base64.getEncoder().encodeToString(publicKeyBytes)
             val thisDeviceId = deriveDeviceId(publicKeyBytes)
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Success("id-token")
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
-                GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.mintClaimToken("h", 1, false, "id-token") } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
             coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.Claimed("acc_1")
             coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
                 ConnectionsResult.Success(emptyList())
-            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+            coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
                 DevicesResult.Success(listOf(AccountDevice(thisDeviceId, "2026-10-01", null)), deviceLimit = null)
 
             viewModel.signInAndClaim(context)
@@ -112,6 +110,12 @@ class AccountViewModelTest {
 
             assertEquals(AccountClaimState.Claimed("acc_1"), viewModel.claimState.value)
             coVerify { settingsRepository.updateAccountId("acc_1") }
+            // Plan A1 review: the post-claim authoritative check reuses the id token the
+            // interactive sign-in just obtained and makes NO Google request at all — the silent
+            // fetch is never called on this path.
+            coVerify(exactly = 0) { googleSignInClient.signInSilently(context) }
+            coVerify(exactly = 1) { googleSignInClient.signInInteractively(context) }
+            coVerify(exactly = 1) { accountApiClient.listDevices("h", 1, false, "id-token") }
             // Plan A1b: after a successful claim the A1a session check runs, so the sign-in state
             // comes from the server's device list, not from the claim's own outcome alone.
             assertEquals(
@@ -126,7 +130,7 @@ class AccountViewModelTest {
     @Test
     fun `signInAndClaim surfaces AlreadyClaimedByOther, not a generic failure`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Success("id-token")
             coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
@@ -142,7 +146,7 @@ class AccountViewModelTest {
     @Test
     fun `signInAndClaim stops at Failed when Google sign-in itself fails`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Failed("denied")
 
             viewModel.signInAndClaim(context)
@@ -159,17 +163,16 @@ class AccountViewModelTest {
             // state shows WaitingForConnection ("Connecting to the server…") and the claim is sent
             // exactly once, only after the status flow emits Connected - no timer, no polling.
             transportStatusFlow.value = TransportStatus.Connecting
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Success("id-token")
             coEvery { accountApiClient.mintClaimToken("h", 1, false, "id-token") } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
             coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.Claimed("acc_1")
-            // The Claimed branch runs the connections load and the A1a session check.
+            // The Claimed branch runs the connections load and the authoritative session check,
+            // which now reuses the sign-in's own id token (plan A1 review).
             coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
                 ConnectionsResult.Success(emptyList())
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
-                GoogleSignInResult.Success("silent-token")
-            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+            coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
                 DevicesResult.Success(devices = emptyList(), deviceLimit = null)
 
             viewModel.signInAndClaim(context)
@@ -189,7 +192,7 @@ class AccountViewModelTest {
     fun `claim requested while paused shows the paused message and sends nothing`() =
         runTest {
             coEvery { pauseSettings.getPauseState() } returns PauseState(isPaused = true, resumeAtEpochMs = null)
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Success("id-token")
             coEvery { accountApiClient.mintClaimToken("h", 1, false, "id-token") } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
@@ -207,7 +210,7 @@ class AccountViewModelTest {
     @Test
     fun `claim_rejected shows the server's reason`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Success("id-token")
             coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
@@ -225,7 +228,7 @@ class AccountViewModelTest {
     @Test
     fun `an exception at the Google credential step shows that step's reason and is not stuck in SigningIn`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } throws
+            coEvery { googleSignInClient.signInInteractively(context) } throws
                 RuntimeException("credential manager broke")
 
             viewModel.signInAndClaim(context)
@@ -240,7 +243,7 @@ class AccountViewModelTest {
     @Test
     fun `an exception at the claim token step shows that step's reason`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Success("id-token")
             coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } throws
                 RuntimeException("mint exploded")
@@ -258,7 +261,7 @@ class AccountViewModelTest {
     @Test
     fun `an exception at the claim step shows that step's reason`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Success("id-token")
             coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
@@ -278,7 +281,7 @@ class AccountViewModelTest {
         runTest {
             // The coroutine cancelled (Activity went away, sheet dismissed): not an error. The
             // state is left as it is; the next A1a check on resume shows the real state.
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } coAnswers {
+            coEvery { googleSignInClient.signInInteractively(context) } coAnswers {
                 throw CancellationException("sheet dismissed")
             }
 
@@ -291,7 +294,7 @@ class AccountViewModelTest {
     @Test
     fun `the claim's bounded reply wait expiring shows the no-answer message and never retries`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Success("id-token")
             coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } returns
                 ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
@@ -308,9 +311,50 @@ class AccountViewModelTest {
         }
 
     @Test
+    fun `a cancelled sign-in sheet shows no error and leaves the state for the next check`() =
+        runTest {
+            // The user closed Google's sheet without signing in — a choice, not an error (plan
+            // A1 review). Nothing is shown and the state is left as it is.
+            coEvery { googleSignInClient.signInInteractively(context) } returns
+                GoogleSignInResult.Cancelled
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            assertEquals(AccountClaimState.SigningIn, viewModel.claimState.value)
+            coVerify(exactly = 0) { accountApiClient.mintClaimToken(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { transportClient.claimAccount(any()) }
+        }
+
+    @Test
+    fun `a second signInAndClaim while one is in flight sends nothing`() =
+        runTest {
+            // One tap is one attempt (plan A1 review): while the first chain is still running
+            // (suspended waiting for the claim token), a second tap starts nothing.
+            coEvery { googleSignInClient.signInInteractively(context) } returns
+                GoogleSignInResult.Success("id-token")
+            val gate = CompletableDeferred<Unit>()
+            coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } coAnswers {
+                gate.await()
+                ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
+            }
+
+            viewModel.signInAndClaim(context)
+            // The first chain is suspended inside mintClaimToken; a second tap must start nothing.
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+            coVerify(exactly = 1) { googleSignInClient.signInInteractively(context) }
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+            coVerify(exactly = 1) { googleSignInClient.signInInteractively(context) }
+            coVerify(exactly = 1) { accountApiClient.mintClaimToken(any(), any(), any(), any()) }
+        }
+
+    @Test
     fun `loadConnections tries silently first, only shows the picker if that finds nothing`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.listConnections("h", 1, false, "silent-token") } returns
                 ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
@@ -321,15 +365,15 @@ class AccountViewModelTest {
             val expected =
                 ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
             assertEquals(expected, viewModel.connectionsState.value)
-            coVerify(exactly = 0) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) }
+            coVerify(exactly = 0) { googleSignInClient.signInInteractively(context) }
         }
 
     @Test
     fun `loadConnections falls back to the picker when silent fails and interactive is allowed`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.NoCredential
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+            coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Success("interactive-token")
             coEvery { accountApiClient.listConnections("h", 1, false, "interactive-token") } returns
                 ConnectionsResult.Success(emptyList())
@@ -347,7 +391,7 @@ class AccountViewModelTest {
             // put up Google's own account-picker UI on its own - being claimed is this device's
             // own durable state and must not look like a sign-out just because a background
             // connections refresh needed a fresh token (founder feedback, PR #8 round 5).
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.NoCredential
 
             viewModel.loadConnections(context, allowInteractive = false)
@@ -357,13 +401,13 @@ class AccountViewModelTest {
                 ConnectionsState.Failed("Sign in to view your AI connections"),
                 viewModel.connectionsState.value,
             )
-            coVerify(exactly = 0) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) }
+            coVerify(exactly = 0) { googleSignInClient.signInInteractively(context) }
         }
 
     @Test
     fun `revokeConnection removes the row from the loaded list on success`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("token")
             coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns
                 ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
@@ -381,7 +425,7 @@ class AccountViewModelTest {
     @Test
     fun `renameConnection sends the new display name and updates connectionsState`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("token")
             coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns
                 ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
@@ -403,7 +447,7 @@ class AccountViewModelTest {
     @Test
     fun `renameConnection on a failed server response leaves connectionsState unchanged`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("token")
             val loaded =
                 ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
@@ -430,7 +474,7 @@ class AccountViewModelTest {
             every { deviceIdentityKeyStore.ensurePublicKeyBase64() } returns
                 Base64.getEncoder().encodeToString(publicKeyBytes)
             val thisDeviceId = deriveDeviceId(publicKeyBytes)
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
                 DevicesResult.Success(
@@ -460,7 +504,7 @@ class AccountViewModelTest {
             val publicKeyBytes = byteArrayOf(1, 2, 3)
             every { deviceIdentityKeyStore.ensurePublicKeyBase64() } returns
                 Base64.getEncoder().encodeToString(publicKeyBytes)
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
                 DevicesResult.Success(
@@ -480,7 +524,7 @@ class AccountViewModelTest {
     @Test
     fun `checkSession reports SignedOut when the silent fetch finds no credential`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.NoCredential
 
             viewModel.checkSession(context)
@@ -491,9 +535,27 @@ class AccountViewModelTest {
         }
 
     @Test
+    fun `checkSession reports Unreachable when the silent sign-in itself fails`() =
+        runTest {
+            // A silent credential error (offline, a Google-side error) is a failure with its
+            // reason — never "signed out" (plan A1 review): only NoCredential means SignedOut.
+            coEvery { googleSignInClient.signInSilently(context) } returns
+                GoogleSignInResult.Failed("Google sign-in failed - please try again")
+
+            viewModel.checkSession(context)
+            advanceUntilIdle()
+
+            assertEquals(
+                AccountSessionState.Unreachable("Google sign-in failed - please try again"),
+                viewModel.sessionState.value,
+            )
+            coVerify(exactly = 0) { accountApiClient.listDevices(any(), any(), any(), any()) }
+        }
+
+    @Test
     fun `checkSession reports SignedOut on HTTP 401 and 403`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
                 DevicesResult.Failed(kind = ApiErrorKind.Rejected, message = "HTTP 401", httpStatus = 401)
@@ -512,7 +574,7 @@ class AccountViewModelTest {
     @Test
     fun `checkSession reports Unreachable when the devices call fails with an IOException`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
                 DevicesResult.Failed(
@@ -530,7 +592,7 @@ class AccountViewModelTest {
     @Test
     fun `checkSession reports ServerError(500) when the server fails`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
                 DevicesResult.Failed(kind = ApiErrorKind.Server, message = "HTTP 500", httpStatus = 500)
@@ -548,7 +610,7 @@ class AccountViewModelTest {
             // ensurePublicKeyBase64 is a real Android Keystore call, and any unexpected throw must
             // not leave the session state stuck on Checking.
             every { deviceIdentityKeyStore.ensurePublicKeyBase64() } throws RuntimeException("keystore unavailable")
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("silent-token")
             coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
                 DevicesResult.Success(devices = emptyList(), deviceLimit = null)
@@ -562,7 +624,7 @@ class AccountViewModelTest {
     @Test
     fun `a second trigger while a check is in flight starts nothing`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success("silent-token")
             val gate = CompletableDeferred<Unit>()
             coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } coAnswers {
@@ -575,16 +637,16 @@ class AccountViewModelTest {
             viewModel.checkSession(context)
             advanceUntilIdle()
 
-            coVerify(exactly = 1) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) }
+            coVerify(exactly = 1) { googleSignInClient.signInSilently(context) }
             gate.complete(Unit)
             advanceUntilIdle()
-            coVerify(exactly = 1) { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) }
+            coVerify(exactly = 1) { googleSignInClient.signInSilently(context) }
         }
 
     @Test
     fun `checkSession repopulates the in-memory profile from the silent fetch`() =
         runTest {
-            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+            coEvery { googleSignInClient.signInSilently(context) } returns
                 GoogleSignInResult.Success(
                     idToken = "silent-token",
                     displayName = "Test Person",

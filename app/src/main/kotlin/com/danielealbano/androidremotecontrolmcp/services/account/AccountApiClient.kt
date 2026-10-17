@@ -421,10 +421,12 @@ class AccountApiClientImpl
                         exceptionClass = e::class.java.simpleName,
                     )
                 } catch (e: Exception) {
-                    Logger.w(TAG, "Devices request failed: kind=Network exception=${e::class.java.simpleName}")
+                    // A non-IOException (e.g. a response body that fails to parse) is the
+                    // server's answer being wrong, not the network being down (plan A1 review).
+                    Logger.w(TAG, "Devices request failed: kind=Server exception=${e::class.java.simpleName}")
                     DevicesResult.Failed(
-                        kind = ApiErrorKind.Network,
-                        message = e.message ?: "devices request failed",
+                        kind = ApiErrorKind.Server,
+                        message = e::class.java.simpleName,
                         exceptionClass = e::class.java.simpleName,
                     )
                 }
