@@ -1,7 +1,9 @@
 package com.danielealbano.androidremotecontrolmcp.ui.viewmodels
 
 import android.content.Context
+import com.danielealbano.androidremotecontrolmcp.data.model.PauseState
 import com.danielealbano.androidremotecontrolmcp.data.model.TransportConfig
+import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.SettingsRepository
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClient
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountConnection
@@ -19,10 +21,12 @@ import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoPro
 import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
 import com.danielealbano.androidremotecontrolmcp.services.transport.ClaimResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
+import com.danielealbano.androidremotecontrolmcp.services.transport.TransportStatus
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -48,12 +52,14 @@ class AccountViewModelTest {
     private val googleSignInClient = mockk<GoogleSignInClient>()
     private val accountApiClient = mockk<AccountApiClient>()
     private val transportClient = mockk<DeviceTransportClient>()
+    private val pauseSettings = mockk<PauseSettings>()
     private val deviceIdentityKeyStore = mockk<DeviceIdentityKeyStore>(relaxed = true)
     private val deviceInfoProvider = mockk<DeviceInfoProvider>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
 
     private val accountIdFlow = MutableStateFlow<String?>(null)
     private val transportConfig = TransportConfig(host = "h", port = 1, tls = false)
+    private val transportStatusFlow = MutableStateFlow<TransportStatus>(TransportStatus.Connected(1))
 
     private lateinit var viewModel: AccountViewModel
 
@@ -62,12 +68,15 @@ class AccountViewModelTest {
         Dispatchers.setMain(testDispatcher)
         every { settingsRepository.accountId } returns accountIdFlow
         coEvery { settingsRepository.getTransportConfig() } returns transportConfig
+        coEvery { pauseSettings.getPauseState() } returns PauseState()
+        every { transportClient.status } returns transportStatusFlow
         viewModel =
             AccountViewModel(
                 settingsRepository,
                 googleSignInClient,
                 accountApiClient,
                 transportClient,
+                pauseSettings,
                 deviceIdentityKeyStore,
                 deviceInfoProvider,
                 testDispatcher,
@@ -139,8 +148,163 @@ class AccountViewModelTest {
             viewModel.signInAndClaim(context)
             advanceUntilIdle()
 
-            assertEquals(AccountClaimState.Failed("denied"), viewModel.claimState.value)
+            assertEquals(AccountClaimState.Failed("Google sign-in failed: denied"), viewModel.claimState.value)
             coVerify(exactly = 0) { accountApiClient.mintClaimToken(any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `claim requested while Connecting waits for Connected, then sends the claim exactly once`() =
+        runTest {
+            // Plan A1b: the claim goes over the WebSocket. While the transport isn't Connected the
+            // state shows WaitingForConnection ("Connecting to the server…") and the claim is sent
+            // exactly once, only after the status flow emits Connected - no timer, no polling.
+            transportStatusFlow.value = TransportStatus.Connecting
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+                GoogleSignInResult.Success("id-token")
+            coEvery { accountApiClient.mintClaimToken("h", 1, false, "id-token") } returns
+                ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
+            coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.Claimed("acc_1")
+            // The Claimed branch runs the connections load and the A1a session check.
+            coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
+                ConnectionsResult.Success(emptyList())
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = true) } returns
+                GoogleSignInResult.Success("silent-token")
+            coEvery { accountApiClient.listDevices("h", 1, false, "silent-token") } returns
+                DevicesResult.Success(devices = emptyList(), deviceLimit = null)
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            assertEquals(AccountClaimState.WaitingForConnection, viewModel.claimState.value)
+            coVerify(exactly = 0) { transportClient.claimAccount(any()) }
+
+            transportStatusFlow.value = TransportStatus.Connected(1)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { transportClient.claimAccount("clt_x") }
+            assertEquals(AccountClaimState.Claimed("acc_1"), viewModel.claimState.value)
+        }
+
+    @Test
+    fun `claim requested while paused shows the paused message and sends nothing`() =
+        runTest {
+            coEvery { pauseSettings.getPauseState() } returns PauseState(isPaused = true, resumeAtEpochMs = null)
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+                GoogleSignInResult.Success("id-token")
+            coEvery { accountApiClient.mintClaimToken("h", 1, false, "id-token") } returns
+                ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            assertEquals(
+                AccountClaimState.Failed("Your connection is paused. Resume it to link this phone."),
+                viewModel.claimState.value,
+            )
+            coVerify(exactly = 0) { transportClient.claimAccount(any()) }
+        }
+
+    @Test
+    fun `claim_rejected shows the server's reason`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+                GoogleSignInResult.Success("id-token")
+            coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } returns
+                ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
+            coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.Rejected("token_expired")
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            assertEquals(
+                AccountClaimState.Failed("Claim rejected: token_expired"),
+                viewModel.claimState.value,
+            )
+        }
+
+    @Test
+    fun `an exception at the Google credential step shows that step's reason and is not stuck in SigningIn`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } throws
+                RuntimeException("credential manager broke")
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            assertEquals(
+                AccountClaimState.Failed("Google sign-in failed: credential manager broke"),
+                viewModel.claimState.value,
+            )
+        }
+
+    @Test
+    fun `an exception at the claim token step shows that step's reason`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+                GoogleSignInResult.Success("id-token")
+            coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } throws
+                RuntimeException("mint exploded")
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            assertEquals(
+                AccountClaimState.Failed("Claim token failed: mint exploded"),
+                viewModel.claimState.value,
+            )
+            coVerify(exactly = 0) { transportClient.claimAccount(any()) }
+        }
+
+    @Test
+    fun `an exception at the claim step shows that step's reason`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+                GoogleSignInResult.Success("id-token")
+            coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } returns
+                ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
+            coEvery { transportClient.claimAccount("clt_x") } throws RuntimeException("socket gone")
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            assertEquals(
+                AccountClaimState.Failed("Claim failed: socket gone"),
+                viewModel.claimState.value,
+            )
+        }
+
+    @Test
+    fun `cancellation while Google's sheet is in front shows no error`() =
+        runTest {
+            // The coroutine cancelled (Activity went away, sheet dismissed): not an error. The
+            // state is left as it is; the next A1a check on resume shows the real state.
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } coAnswers {
+                throw CancellationException("sheet dismissed")
+            }
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            assertEquals(AccountClaimState.SigningIn, viewModel.claimState.value)
+        }
+
+    @Test
+    fun `the claim's bounded reply wait expiring shows the no-answer message and never retries`() =
+        runTest {
+            coEvery { googleSignInClient.signIn(context, filterByAuthorizedAccounts = false) } returns
+                GoogleSignInResult.Success("id-token")
+            coEvery { accountApiClient.mintClaimToken(any(), any(), any(), any()) } returns
+                ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
+            coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.TimedOut
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            assertEquals(
+                AccountClaimState.Failed("The server didn't answer. Try again."),
+                viewModel.claimState.value,
+            )
+            coVerify(exactly = 1) { transportClient.claimAccount(any()) }
         }
 
     @Test

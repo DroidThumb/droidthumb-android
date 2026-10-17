@@ -1,5 +1,6 @@
 package com.danielealbano.androidremotecontrolmcp.services.account
 
+import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -395,6 +396,7 @@ class AccountApiClientImpl
                         }
 
                         HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden -> {
+                            Logger.w(TAG, "Devices request rejected: kind=Rejected status=${response.status.value}")
                             DevicesResult.Failed(
                                 kind = ApiErrorKind.Rejected,
                                 message = "HTTP ${response.status.value}",
@@ -403,6 +405,7 @@ class AccountApiClientImpl
                         }
 
                         else -> {
+                            Logger.w(TAG, "Devices request failed: kind=Server status=${response.status.value}")
                             DevicesResult.Failed(
                                 kind = ApiErrorKind.Server,
                                 message = "HTTP ${response.status.value}",
@@ -411,12 +414,14 @@ class AccountApiClientImpl
                         }
                     }
                 } catch (e: IOException) {
+                    Logger.w(TAG, "Devices request failed: kind=Network exception=${e::class.java.simpleName}")
                     DevicesResult.Failed(
                         kind = ApiErrorKind.Network,
                         message = e.message ?: "network unreachable",
                         exceptionClass = e::class.java.simpleName,
                     )
                 } catch (e: Exception) {
+                    Logger.w(TAG, "Devices request failed: kind=Network exception=${e::class.java.simpleName}")
                     DevicesResult.Failed(
                         kind = ApiErrorKind.Network,
                         message = e.message ?: "devices request failed",
@@ -426,6 +431,7 @@ class AccountApiClientImpl
             }
 
         private companion object {
+            private const val TAG = "MCP:AccountApi"
             const val CLAIM_TOKEN_PATH = "/v1/accounts/claim-token"
             const val CONNECTIONS_PATH = "/v1/accounts/connections"
             const val REVOKE_PATH = "/v1/accounts/connections/revoke"

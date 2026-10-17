@@ -7,6 +7,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
+import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -60,7 +61,9 @@ class GoogleSignInClientImpl
             context: Context,
             filterByAuthorizedAccounts: Boolean,
         ): GoogleSignInResult {
+            Logger.i(TAG, "Google id_token requested (silent=$filterByAuthorizedAccounts)")
             if (BuildConfig.GOOGLE_SERVER_CLIENT_ID.isBlank()) {
+                Logger.w(TAG, "Google id_token request failed: server client id not configured")
                 return GoogleSignInResult.Failed("GOOGLE_SERVER_CLIENT_ID is not configured for this build")
             }
             val option =
@@ -76,27 +79,36 @@ class GoogleSignInClientImpl
                 googleIdTokenCredential.toSuccessResult()
             } catch (_: NoCredentialException) {
                 when {
-                    filterByAuthorizedAccounts -> GoogleSignInResult.NoCredential
+                    filterByAuthorizedAccounts -> {
+                        Logger.i(TAG, "Google id_token request found no credential")
+                        GoogleSignInResult.NoCredential
+                    }
 
                     // The unrestricted (account-picker) attempt still found nothing - Google's own
                     // Credential Manager guidance treats the explicit "Sign in with Google" button
                     // option as the guaranteed-to-render final step: unlike GetGoogleIdOption, it
                     // isn't gated on any prior authorized-account relationship, so it still works for
                     // a genuine first-time sign-in that GetGoogleIdOption alone could not satisfy.
-                    else -> signInWithGoogleButton(context)
+                    else -> {
+                        signInWithGoogleButton(context)
+                    }
                 }
             } catch (e: GetCredentialException) {
                 if (filterByAuthorizedAccounts) {
+                    Logger.w(TAG, "Google id_token request failed: ${e::class.java.simpleName}")
                     GoogleSignInResult.NoCredential
                 } else {
+                    Logger.w(TAG, "Google id_token request failed: ${e::class.java.simpleName}: ${e.message}")
                     GoogleSignInResult.Failed(readableMessage(e))
                 }
             } catch (e: GoogleIdTokenParsingException) {
+                Logger.w(TAG, "Google id_token request failed: ${e::class.java.simpleName}: ${e.message}")
                 GoogleSignInResult.Failed(e.message ?: "could not parse the Google id_token")
             }
         }
 
         private suspend fun signInWithGoogleButton(context: Context): GoogleSignInResult {
+            Logger.i(TAG, "Sign in with Google button flow requested")
             val option = GetSignInWithGoogleOption.Builder(BuildConfig.GOOGLE_SERVER_CLIENT_ID).build()
             val request = GetCredentialRequest.Builder().addCredentialOption(option).build()
             return try {
@@ -104,19 +116,23 @@ class GoogleSignInClientImpl
                 val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(response.credential.data)
                 googleIdTokenCredential.toSuccessResult()
             } catch (e: GetCredentialException) {
+                Logger.w(TAG, "Sign in with Google button flow failed: ${e::class.java.simpleName}: ${e.message}")
                 GoogleSignInResult.Failed(readableMessage(e))
             } catch (e: GoogleIdTokenParsingException) {
+                Logger.w(TAG, "Sign in with Google button flow failed: ${e::class.java.simpleName}: ${e.message}")
                 GoogleSignInResult.Failed(e.message ?: "could not parse the Google id_token")
             }
         }
 
-        private fun GoogleIdTokenCredential.toSuccessResult(): GoogleSignInResult.Success =
-            GoogleSignInResult.Success(
+        private fun GoogleIdTokenCredential.toSuccessResult(): GoogleSignInResult.Success {
+            Logger.i(TAG, "Google id_token obtained")
+            return GoogleSignInResult.Success(
                 idToken = idToken,
                 displayName = displayName,
                 email = email,
                 profilePictureUri = profilePictureUri?.toString(),
             )
+        }
 
         /** [GetCredentialException]'s own `message` is a platform/debug string (e.g. raw
          *  `NoCredentialException` text) never meant for a user-facing screen - mapped to something
@@ -134,7 +150,12 @@ class GoogleSignInClientImpl
             } catch (e: Exception) {
                 // Best-effort: this clears Credential Manager's own state, nothing server-side -
                 // nothing meaningful to recover or surface if the platform call itself fails.
+                Logger.w(TAG, "Clearing Credential Manager state failed: ${e::class.java.simpleName}")
                 Unit
             }
+        }
+
+        private companion object {
+            private const val TAG = "MCP:GoogleSignIn"
         }
     }
