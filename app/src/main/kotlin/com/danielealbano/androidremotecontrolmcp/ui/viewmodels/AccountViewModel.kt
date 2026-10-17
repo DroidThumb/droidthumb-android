@@ -508,7 +508,7 @@ private suspend fun <T> guardedStep(
 /** The Google credential step of the sign-in chain (plan A1b): one interactive sign-in —
  *  exactly one `GetSignInWithGoogleOption` request and one sheet, never a second attempt (plan
  *  A1 review). `null` means the chain stops here. A user-cancelled sheet is a choice, not an
- *  error: nothing is shown and the state is left for the next session check. */
+ *  error: nothing is shown and the state returns to Idle, so the step shows its sign-in button. */
 private suspend fun obtainInteractiveIdToken(
     context: Context,
     googleSignInClient: GoogleSignInClient,
@@ -533,9 +533,11 @@ private suspend fun obtainInteractiveIdToken(
         }
 
         is GoogleSignInResult.Cancelled -> {
-            // Not an error: the user closed the sheet. Show nothing and leave the claim state
-            // as it is; the next session check (next resume / Retry) shows the real state.
+            // Not an error: the user closed the sheet. Back to Idle, so the step shows its
+            // sign-in button again (a bare spinner would never clear), and the next session
+            // check (next resume / Retry) shows the real state.
             Logger.i(TAG, "Sign-in stopped at Google sign-in: cancelled by the user")
+            claimState.value = AccountClaimState.Idle
             null
         }
 

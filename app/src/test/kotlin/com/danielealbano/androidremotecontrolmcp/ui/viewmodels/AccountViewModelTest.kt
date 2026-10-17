@@ -311,19 +311,47 @@ class AccountViewModelTest {
         }
 
     @Test
-    fun `a cancelled sign-in sheet shows no error and leaves the state for the next check`() =
+    fun `a cancelled sign-in sheet shows no error and returns to Idle for the next tap`() =
         runTest {
             // The user closed Google's sheet without signing in — a choice, not an error (plan
-            // A1 review). Nothing is shown and the state is left as it is.
+            // A1 review). Nothing is shown and the state is back to Idle, so the step shows its
+            // sign-in button again instead of a stuck spinner.
             coEvery { googleSignInClient.signInInteractively(context) } returns
                 GoogleSignInResult.Cancelled
 
             viewModel.signInAndClaim(context)
             advanceUntilIdle()
 
-            assertEquals(AccountClaimState.SigningIn, viewModel.claimState.value)
+            assertEquals(AccountClaimState.Idle, viewModel.claimState.value)
             coVerify(exactly = 0) { accountApiClient.mintClaimToken(any(), any(), any(), any()) }
             coVerify(exactly = 0) { transportClient.claimAccount(any()) }
+        }
+
+    @Test
+    fun `a second tap after a cancelled sheet starts a new sign-in`() =
+        runTest {
+            // The single-flight guard must be released when the sheet is cancelled, so a second
+            // tap starts a fresh sign-in chain.
+            coEvery { googleSignInClient.signInInteractively(context) } returnsMany
+                listOf(GoogleSignInResult.Cancelled, GoogleSignInResult.Success("id-token"))
+            coEvery { accountApiClient.mintClaimToken("h", 1, false, "id-token") } returns
+                ClaimTokenResult.Success(claimToken = "clt_x", accountId = "acc_1")
+            coEvery { transportClient.claimAccount("clt_x") } returns ClaimResult.Claimed("acc_1")
+            coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
+                ConnectionsResult.Success(emptyList())
+            coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
+                DevicesResult.Success(devices = emptyList(), deviceLimit = null)
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+            assertEquals(AccountClaimState.Idle, viewModel.claimState.value)
+
+            viewModel.signInAndClaim(context)
+            advanceUntilIdle()
+
+            coVerify(exactly = 2) { googleSignInClient.signInInteractively(context) }
+            coVerify(exactly = 1) { accountApiClient.mintClaimToken(any(), any(), any(), any()) }
+            assertEquals(AccountClaimState.Claimed("acc_1"), viewModel.claimState.value)
         }
 
     @Test
