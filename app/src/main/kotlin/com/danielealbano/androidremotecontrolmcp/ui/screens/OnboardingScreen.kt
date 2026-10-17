@@ -205,6 +205,14 @@ private fun GoogleSignInStep(
             CircularProgressIndicator(modifier = Modifier.height(32.dp))
         }
 
+        is AccountClaimState.WaitingForConnection -> {
+            // The claim goes over the WebSocket; the transport isn't Connected yet. We wait on the
+            // status flow's next Connected emission - no timer, no retry (plan A1b).
+            CircularProgressIndicator(modifier = Modifier.height(32.dp))
+            Spacer(Modifier.height(8.dp))
+            Text("Connecting to the server…")
+        }
+
         is AccountClaimState.AlreadyClaimedByOther -> {
             Text(stringResource(R.string.account_already_claimed_body), color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(8.dp))

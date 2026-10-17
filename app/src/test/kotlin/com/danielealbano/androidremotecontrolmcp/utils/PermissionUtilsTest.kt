@@ -6,6 +6,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Parcelable
 import android.provider.Settings
@@ -461,6 +462,37 @@ class PermissionUtilsTest {
                 verify(exactly = 1) {
                     anyConstructed<Bundle>()
                         .putString(PermissionUtils.FRAGMENT_ARGS_KEY_EXTRA, "com.example/com.example.S")
+                }
+            } finally {
+                unmockkAll()
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("buildAppInfoSettingsIntent")
+    inner class BuildAppInfoSettingsIntent {
+        @Test
+        fun `builds the app-info details intent with our package data and new-task flag`() {
+            mockkConstructor(Intent::class)
+            mockkStatic(Uri::class)
+            every { anyConstructed<Intent>().setAction(any()) } answers { self as Intent }
+            every { anyConstructed<Intent>().setData(any()) } answers { self as Intent }
+            every { anyConstructed<Intent>().addFlags(any()) } answers { self as Intent }
+            val packageUri = mockk<Uri>(relaxed = true)
+            every { Uri.fromParts(any(), any(), any()) } returns packageUri
+            val action = slot<String>()
+            val data = slot<Uri>()
+            try {
+                PermissionUtils.buildAppInfoSettingsIntent(mockContext)
+
+                verify(exactly = 1) { anyConstructed<Intent>().setAction(capture(action)) }
+                assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, action.captured)
+                verify(exactly = 1) { Uri.fromParts("package", "com.danielealbano.androidremotecontrolmcp", null) }
+                verify(exactly = 1) { anyConstructed<Intent>().setData(capture(data)) }
+                assertEquals(packageUri, data.captured)
+                verify(exactly = 1) {
+                    anyConstructed<Intent>().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             } finally {
                 unmockkAll()

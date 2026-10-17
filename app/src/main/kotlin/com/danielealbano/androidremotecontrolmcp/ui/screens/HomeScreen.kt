@@ -29,10 +29,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.McpAccessibilityService
 import com.danielealbano.androidremotecontrolmcp.ui.components.AccountAvatarMenu
+import com.danielealbano.androidremotecontrolmcp.ui.components.AccountSessionCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.AiClientsSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.BatteryOptimizationCard
 import com.danielealbano.androidremotecontrolmcp.ui.components.CalloutCard
@@ -56,6 +58,15 @@ private const val PERMISSION_REFRESH_RETRY_DELAY_MS = 1_000L
  *  shortcut takes over). Top-level and `internal` so the decision is unit-testable. */
 internal fun shouldShowPausePermissionButton(isAccessibilityEnabled: Boolean): Boolean = isAccessibilityEnabled
 
+/** Returns whether Home should show the battery warning card: whenever the Doze exemption is
+ *  missing OR Android has restricted the app's background activity (either can silently kill
+ *  the connection while the phone is idle — 17 Oct phone test). Top-level and `internal` so the
+ *  decision is unit-testable. */
+internal fun shouldShowBatteryWarningCard(
+    isBatteryOptimizationIgnored: Boolean,
+    isBackgroundRestricted: Boolean,
+): Boolean = !isBatteryOptimizationIgnored || isBackgroundRestricted
+
 /**
  * The Home tab's main screen (plan 70 US3) — replaces the old "Server" tab's card stack with a
  * single status indicator plus the account-centric sections the approved mockup's `Main.dc.html`
@@ -78,6 +89,7 @@ fun HomeScreen(
 
     val isAccessibilityEnabled by viewModel.isAccessibilityEnabled.collectAsStateWithLifecycle()
     val isBatteryOptimizationIgnored by viewModel.isBatteryOptimizationIgnored.collectAsStateWithLifecycle()
+    val isBackgroundRestricted by viewModel.isBackgroundRestricted.collectAsStateWithLifecycle()
 
     val transportStatus by transportViewModel.transportStatus.collectAsStateWithLifecycle()
     val pauseState by transportViewModel.pauseState.collectAsStateWithLifecycle()
@@ -86,7 +98,15 @@ fun HomeScreen(
     val claimState by accountViewModel.claimState.collectAsStateWithLifecycle()
     val connectionsState by accountViewModel.connectionsState.collectAsStateWithLifecycle()
     val accountProfile by accountViewModel.accountProfile.collectAsStateWithLifecycle()
-    val thisDeviceState by accountViewModel.thisDeviceState.collectAsStateWithLifecycle()
+    val sessionState by accountViewModel.sessionState.collectAsStateWithLifecycle()
+
+    // The authoritative session check (plan A1a): runs when Home starts and every time the app
+    // resumes. Single-flight in the view model — overlapping triggers start nothing extra, and
+    // there is no retry or timer anywhere: one trigger is one attempt.
+    LifecycleResumeEffect(Unit) {
+        accountViewModel.checkSession(context)
+        onPauseOrDispose { }
+    }
 
     // Same durable-claim semantics as the old ServerScreen: an automatic refresh on reopening the
     // app must never put up Google's own account-picker UI by itself (founder feedback, PR #8
@@ -94,7 +114,6 @@ fun HomeScreen(
     LaunchedEffect(accountId) {
         if (accountId != null && claimState !is AccountClaimState.Claimed) {
             accountViewModel.loadConnections(context, allowInteractive = false)
-            accountViewModel.loadThisDevice(context)
         }
     }
 
@@ -105,6 +124,7 @@ fun HomeScreen(
             actions = {
                 AccountAvatarMenu(
                     profile = accountProfile,
+                    sessionState = sessionState,
                     onSignInClick = { accountViewModel.signInAndClaim(context) },
                     onSignOutClick = { accountViewModel.signOut(context) },
                     modifier = Modifier.padding(end = 12.dp),
@@ -133,9 +153,13 @@ fun HomeScreen(
                 Spacer(Modifier.height(16.dp))
             }
 
-            if (!isBatteryOptimizationIgnored) {
+            if (shouldShowBatteryWarningCard(isBatteryOptimizationIgnored, isBackgroundRestricted)) {
+                // A8 (17 Oct phone test): the card's Fix opens OUR App Info page, where the
+                // person taps Battery and allows background use — clearer than the system
+                // battery list the first-setup step still uses. Re-checks on every resume
+                // (MainActivity.onResume), so the card disappears once the exemption is on.
                 BatteryOptimizationCard(
-                    onRequestExemption = { viewModel.requestBatteryOptimizationExemption() },
+                    onFixClick = { PermissionUtils.openAppInfoSettings(context) },
                 )
                 // OEM-specific background-manager guidance (founder phone-test feedback, PR #9
                 // round 1) — a small non-blocking addition right below the existing card, shown
@@ -215,6 +239,18 @@ fun HomeScreen(
 
             Spacer(Modifier.height(20.dp))
 
+            // One sign-in status card driven by the single AccountSessionState (plan A1a); hidden
+            // entirely in the signed-in-and-claimed steady state.
+            AccountSessionCard(
+                sessionState = sessionState,
+                onSignInClick = { accountViewModel.signInAndClaim(context) },
+                // "Link this phone" runs the claim (plan A1b) — the same one-pass chain.
+                onLinkPhoneClick = { accountViewModel.signInAndClaim(context) },
+                onRetryClick = { accountViewModel.checkSession(context) },
+            )
+
+            Spacer(Modifier.height(20.dp))
+
             AiClientsSection(
                 connectionsState = connectionsState,
                 onClientClick = onNavigateToClientDetail,
@@ -229,7 +265,7 @@ fun HomeScreen(
 
             ThisDeviceSection(
                 deviceModel = accountViewModel.deviceModel,
-                thisDeviceState = thisDeviceState,
+                sessionState = sessionState,
             )
         }
     }
