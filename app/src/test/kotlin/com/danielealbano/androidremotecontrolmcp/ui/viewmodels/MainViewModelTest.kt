@@ -86,6 +86,16 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `refreshPermissionStatus reflects background restriction`() {
+        every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns true
+        every { batteryOptimizationManager.isBackgroundRestricted() } returns true
+
+        viewModel.refreshPermissionStatus(context)
+
+        assertEquals(true, viewModel.isBackgroundRestricted.value)
+    }
+
+    @Test
     fun `requestBatteryOptimizationExemption delegates to manager`() {
         viewModel.requestBatteryOptimizationExemption()
 

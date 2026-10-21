@@ -1,5 +1,6 @@
 package com.danielealbano.androidremotecontrolmcp.services.account
 
+import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -19,6 +20,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -83,6 +85,16 @@ sealed interface RenameResult {
     ) : RenameResult
 }
 
+/** Why a call failed — distinguishes what the person looking at the screen can do about it:
+ *  retry later because the network is unreachable ([Network]), sign in again because the server
+ *  rejected the token ([Rejected], HTTP 401/403), or nothing but waiting for the server
+ *  ([Server], any other HTTP status). */
+enum class ApiErrorKind {
+    Network,
+    Rejected,
+    Server,
+}
+
 sealed interface DevicesResult {
     data class Success(
         val devices: List<AccountDevice>,
@@ -90,7 +102,10 @@ sealed interface DevicesResult {
     ) : DevicesResult
 
     data class Failed(
+        val kind: ApiErrorKind,
         val message: String,
+        val httpStatus: Int? = null,
+        val exceptionClass: String? = null,
     ) : DevicesResult
 }
 
@@ -380,16 +395,45 @@ class AccountApiClientImpl
                             )
                         }
 
+                        HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden -> {
+                            Logger.w(TAG, "Devices request rejected: kind=Rejected status=${response.status.value}")
+                            DevicesResult.Failed(
+                                kind = ApiErrorKind.Rejected,
+                                message = "HTTP ${response.status.value}",
+                                httpStatus = response.status.value,
+                            )
+                        }
+
                         else -> {
-                            DevicesResult.Failed("HTTP ${response.status.value}")
+                            Logger.w(TAG, "Devices request failed: kind=Server status=${response.status.value}")
+                            DevicesResult.Failed(
+                                kind = ApiErrorKind.Server,
+                                message = "HTTP ${response.status.value}",
+                                httpStatus = response.status.value,
+                            )
                         }
                     }
+                } catch (e: IOException) {
+                    Logger.w(TAG, "Devices request failed: kind=Network exception=${e::class.java.simpleName}")
+                    DevicesResult.Failed(
+                        kind = ApiErrorKind.Network,
+                        message = e.message ?: "network unreachable",
+                        exceptionClass = e::class.java.simpleName,
+                    )
                 } catch (e: Exception) {
-                    DevicesResult.Failed(e.message ?: "devices request failed")
+                    // A non-IOException (e.g. a response body that fails to parse) is the
+                    // server's answer being wrong, not the network being down (plan A1 review).
+                    Logger.w(TAG, "Devices request failed: kind=Server exception=${e::class.java.simpleName}")
+                    DevicesResult.Failed(
+                        kind = ApiErrorKind.Server,
+                        message = e::class.java.simpleName,
+                        exceptionClass = e::class.java.simpleName,
+                    )
                 }
             }
 
         private companion object {
+            private const val TAG = "MCP:AccountApi"
             const val CLAIM_TOKEN_PATH = "/v1/accounts/claim-token"
             const val CONNECTIONS_PATH = "/v1/accounts/connections"
             const val REVOKE_PATH = "/v1/accounts/connections/revoke"

@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountProfile
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountSessionState
 
 private const val AVATAR_SIZE_DP = 36
 
@@ -44,6 +45,7 @@ private const val AVATAR_SIZE_DP = 36
 @Composable
 fun AccountAvatarMenu(
     profile: AccountProfile?,
+    sessionState: AccountSessionState,
     onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -85,7 +87,9 @@ fun AccountAvatarMenu(
             onDismissRequest = { menuOpen = false },
             modifier = Modifier.width(220.dp).background(Color(0xFF1F1F2A), RoundedCornerShape(14.dp)),
         ) {
-            if (profile == null) {
+            // Offers "Sign in" whenever the authoritative session check says SignedOut (plan A1a),
+            // even if a stale in-memory profile is still around.
+            if (profile == null || sessionState is AccountSessionState.SignedOut) {
                 DropdownMenuItem(
                     text = { Text("Sign in") },
                     onClick = {
