@@ -188,9 +188,11 @@ interface DeviceTransportClient {
 
     /** Sends `sign_out` on the current connection and awaits `signed_out`, up to the same 5s
      *  bound as [signIn]. Returns `false` immediately, with no wait, when not currently
-     *  `Connected` or when the send failed. The caller signs out locally regardless of the
-     *  outcome; a sign-out whose `signed_out` never arrived stays recorded as pending (via
-     *  [AccountSettings.pendingSignOut]) so the next connection sends `sign_out` first. */
+     *  `Connected` or when the send failed. The pending flag (via [AccountSettings.pendingSignOut])
+     *  is set FIRST — before the Connected check — so a sign-out requested while the phone is
+     *  offline is still recorded; the caller signs out locally regardless of the outcome, and a
+     *  sign-out whose `signed_out` never arrived stays recorded as pending so the next connection
+     *  sends `sign_out` first. */
     suspend fun signOut(): Boolean
 
     /** Sends `list_ai_connections` on the current connection and awaits `ai_connections_list`,
@@ -432,15 +434,16 @@ class DeviceTransportClientImpl
                     Logger.i(TAG, "Connected: protocol_version=${message.protocolVersion}")
                     _updateInfo.value =
                         UpdateInfo(message.latestAppVersion, message.minimumSupportedAppVersion, message.downloadUrl)
-                    _status.value =
-                        TransportStatus.Connected(message.protocolVersion, message.accounts, message.accountId)
                     // A sign-out requested while the phone was offline is replayed as the first
-                    // app-driven message on the new connection; the pending flag clears only
-                    // when `signed_out` comes back.
+                    // app-driven message on the new connection — before Connected is published, so
+                    // callers never see a Connected window where sign_out was still owed; the
+                    // pending flag clears only when `signed_out` comes back.
                     if (accountSettings.getPendingSignOut()) {
                         Logger.i(TAG, "Sending pending sign_out on the new connection")
                         send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), SignOut)))
                     }
+                    _status.value =
+                        TransportStatus.Connected(message.protocolVersion, message.accounts, message.accountId)
                     return true
                 }
 
@@ -455,6 +458,9 @@ class DeviceTransportClientImpl
                 }
 
                 is SignedIn -> {
+                    // The user's latest action was signing in, so an older unacknowledged
+                    // sign-out must not be replayed on the next connection.
+                    accountSettings.setPendingSignOut(false)
                     pendingSignIn?.complete(SignInResult.SignedIn(message.accountId))
                 }
 
@@ -563,6 +569,10 @@ class DeviceTransportClientImpl
 
         override suspend fun signOut(): Boolean =
             signOutMutex.withLock {
+                // Persisted first, before any Connected/outbox check: a sign-out requested while
+                // the phone is offline must still be recorded, so the next connection replays it
+                // (see handleIncomingMessage's Welcome branch). Cleared only on `signed_out`.
+                accountSettings.setPendingSignOut(true)
                 if (_status.value !is TransportStatus.Connected) return@withLock false
                 val outbox = currentOutbox ?: return@withLock false
                 val deferred = CompletableDeferred<Unit>()
