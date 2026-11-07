@@ -297,4 +297,58 @@ class AccountViewModelAiConnectionsTest {
                 viewModel.connectionsState.value,
             )
         }
+
+    @Test
+    fun `revokeConnection shows the server's own error on a non-not_found failure`() =
+        runTest {
+            coEvery { transportClient.revokeAiConnection("c1") } returns
+                AiRevokeResult.Error("not_allowed", "not your connection")
+
+            viewModel.revokeConnection("c1")
+            advanceUntilIdle()
+
+            assertEquals("not your connection", viewModel.revokeError.value)
+            // The list is untouched: the row only leaves it once the server confirms.
+            assertEquals(ConnectionsState.Idle, viewModel.connectionsState.value)
+        }
+
+    @Test
+    fun `revokeConnection shows the server's code when its error has no message`() =
+        runTest {
+            coEvery { transportClient.revokeAiConnection("c1") } returns
+                AiRevokeResult.Error("not_allowed", null)
+
+            viewModel.revokeConnection("c1")
+            advanceUntilIdle()
+
+            assertEquals("not_allowed", viewModel.revokeError.value)
+        }
+
+    @Test
+    fun `revokeConnection shows the no-answer message on TimedOut`() =
+        runTest {
+            // Also proves a previous attempt's error is cleared when a new revoke starts.
+            coEvery { transportClient.revokeAiConnection("c1") } returnsMany
+                listOf(AiRevokeResult.Error("not_allowed", "first"), AiRevokeResult.TimedOut)
+
+            viewModel.revokeConnection("c1")
+            advanceUntilIdle()
+            assertEquals("first", viewModel.revokeError.value)
+
+            viewModel.revokeConnection("c1")
+            advanceUntilIdle()
+
+            assertEquals("The server didn't answer. Try again.", viewModel.revokeError.value)
+        }
+
+    @Test
+    fun `revokeConnection shows the not-connected message on NotConnected`() =
+        runTest {
+            coEvery { transportClient.revokeAiConnection("c1") } returns AiRevokeResult.NotConnected
+
+            viewModel.revokeConnection("c1")
+            advanceUntilIdle()
+
+            assertEquals("Not connected to the server", viewModel.revokeError.value)
+        }
 }

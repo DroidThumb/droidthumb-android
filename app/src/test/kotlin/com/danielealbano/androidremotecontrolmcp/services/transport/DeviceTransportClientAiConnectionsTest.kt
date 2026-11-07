@@ -11,6 +11,7 @@ import com.danielealbano.androidremotecontrolmcp.wireprotocol.WireMessage
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.wireJson
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -101,6 +102,30 @@ class DeviceTransportClientAiConnectionsTest : DeviceTransportClientTestBase() {
         runBlocking {
             val client = newClient()
             assertEquals(AiConnectionsResult.NotConnected, client.listAiConnections())
+        }
+
+    @Test
+    fun `listAiConnections returns NotConnected, not TimedOut, when the connection drops before the reply`() =
+        runBlocking {
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
+                    incoming.receive() // list_ai_connections
+                    coroutineContext.cancel() // abrupt drop: the reply never arrives
+                },
+            ) { port ->
+                val client = newClient()
+                client.start("127.0.0.1", port, tls = false)
+                awaitStatus<TransportStatus.Connected>(client)
+                val result = withTimeout(8.seconds) { client.listAiConnections() }
+                assertEquals(AiConnectionsResult.NotConnected, result)
+                client.stop()
+            }
         }
 
     @Test

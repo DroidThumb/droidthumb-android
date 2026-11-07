@@ -51,6 +51,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,6 +66,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.coroutineContext
 
 /** Connection lifecycle for this device's outbound transport connection. */
 sealed interface TransportStatus {
@@ -392,6 +394,17 @@ class DeviceTransportClientImpl
                     } finally {
                         outbox.close()
                         if (currentOutbox === outbox) currentOutbox = null
+                        // The connection is gone (or stop() cancelled the session): every reply
+                        // still being waited for must be resolved NOW, not left to time out five
+                        // seconds later against a server that can no longer answer. A cancelled
+                        // sign-out reply leaves the pending flag set, so the next welcome replays.
+                        completePendingRepliesOnDisconnect(
+                            pendingRegenerate,
+                            pendingSignIn,
+                            pendingSignOutReply,
+                            pendingAiConnections,
+                            pendingAiRevoke,
+                        )
                     }
                 }
             } catch (e: CancellationException) {
@@ -544,7 +557,15 @@ class DeviceTransportClientImpl
                     pendingRegenerate = null
                     return@withLock false
                 }
-                val result = withTimeoutOrNull(REGENERATE_TIMEOUT_MS) { deferred.await() }
+                val result =
+                    try {
+                        withTimeoutOrNull(REGENERATE_TIMEOUT_MS) { deferred.await() }
+                    } catch (_: CancellationException) {
+                        // The session dropped and completePendingRepliesOnDisconnect cancelled this
+                        // wait: not a success (the caller's own cancellation rethrows first).
+                        coroutineContext.ensureActive()
+                        null
+                    }
                 pendingRegenerate = null
                 result != null
             }
@@ -553,12 +574,16 @@ class DeviceTransportClientImpl
             signInMutex.withLock {
                 if (_status.value !is TransportStatus.Connected) return@withLock SignInResult.NotConnected
                 val outbox = currentOutbox ?: return@withLock SignInResult.NotConnected
+                // sign_in.install_hint is required and minLength 1 (sign-in.schema.json): a blank
+                // hint would be rejected at the schema, so fail here without sending anything.
+                val installHint = installHintProvider.installHint
+                if (installHint.isBlank()) return@withLock SignInResult.Rejected("install_hint_unavailable")
                 val deferred = CompletableDeferred<SignInResult>()
                 pendingSignIn = deferred
                 // Same narrow session-teardown race regenerateSecret() guards against: checked
                 // explicitly so a send that never actually went out fails fast instead of waiting
                 // out the full timeout.
-                if (!outbox.trySend(SignIn(accountToken, installHintProvider.installHint)).isSuccess) {
+                if (!outbox.trySend(SignIn(accountToken, installHint)).isSuccess) {
                     pendingSignIn = null
                     return@withLock SignInResult.NotConnected
                 }
@@ -582,7 +607,17 @@ class DeviceTransportClientImpl
                     pendingSignOutReply = null
                     return@withLock false
                 }
-                val acked = withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) { deferred.await() } != null
+                val acked =
+                    try {
+                        withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) { deferred.await() } != null
+                    } catch (_: CancellationException) {
+                        // The session dropped and completePendingRepliesOnDisconnect cancelled this
+                        // wait: treat it as not acked WITHOUT crashing — and without clearing the
+                        // pending flag, which was set above and stays set so the next welcome
+                        // replays the sign-out (the caller signs out locally regardless).
+                        coroutineContext.ensureActive()
+                        false
+                    }
                 pendingSignOutReply = null
                 acked
             }
@@ -622,6 +657,15 @@ class DeviceTransportClientImpl
         override fun stop() {
             job?.cancel()
             job = null
+            // Resolve every outstanding reply wait BEFORE the fields are nulled: a stop() during a
+            // wait must complete it now, not leave it hanging until the 5s timeout.
+            completePendingRepliesOnDisconnect(
+                pendingRegenerate,
+                pendingSignIn,
+                pendingSignOutReply,
+                pendingAiConnections,
+                pendingAiRevoke,
+            )
             currentOutbox = null
             pendingRegenerate = null
             pendingSignIn = null
@@ -715,6 +759,29 @@ private fun completeAiConnectionsReply(
     )
 }
 
+/** Resolves every reply a caller is still waiting for when the session dies or [stop] runs:
+ *  sign-in, AI-connections list and revoke waiters complete with their own not-connected result;
+ *  the regenerate and sign-out reply waiters have no not-connected value, so they are CANCELLED —
+ *  each awaiting caller catches that cancellation, treats it as "not connected" (regenerate:
+ *  `false`; sign-out: `false`) and rethrows if its own coroutine was the thing cancelled. The
+ *  pending sign-out flag is NOT touched here: a sign-out whose reply never came stays pending, so
+ *  the next connection replays it. A top-level function, not a class member - keeps
+ *  [DeviceTransportClientImpl] within detekt's function-count limits, same reasoning as
+ *  [decodeOrNull]. */
+private fun completePendingRepliesOnDisconnect(
+    pendingRegenerate: CompletableDeferred<String>?,
+    pendingSignIn: CompletableDeferred<SignInResult>?,
+    pendingSignOutReply: CompletableDeferred<Unit>?,
+    pendingAiConnections: CompletableDeferred<AiConnectionsResult>?,
+    pendingAiRevoke: CompletableDeferred<AiRevokeResult>?,
+) {
+    pendingRegenerate?.cancel()
+    pendingSignIn?.complete(SignInResult.NotConnected)
+    pendingSignOutReply?.cancel()
+    pendingAiConnections?.complete(AiConnectionsResult.NotConnected)
+    pendingAiRevoke?.complete(AiRevokeResult.NotConnected)
+}
+
 /** Completes the waiter of an in-flight [DeviceTransportClient.revokeAiConnection] with the
  *  server's `ai_connection_revoked` reply — same reasoning as [completeAiConnectionsReply]. */
 private fun completeAiRevokeReply(
@@ -805,7 +872,10 @@ private fun decodeOrNull(frame: Frame): WireMessage? {
     return try {
         wireJson.decodeFromString(WireMessage.serializer(), frame.readText())
     } catch (e: Exception) {
-        Logger.w("MCP:DeviceTransport", "Ignoring malformed frame: ${e.message}")
+        // kotlinx.serialization error messages embed the raw JSON input, so logging e.message
+        // would put arbitrary (possibly sensitive) frame contents into logcat — log only the
+        // exception class.
+        Logger.w("MCP:DeviceTransport", "Ignoring malformed frame: ${e::class.simpleName}")
         null
     }
 }

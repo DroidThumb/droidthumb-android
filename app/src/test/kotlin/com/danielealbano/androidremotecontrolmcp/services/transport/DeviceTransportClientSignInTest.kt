@@ -1,5 +1,6 @@
 package com.danielealbano.androidremotecontrolmcp.services.transport
 
+import com.danielealbano.androidremotecontrolmcp.services.identity.InstallHintProvider
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignIn
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignInRejected
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignOut
@@ -15,9 +16,13 @@ import io.ktor.websocket.readText
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -103,6 +108,9 @@ class DeviceTransportClientSignInTest : DeviceTransportClientTestBase() {
                         ),
                     )
                     incoming.receive() // sign_in, deliberately never answered
+                    // Hold the connection OPEN: a server that CLOSES it is a drop, which the
+                    // client now reports as NotConnected immediately (not TimedOut).
+                    delay(10.seconds)
                 },
             ) { port ->
                 val client = newClient()
@@ -122,6 +130,60 @@ class DeviceTransportClientSignInTest : DeviceTransportClientTestBase() {
             val client = newClient()
             val result = client.signIn("clt_abc123")
             assertEquals(SignInResult.NotConnected, result)
+        }
+
+    @Test
+    fun `signIn returns NotConnected, not TimedOut, when the connection drops before the reply`() =
+        runBlocking {
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
+                    incoming.receive() // sign_in
+                    coroutineContext.cancel() // abrupt drop: the reply never arrives
+                },
+            ) { port ->
+                val client = newClient()
+                client.start("127.0.0.1", port, tls = false)
+                awaitStatus<TransportStatus.Connected>(client)
+                val result = withTimeout(8.seconds) { client.signIn("clt_abc123") }
+                assertEquals(SignInResult.NotConnected, result)
+                client.stop()
+            }
+        }
+
+    @Test
+    fun `a blank install hint is rejected without sending sign_in`() =
+        runBlocking {
+            val signInSeen = AtomicBoolean(false)
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
+                    // Nothing but the hello may arrive: the sign_in must never be sent.
+                    withTimeoutOrNull(2.seconds) {
+                        incoming.receive()
+                        signInSeen.set(true)
+                    }
+                },
+            ) { port ->
+                val blankHint = mockk<InstallHintProvider> { every { installHint } returns "" }
+                val client = newClient(installHintProvider = blankHint)
+                client.start("127.0.0.1", port, tls = false)
+                awaitStatus<TransportStatus.Connected>(client)
+                val result = withTimeout(8.seconds) { client.signIn("clt_abc123") }
+                assertEquals(SignInResult.Rejected("install_hint_unavailable"), result)
+                client.stop()
+                assertFalse(signInSeen.get()) { "no sign_in may be sent with a blank install hint" }
+            }
         }
 
     @Test
@@ -167,6 +229,9 @@ class DeviceTransportClientSignInTest : DeviceTransportClientTestBase() {
                         ),
                     )
                     incoming.receive() // sign_out, deliberately never answered
+                    // Hold the connection OPEN: a closed connection is a drop (NotConnected
+                    // semantics now), whereas this test is about the bounded 5s wait itself.
+                    delay(10.seconds)
                 },
             ) { port ->
                 val client = newClient(accountSettings = accountSettings)

@@ -193,6 +193,31 @@ class StepDispatcherTypeTextAndLockTest {
             coVerify(exactly = 0) { typeClearTextTool.execute(any()) }
         }
 
+    @Test
+    fun `type_text replace with empty text clears the field and succeeds without typing`() =
+        runTest {
+            coEvery { typeClearTextTool.execute(any()) } returns ok
+            val params = selectorParams() + mapOf("text" to JsonPrimitive(""))
+            val result = dispatcher.dispatch(step("type_text", JsonObject(params)))
+            assertTrue(result is StepResult)
+            coVerify(exactly = 1) { typeClearTextTool.execute(any()) }
+            coVerify(exactly = 0) { typeAppendTextTool.execute(any()) }
+        }
+
+    @Test
+    fun `type_text append with empty text fails InvalidParams before any screen interaction`() =
+        runTest {
+            val params =
+                selectorParams() +
+                    mapOf("text" to JsonPrimitive(""), "append" to JsonPrimitive(true))
+            val result = dispatcher.dispatch(step("type_text", JsonObject(params))) as StepError
+            assertEquals("InvalidParams", result.code)
+            // Nothing on screen may change: neither type tool, and not even the selector wait.
+            coVerify(exactly = 0) { typeAppendTextTool.execute(any()) }
+            coVerify(exactly = 0) { typeClearTextTool.execute(any()) }
+            coVerify(exactly = 0) { waitForNodeTool.execute(any()) }
+        }
+
     // ── lock screen ──────────────────────────────────────────────────────────
 
     @Test

@@ -297,8 +297,14 @@ class StepDispatcher
          *  `submit_unsupported`, leaving the typed text in place. */
         private suspend fun typeText(params: JsonObject): ToolResult {
             val (selector, text) = typeTextParams(params)
-            awaitSelectorPresent(selector, autoWaitTimeoutMs(params))
             val append = params["append"]?.jsonPrimitive?.booleanOrNull ?: false
+            // Append with nothing to append would leave the field untouched yet report success —
+            // rejected before any screen interaction (and before the selector wait), so the field
+            // is guaranteed unchanged. Replace with empty text is meaningful: it clears the field.
+            if (append && text.isEmpty()) {
+                throw McpToolException.InvalidParams("type_text requires a non-empty 'text' when append is true")
+            }
+            awaitSelectorPresent(selector, autoWaitTimeoutMs(params))
             val result =
                 if (append) {
                     typeAppendTextTool.execute(
@@ -308,13 +314,17 @@ class StepDispatcher
                         },
                     )
                 } else {
-                    typeClearTextTool.execute(buildJsonObject { put("selector", selector) })
-                    typeAppendTextTool.execute(
-                        buildJsonObject {
-                            put("selector", selector)
-                            put("text", text)
-                        },
-                    )
+                    val cleared = typeClearTextTool.execute(buildJsonObject { put("selector", selector) })
+                    if (text.isEmpty()) {
+                        cleared
+                    } else {
+                        typeAppendTextTool.execute(
+                            buildJsonObject {
+                                put("selector", selector)
+                                put("text", text)
+                            },
+                        )
+                    }
                 }
             if (params["submit"]?.jsonPrimitive?.booleanOrNull == true && !imeSubmitController.submitFocusedField()) {
                 throw SubmitUnsupportedException(SUBMIT_UNSUPPORTED_MESSAGE)

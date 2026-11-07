@@ -23,6 +23,7 @@ import com.danielealbano.androidremotecontrolmcp.services.transport.SignInResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.TransportStatus
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
@@ -633,5 +634,22 @@ class AccountViewModelTest {
             assertEquals(AccountSignInState.Idle, viewModel.signInState.value)
             assertEquals(ConnectionsState.Idle, viewModel.connectionsState.value)
             assertEquals(AccountSessionState.SignedOut, viewModel.sessionState.value)
+        }
+
+    @Test
+    fun `signOut persists the pending sign-out flag before clearing the local account`() =
+        runTest {
+            // If the process dies between the two, the flag must already be on disk so the next
+            // connection replays sign_out — hence the strict order (code-review round 2).
+            coEvery { googleSignInClient.signOut(context) } returns Unit
+            coEvery { transportClient.signOut() } returns true
+
+            viewModel.signOut(context)
+            advanceUntilIdle()
+
+            coVerifyOrder {
+                settingsRepository.setPendingSignOut(true)
+                settingsRepository.clearAccountId()
+            }
         }
 }

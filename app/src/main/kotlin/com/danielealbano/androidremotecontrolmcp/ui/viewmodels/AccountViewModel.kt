@@ -149,6 +149,11 @@ class AccountViewModel
         private val _sessionState = MutableStateFlow<AccountSessionState>(AccountSessionState.Checking)
         val sessionState: StateFlow<AccountSessionState> = _sessionState.asStateFlow()
 
+        /** Why the last revoke failed, shown on the AI client detail screen under Remove — `null`
+         *  when no revoke has failed since the last attempt started. Cleared when a revoke starts. */
+        private val _revokeError = MutableStateFlow<String?>(null)
+        val revokeError: StateFlow<String?> = _revokeError.asStateFlow()
+
         /** Single-flight guard for [checkSession]: only one authoritative check at a time — a new
          *  trigger while one is in flight does not start another. */
         private val sessionCheckInFlight = AtomicBoolean(false)
@@ -434,6 +439,11 @@ class AccountViewModel
          *  in that case and replays it on the next connection). */
         fun signOut(context: Context) {
             viewModelScope.launch(ioDispatcher) {
+                // Persisted FIRST: if the process dies mid-sign-out or the connection drops, the
+                // flag is already on disk, so the next connection replays sign_out (code-review
+                // round 2). The transport also sets it itself (idempotent), before its Connected
+                // check, so an offline sign-out is still recorded either way.
+                settingsRepository.setPendingSignOut(true)
                 googleSignInClient.signOut(context)
                 settingsRepository.clearAccountId()
                 _accountProfile.value = null
@@ -452,6 +462,7 @@ class AccountViewModel
          *  [connectionsState] on success — the detail screen's own retry is the recovery path. */
         fun revokeConnection(clientId: String) {
             viewModelScope.launch(ioDispatcher) {
+                _revokeError.value = null
                 when (val result = transportClient.revokeAiConnection(clientId)) {
                     AiRevokeResult.Revoked -> {
                         removeConnectionFromList(clientId)
@@ -463,13 +474,19 @@ class AccountViewModel
                             // it either way, so the outcome for this screen is the same.
                             removeConnectionFromList(clientId)
                         } else {
-                            Unit // leave the list as-is; the row's own retry is the recovery path
+                            // The server's own error is shown, verbatim, same pattern as the
+                            // connections list's failure message.
+                            _revokeError.value = result.message ?: result.code
                         }
                     }
 
-                    else -> {
-                        Unit
-                    } // not connected or no reply; the row's own retry is the recovery path
+                    AiRevokeResult.TimedOut -> {
+                        _revokeError.value = "The server didn't answer. Try again."
+                    }
+
+                    AiRevokeResult.NotConnected -> {
+                        _revokeError.value = "Not connected to the server"
+                    }
                 }
             }
         }
