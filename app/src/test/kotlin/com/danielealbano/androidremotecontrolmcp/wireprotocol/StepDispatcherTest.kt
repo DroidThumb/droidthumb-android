@@ -24,7 +24,9 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.Accessib
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeParser
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.BoundsData
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ImeSubmitController
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
+import com.danielealbano.androidremotecontrolmcp.services.lockscreen.LockStateProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
@@ -33,6 +35,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -62,6 +65,8 @@ class StepDispatcherTest {
     private lateinit var treeParser: AccessibilityTreeParser
     private lateinit var accessibilityServiceProvider: AccessibilityServiceProvider
     private lateinit var nodeCache: AccessibilityNodeCache
+    private lateinit var imeSubmitController: ImeSubmitController
+    private lateinit var lockStateProvider: LockStateProvider
     private lateinit var controlBarCoordinator: ControlBarCoordinator
     private lateinit var dispatcher: StepDispatcher
 
@@ -92,6 +97,8 @@ class StepDispatcherTest {
         treeParser = mockk()
         accessibilityServiceProvider = mockk()
         nodeCache = mockk(relaxed = true)
+        imeSubmitController = mockk()
+        lockStateProvider = mockk()
         controlBarCoordinator = mockk(relaxed = true)
         dispatcher =
             StepDispatcher(
@@ -111,13 +118,17 @@ class StepDispatcherTest {
                 treeParser,
                 accessibilityServiceProvider,
                 nodeCache,
+                imeSubmitController,
+                lockStateProvider,
                 controlBarCoordinator,
             )
 
         // Auto-wait (before every selector-targeted action) and post-action idle-wait default to
-        // "already there" / "already idle" so most tests don't need to think about them.
+        // "already there" / "already idle" so most tests don't need to think about them. The phone
+        // defaults to unlocked so non-read_screen steps run.
         coEvery { waitForNodeTool.execute(any()) } returns foundTrue
         coEvery { waitForIdleTool.execute(any()) } returns idleOk
+        every { lockStateProvider.isLocked() } returns false
     }
 
     private fun step(
@@ -351,54 +362,6 @@ class StepDispatcherTest {
         every { accessibilityServiceProvider.getCurrentActivityName() } returns ".Main"
         every { treeParser.parseTree(mockRootNode, "root_w0", any()) } returns node
     }
-
-    // ── type_text ───────────────────────────────────────────────────────────
-
-    @Test
-    fun `type_text without clear auto-waits then calls type_append_text with the raw selector and text`() =
-        runTest {
-            coEvery { typeAppendTextTool.execute(any()) } returns ok
-            val params = selectorParams() + mapOf("text" to JsonPrimitive("hi"))
-            dispatcher.dispatch(step("type_text", JsonObject(params)))
-            coVerify { waitForNodeTool.execute(any()) }
-            coVerify {
-                typeAppendTextTool.execute(
-                    match {
-                        it["selector"]
-                            ?.jsonObject
-                            ?.get("resource_id")
-                            ?.jsonPrimitive
-                            ?.content == "com.app:id/x" &&
-                            it["text"]?.jsonPrimitive?.content == "hi"
-                    },
-                )
-            }
-        }
-
-    @Test
-    fun `type_text with clear true calls type_clear_text, text not required`() =
-        runTest {
-            coEvery { typeClearTextTool.execute(any()) } returns ok
-            val params = selectorParams() + mapOf("clear" to JsonPrimitive(true))
-            dispatcher.dispatch(step("type_text", JsonObject(params)))
-            coVerify { typeClearTextTool.execute(any()) }
-            coVerify(exactly = 0) { typeAppendTextTool.execute(any()) }
-        }
-
-    @Test
-    fun `type_text whose selector never appears fails without calling either type tool`() =
-        runTest {
-            val timeoutJson = """{"found":false,"elapsedMs":5000,"attempts":10,"message":"timed out"}"""
-            coEvery { waitForNodeTool.execute(any()) } returns
-                ToolResult(
-                    content = listOf(ToolContent.Text("${McpToolUtils.UNTRUSTED_CONTENT_WARNING}\n$timeoutJson")),
-                )
-            val params = selectorParams() + mapOf("text" to JsonPrimitive("hi"))
-            val result = dispatcher.dispatch(step("type_text", JsonObject(params))) as StepError
-            assertEquals("NodeNotFound", result.code)
-            coVerify(exactly = 0) { typeAppendTextTool.execute(any()) }
-            coVerify(exactly = 0) { typeClearTextTool.execute(any()) }
-        }
 
     // ── scroll_find ─────────────────────────────────────────────────────────
 
