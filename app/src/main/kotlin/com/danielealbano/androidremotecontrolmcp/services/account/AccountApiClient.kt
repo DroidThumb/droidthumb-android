@@ -55,26 +55,6 @@ sealed interface SignInTokenResult {
     ) : SignInTokenResult
 }
 
-sealed interface ConnectionsResult {
-    data class Success(
-        val connections: List<AccountConnection>,
-    ) : ConnectionsResult
-
-    data class Failed(
-        val message: String,
-    ) : ConnectionsResult
-}
-
-sealed interface RevokeResult {
-    data object Revoked : RevokeResult
-
-    data object NotFound : RevokeResult
-
-    data class Failed(
-        val message: String,
-    ) : RevokeResult
-}
-
 sealed interface RenameResult {
     data object Updated : RenameResult
 
@@ -114,7 +94,8 @@ sealed interface DevicesResult {
  * hand-written REST routes in that codebase, authenticated the same way on every call: a fresh
  * Google `id_token` in the body, never a session or bearer token (there is no app session
  * mechanism on this server at all). Same host/port/tls as [DeviceRegistrationClient] — the
- * single listener every other call in this app already talks to.
+ * single listener every other call in this app already talks to. The AI-connections list and
+ * revoke go over the phone connection ([DeviceTransportClient]) instead of HTTP.
  */
 interface AccountApiClient {
     suspend fun mintSignInToken(
@@ -123,21 +104,6 @@ interface AccountApiClient {
         tls: Boolean,
         googleIdToken: String,
     ): SignInTokenResult
-
-    suspend fun listConnections(
-        host: String,
-        port: Int,
-        tls: Boolean,
-        googleIdToken: String,
-    ): ConnectionsResult
-
-    suspend fun revokeConnection(
-        host: String,
-        port: Int,
-        tls: Boolean,
-        googleIdToken: String,
-        clientId: String,
-    ): RevokeResult
 
     suspend fun renameConnection(
         host: String,
@@ -162,12 +128,6 @@ private data class GoogleIdTokenBody(
 )
 
 @Serializable
-private data class RevokeBody(
-    @SerialName("google_id_token") val googleIdToken: String,
-    @SerialName("client_id") val clientId: String,
-)
-
-@Serializable
 private data class RenameBody(
     @SerialName("google_id_token") val googleIdToken: String,
     @SerialName("client_id") val clientId: String,
@@ -178,21 +138,6 @@ private data class RenameBody(
 private data class SignInTokenResponseBody(
     @SerialName("sign_in_token") val signInToken: String,
     @SerialName("account_id") val accountId: String,
-)
-
-@Serializable
-private data class ConnectionBody(
-    @SerialName("client_id") val clientId: String,
-    @SerialName("client_name") val clientName: String,
-    @SerialName("display_name") val displayName: String,
-    @SerialName("image_url") val imageUrl: String? = null,
-    @SerialName("connected_at") val connectedAt: String,
-    @SerialName("last_used_at") val lastUsedAt: String? = null,
-)
-
-@Serializable
-private data class ConnectionsResponseBody(
-    val connections: List<ConnectionBody>,
 )
 
 @Serializable
@@ -254,83 +199,6 @@ class AccountApiClientImpl
                     }
                 } catch (e: Exception) {
                     SignInTokenResult.Failed(e.message ?: "sign-in-token request failed")
-                }
-            }
-
-        @Suppress("TooGenericExceptionCaught")
-        override suspend fun listConnections(
-            host: String,
-            port: Int,
-            tls: Boolean,
-            googleIdToken: String,
-        ): ConnectionsResult =
-            withContext(Dispatchers.IO) {
-                try {
-                    val response: HttpResponse =
-                        client.post {
-                            url {
-                                protocol = if (tls) URLProtocol.HTTPS else URLProtocol.HTTP
-                                this.host = host
-                                this.port = port
-                                path(CONNECTIONS_PATH)
-                            }
-                            contentType(ContentType.Application.Json)
-                            setBody(GoogleIdTokenBody(googleIdToken))
-                        }
-                    when (response.status) {
-                        HttpStatusCode.OK -> {
-                            val body = response.body<ConnectionsResponseBody>()
-                            ConnectionsResult.Success(
-                                body.connections.map {
-                                    AccountConnection(
-                                        it.clientId,
-                                        it.clientName,
-                                        it.displayName,
-                                        it.imageUrl,
-                                        it.connectedAt,
-                                        it.lastUsedAt,
-                                    )
-                                },
-                            )
-                        }
-
-                        else -> {
-                            ConnectionsResult.Failed("HTTP ${response.status.value}")
-                        }
-                    }
-                } catch (e: Exception) {
-                    ConnectionsResult.Failed(e.message ?: "connections request failed")
-                }
-            }
-
-        @Suppress("TooGenericExceptionCaught")
-        override suspend fun revokeConnection(
-            host: String,
-            port: Int,
-            tls: Boolean,
-            googleIdToken: String,
-            clientId: String,
-        ): RevokeResult =
-            withContext(Dispatchers.IO) {
-                try {
-                    val response: HttpResponse =
-                        client.post {
-                            url {
-                                protocol = if (tls) URLProtocol.HTTPS else URLProtocol.HTTP
-                                this.host = host
-                                this.port = port
-                                path(REVOKE_PATH)
-                            }
-                            contentType(ContentType.Application.Json)
-                            setBody(RevokeBody(googleIdToken, clientId))
-                        }
-                    when (response.status) {
-                        HttpStatusCode.OK -> RevokeResult.Revoked
-                        HttpStatusCode.NotFound -> RevokeResult.NotFound
-                        else -> RevokeResult.Failed("HTTP ${response.status.value}")
-                    }
-                } catch (e: Exception) {
-                    RevokeResult.Failed(e.message ?: "revoke request failed")
                 }
             }
 
@@ -435,8 +303,6 @@ class AccountApiClientImpl
         private companion object {
             private const val TAG = "MCP:AccountApi"
             const val SIGN_IN_TOKEN_PATH = "/v1/accounts/sign-in-token"
-            const val CONNECTIONS_PATH = "/v1/accounts/connections"
-            const val REVOKE_PATH = "/v1/accounts/connections/revoke"
             const val RENAME_PATH = "/v1/accounts/connections/rename"
             const val DEVICES_PATH = "/v1/accounts/devices"
             const val REQUEST_TIMEOUT_MS = 5_000L

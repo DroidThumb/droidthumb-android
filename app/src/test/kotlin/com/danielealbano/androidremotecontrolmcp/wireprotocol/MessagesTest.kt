@@ -439,4 +439,125 @@ class MessagesTest {
         val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("signed-out.valid.json"))
         assertTrue(decoded is SignedOut)
     }
+
+    @Test
+    fun `list_ai_connections encodes with only a type field`() {
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), ListAiConnections)
+        assertEquals("""{"type":"list_ai_connections"}""", encoded)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(ListAiConnections, decoded)
+        assertTrue(decoded is ListAiConnections)
+    }
+
+    @Test
+    fun `ai_connections_list round-trips with connections`() {
+        val message =
+            AiConnectionsList(
+                ok = true,
+                connections =
+                    listOf(
+                        AiConnection(
+                            clientId = "clt_1",
+                            clientName = "Claude",
+                            displayName = "My Claude",
+                            imageUrl = null,
+                            connectedAt = "2026-10-21T09:30:00Z",
+                            lastUsedAt = null,
+                        ),
+                    ),
+            )
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        assertTrue(decoded is AiConnectionsList)
+        assertTrue(encoded.contains("\"client_id\""), "encoded list missing client_id: $encoded")
+    }
+
+    @Test
+    fun `ai_connections_list round-trips an error reply without connections`() {
+        val message = AiConnectionsList(ok = false, error = AiConnectionsError("not_signed_in", "sign in first"))
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        check(decoded is AiConnectionsList)
+        assertEquals(false, decoded.ok)
+        assertEquals(null, decoded.connections)
+        assertEquals("not_signed_in", decoded.error?.code)
+    }
+
+    @Test
+    fun `revoke_ai_connection round-trips`() {
+        val message = RevokeAiConnection(connectionId = "clt_1")
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        assertTrue(decoded is RevokeAiConnection)
+        assertTrue(encoded.contains("\"connection_id\""), "encoded revoke missing connection_id: $encoded")
+    }
+
+    @Test
+    fun `ai_connection_revoked round-trips ok and with an error`() {
+        val ok = AiConnectionRevoked(ok = true)
+        val okEncoded = wireJson.encodeToString(WireMessage.serializer(), ok)
+        val okDecoded = wireJson.decodeFromString(WireMessage.serializer(), okEncoded)
+        assertEquals(ok, okDecoded)
+
+        val failed = AiConnectionRevoked(ok = false, error = AiConnectionsError("not_found", "no such connection"))
+        val failedEncoded = wireJson.encodeToString(WireMessage.serializer(), failed)
+        val failedDecoded = wireJson.decodeFromString(WireMessage.serializer(), failedEncoded)
+        assertEquals(failed, failedDecoded)
+    }
+
+    @Test
+    fun `decodes the protocol repo's list-ai-connections valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("list-ai-connections.valid.json"))
+        assertTrue(decoded is ListAiConnections)
+    }
+
+    @Test
+    fun `decodes the protocol repo's ai-connections-list valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("ai-connections-list.valid.json"))
+        check(decoded is AiConnectionsList)
+        assertEquals(true, decoded.ok)
+        assertEquals(2, decoded.connections?.size)
+        val connection = decoded.connections!!.first()
+        assertEquals("cl_0123456789abcdef", connection.clientId)
+        assertEquals("Claude (work)", connection.displayName)
+        assertEquals("https://example.com/claude.png", connection.imageUrl)
+        assertEquals(null, decoded.connections!!.last().lastUsedAt)
+    }
+
+    @Test
+    fun `decodes the protocol repo's ai-connections-list not-signed-in fixture`() {
+        val decoded =
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("ai-connections-list.valid.not-signed-in.json"))
+        check(decoded is AiConnectionsList)
+        assertEquals(false, decoded.ok)
+        assertEquals(null, decoded.connections)
+        assertEquals("not_signed_in", decoded.error?.code)
+    }
+
+    @Test
+    fun `decodes the protocol repo's revoke-ai-connection valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("revoke-ai-connection.valid.json"))
+        check(decoded is RevokeAiConnection)
+        assertEquals("cl_0123456789abcdef", decoded.connectionId)
+    }
+
+    @Test
+    fun `decodes the protocol repo's ai-connection-revoked valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("ai-connection-revoked.valid.json"))
+        check(decoded is AiConnectionRevoked)
+        assertEquals(true, decoded.ok)
+        assertEquals(null, decoded.error)
+    }
+
+    @Test
+    fun `decodes the protocol repo's ai-connection-revoked not-found fixture`() {
+        val decoded =
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("ai-connection-revoked.valid.not-found.json"))
+        check(decoded is AiConnectionRevoked)
+        assertEquals(false, decoded.ok)
+        assertEquals("not_found", decoded.error?.code)
+    }
 }

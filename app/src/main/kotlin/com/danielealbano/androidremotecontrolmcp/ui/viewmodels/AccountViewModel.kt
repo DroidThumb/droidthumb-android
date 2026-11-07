@@ -11,16 +11,16 @@ import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClie
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountConnection
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountDevice
 import com.danielealbano.androidremotecontrolmcp.services.account.ApiErrorKind
-import com.danielealbano.androidremotecontrolmcp.services.account.ConnectionsResult
 import com.danielealbano.androidremotecontrolmcp.services.account.DevicesResult
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClient
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInResult
 import com.danielealbano.androidremotecontrolmcp.services.account.RenameResult
-import com.danielealbano.androidremotecontrolmcp.services.account.RevokeResult
 import com.danielealbano.androidremotecontrolmcp.services.account.SignInTokenResult
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
+import com.danielealbano.androidremotecontrolmcp.services.transport.AiConnectionsResult
+import com.danielealbano.androidremotecontrolmcp.services.transport.AiRevokeResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
 import com.danielealbano.androidremotecontrolmcp.services.transport.SignInResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.TransportStatus
@@ -223,13 +223,10 @@ class AccountViewModel
                     // its recomposition sees the new accountId, signInState above is already
                     // SignedIn, so that effect never fires for a fresh sign-in. Both loads here
                     // are this path's own responsibility, not something the effect also covers.
-                    // Reuse the SAME idToken this interactive sign-in just obtained, rather than
-                    // going through loadConnections(allowInteractive = true)/freshIdTokenOrNull,
-                    // which would try Credential Manager's *silent* request first - immediately
-                    // after an interactive grant, Google's own account-authorization state isn't
-                    // guaranteed to have propagated yet, so that silent attempt can fail (plan A1
-                    // review).
-                    loadConnectionsWithToken(idToken)
+                    // Reuse the moment of a successful sign-in to refresh the connections list:
+                    // it travels over the phone connection, which is now authenticated as this
+                    // account, so no extra Google round-trip is involved.
+                    loadConnectionsOverConnection()
                     // The This device card's state comes from the same authoritative session
                     // check everything else reads (plan A1a/A1b) — but with the id token the
                     // sign-in just obtained (plan A1 review): right after an interactive grant a
@@ -273,47 +270,64 @@ class AccountViewModel
             }
         }
 
-        /** Fetches the account's AI connections, re-using an already-signed-in Google account
-         *  silently (no UI) wherever Credential Manager allows it — see [GoogleSignInClient.signIn].
-         *  [allowInteractive] must be `false` for any call this device owner didn't directly
-         *  trigger (e.g. an automatic refresh on opening the app) — being signed in is this device's
-         *  own persisted, durable state (design doc D-33), unrelated to whether Credential Manager
-         *  still considers the Google session "silent"; an automatic background refresh must never
-         *  surface Google's own account-picker UI on its own, or every cold start (app reopened,
-         *  phone rebooted) would look like being signed out and asked to sign back in again, purely
-         *  because a background connections-list refresh happened to need a fresh ID token
-         *  (founder feedback, PR #8 round 5). `true` is for the cases the user actually asked for
-         *  this: the "Retry" button, and right after [signIn] itself just finished its own
-         *  interactive sign-in. */
-        fun loadConnections(
-            context: Context,
-            allowInteractive: Boolean,
-        ) {
+        /** Fetches the account's AI connections over the phone connection
+         *  ([DeviceTransportClient.listAiConnections]) — the server identifies the account from
+         *  the sign-in on this phone, so no Google token is involved. The Google credential is
+         *  refreshed silently (no UI, never a picker) purely to keep the avatar's display-only
+         *  profile fresh; its failure never blocks or fails the list itself. */
+        fun loadConnections(context: Context) {
             viewModelScope.launch(ioDispatcher) {
-                _connectionsState.value = ConnectionsState.Loading
-                val idToken = freshIdTokenOrNull(context, allowInteractive)
-                if (idToken == null) {
-                    _connectionsState.value = ConnectionsState.Failed("Sign in to view your AI connections")
-                    return@launch
+                when (val signIn = googleSignInClient.signInSilently(context)) {
+                    is GoogleSignInResult.Success -> {
+                        _accountProfile.value =
+                            AccountProfile(signIn.displayName, signIn.email, signIn.profilePictureUri)
+                    }
+
+                    // Any other silent outcome (no credential, cancelled, failed) leaves the
+                    // profile as-is: the list itself travels over the phone connection and
+                    // doesn't need Google at all.
+                    else -> {
+                        Unit
+                    }
                 }
-                loadConnectionsWithToken(idToken)
+                loadConnectionsOverConnection()
             }
         }
 
-        /** Does the actual fetch once a caller already has a usable `idToken` in hand - [loadConnections]
-         *  delegates to this after obtaining one itself; [signIn] calls it directly with the
-         *  token its own interactive sign-in just produced, skipping a second Credential Manager
-         *  round-trip entirely. */
-        private suspend fun loadConnectionsWithToken(idToken: String) {
+        /** The actual fetch over the phone connection; [loadConnections] delegates to this, and
+         *  [finishSignIn] calls it directly the moment the sign-in succeeds. */
+        private suspend fun loadConnectionsOverConnection() {
             _connectionsState.value = ConnectionsState.Loading
-            val config = settingsRepository.getTransportConfig()
-            when (val result = accountApiClient.listConnections(config.host, config.port, config.tls, idToken)) {
-                is ConnectionsResult.Success -> {
-                    _connectionsState.value = ConnectionsState.Loaded(result.connections)
+            when (val result = transportClient.listAiConnections()) {
+                is AiConnectionsResult.Connections -> {
+                    _connectionsState.value =
+                        ConnectionsState.Loaded(
+                            result.connections.map {
+                                AccountConnection(
+                                    it.clientId,
+                                    it.clientName,
+                                    it.displayName,
+                                    it.imageUrl,
+                                    it.connectedAt,
+                                    it.lastUsedAt,
+                                )
+                            },
+                        )
                 }
 
-                is ConnectionsResult.Failed -> {
-                    _connectionsState.value = ConnectionsState.Failed(result.message)
+                is AiConnectionsResult.Error -> {
+                    // The server's own error code is shown, verbatim (not_signed_in when the
+                    // phone is signed out).
+                    _connectionsState.value =
+                        ConnectionsState.Failed(result.message ?: result.code)
+                }
+
+                is AiConnectionsResult.TimedOut -> {
+                    _connectionsState.value = ConnectionsState.Failed("The server didn't answer. Try again.")
+                }
+
+                is AiConnectionsResult.NotConnected -> {
+                    _connectionsState.value = ConnectionsState.Failed("Not connected to the server")
                 }
             }
         }
@@ -432,28 +446,39 @@ class AccountViewModel
             }
         }
 
-        fun revokeConnection(
-            context: Context,
-            clientId: String,
-        ) {
+        /** Revokes one AI connection over the phone connection
+         *  ([DeviceTransportClient.revokeAiConnection]); `clientId` is the connection's
+         *  `client_id` as listed by [loadConnections]. Fire-and-forget: it only updates
+         *  [connectionsState] on success — the detail screen's own retry is the recovery path. */
+        fun revokeConnection(clientId: String) {
             viewModelScope.launch(ioDispatcher) {
-                val idToken = freshIdTokenOrNull(context, allowInteractive = true) ?: return@launch
-                val config = settingsRepository.getTransportConfig()
-                when (accountApiClient.revokeConnection(config.host, config.port, config.tls, idToken, clientId)) {
-                    RevokeResult.Revoked, RevokeResult.NotFound -> {
-                        // NotFound means it's already gone (e.g. revoked elsewhere) - the list
-                        // should not show it either way, so the outcome for this screen is the same.
-                        val current = _connectionsState.value
-                        if (current is ConnectionsState.Loaded) {
-                            _connectionsState.value =
-                                ConnectionsState.Loaded(current.connections.filterNot { it.clientId == clientId })
+                when (val result = transportClient.revokeAiConnection(clientId)) {
+                    AiRevokeResult.Revoked -> {
+                        removeConnectionFromList(clientId)
+                    }
+
+                    is AiRevokeResult.Error -> {
+                        if (result.code == "not_found") {
+                            // Already gone (e.g. revoked elsewhere) — the list should not show
+                            // it either way, so the outcome for this screen is the same.
+                            removeConnectionFromList(clientId)
+                        } else {
+                            Unit // leave the list as-is; the row's own retry is the recovery path
                         }
                     }
 
-                    is RevokeResult.Failed -> {
+                    else -> {
                         Unit
-                    } // leave the list as-is; the row's own retry is the recovery path
+                    } // not connected or no reply; the row's own retry is the recovery path
                 }
+            }
+        }
+
+        private fun removeConnectionFromList(clientId: String) {
+            val current = _connectionsState.value
+            if (current is ConnectionsState.Loaded) {
+                _connectionsState.value =
+                    ConnectionsState.Loaded(current.connections.filterNot { it.clientId == clientId })
             }
         }
 

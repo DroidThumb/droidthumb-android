@@ -108,12 +108,12 @@ fun HomeScreen(
         onPauseOrDispose { }
     }
 
-    // Same durable sign-in semantics as the old ServerScreen: an automatic refresh on reopening the
-    // app must never put up Google's own account-picker UI by itself (founder feedback, PR #8
-    // round 5) - allowInteractive=false here, same as before.
+    // Same durable sign-in semantics as the old ServerScreen: the list refresh never puts up
+    // Google's own account-picker UI by itself (founder feedback, PR #8 round 5) — the refresh
+    // only touches Google silently, and the list itself travels over the phone connection.
     LaunchedEffect(accountId) {
         if (accountId != null && signInState !is AccountSignInState.SignedIn) {
-            accountViewModel.loadConnections(context, allowInteractive = false)
+            accountViewModel.loadConnections(context)
         }
     }
 

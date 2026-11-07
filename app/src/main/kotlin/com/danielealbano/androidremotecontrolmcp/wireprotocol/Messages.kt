@@ -184,6 +184,66 @@ data object SignOut : WireMessage
 @SerialName("signed_out")
 data object SignedOut : WireMessage
 
+/** device -> server, sent on the established (challenge-verified) connection to list the AI
+ *  connections of the account signed in on this phone (list-ai-connections.schema.json). */
+@Serializable
+@SerialName("list_ai_connections")
+data object ListAiConnections : WireMessage
+
+/** One AI connection of the account signed in on this phone, as [AiConnectionsList] reports it. */
+@Serializable
+data class AiConnection(
+    /** The third-party client's id — what [RevokeAiConnection] carries as `connectionId`. */
+    @SerialName("client_id") val clientId: String,
+    /** The client's own registered name. */
+    @SerialName("client_name") val clientName: String,
+    /** Account-editable override if set, else a default derived from the client type. */
+    @SerialName("display_name") val displayName: String,
+    /** Account-editable override, else `null` (no default image is assigned). */
+    @SerialName("image_url") val imageUrl: String? = null,
+    /** ISO 8601 — when the grant backing this connection was first created. */
+    @SerialName("connected_at") val connectedAt: String,
+    /** ISO 8601, or `null` if never used since it was connected. */
+    @SerialName("last_used_at") val lastUsedAt: String? = null,
+)
+
+/** The error half of [AiConnectionsList]/[AiConnectionRevoked] when `ok` is `false`. */
+@Serializable
+data class AiConnectionsError(
+    val code: String,
+    val message: String? = null,
+)
+
+/** server -> device, reply to [ListAiConnections]. `ok` is `true` with [connections] — the AI
+ *  connections of the account signed in on this phone — or `false` with [error]
+ *  (`not_signed_in` when this phone is signed out). */
+@Serializable
+@SerialName("ai_connections_list")
+data class AiConnectionsList(
+    val ok: Boolean,
+    val connections: List<AiConnection>? = null,
+    val error: AiConnectionsError? = null,
+) : WireMessage
+
+/** device -> server, sent on the established (challenge-verified) connection to revoke one of the
+ *  AI connections of the account signed in on this phone; [connectionId] is the connection's
+ *  `client_id` as listed in [AiConnectionsList] (revoke-ai-connection.schema.json). */
+@Serializable
+@SerialName("revoke_ai_connection")
+data class RevokeAiConnection(
+    @SerialName("connection_id") val connectionId: String,
+) : WireMessage
+
+/** server -> device, reply to [RevokeAiConnection]. `ok` is `true` when the connection was
+ *  revoked, or `false` with [error]: `not_signed_in` when this phone is signed out, `not_found`
+ *  when the connection isn't one of the account's connections. */
+@Serializable
+@SerialName("ai_connection_revoked")
+data class AiConnectionRevoked(
+    val ok: Boolean,
+    val error: AiConnectionsError? = null,
+) : WireMessage
+
 /**
  * D-21. Referenced from within a `step`'s `params` or a `result`'s `output` wherever a value may
  * be large. Only [Inline] is ever produced by this build (`read_screen`'s optional screenshot);
@@ -258,6 +318,10 @@ val wireJson =
                     subclass(SignInRejected::class, SignInRejected.serializer())
                     subclass(SignOut::class, SignOut.serializer())
                     subclass(SignedOut::class, SignedOut.serializer())
+                    subclass(ListAiConnections::class, ListAiConnections.serializer())
+                    subclass(AiConnectionsList::class, AiConnectionsList.serializer())
+                    subclass(RevokeAiConnection::class, RevokeAiConnection.serializer())
+                    subclass(AiConnectionRevoked::class, AiConnectionRevoked.serializer())
                 }
             }
     }

@@ -188,7 +188,7 @@ fun AiClientDetailScreen(
                     onClick = {
                         showRemoveConfirm = false
                         removalRequested = true
-                        accountViewModel.revokeConnection(context, clientId)
+                        accountViewModel.revokeConnection(clientId)
                     },
                 ) {
                     Text("Remove", color = DESTRUCTIVE_COLOR)

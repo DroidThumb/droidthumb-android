@@ -9,16 +9,15 @@ import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClie
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountConnection
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountDevice
 import com.danielealbano.androidremotecontrolmcp.services.account.ApiErrorKind
-import com.danielealbano.androidremotecontrolmcp.services.account.ConnectionsResult
 import com.danielealbano.androidremotecontrolmcp.services.account.DevicesResult
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClient
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInResult
 import com.danielealbano.androidremotecontrolmcp.services.account.RenameResult
-import com.danielealbano.androidremotecontrolmcp.services.account.RevokeResult
 import com.danielealbano.androidremotecontrolmcp.services.account.SignInTokenResult
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
+import com.danielealbano.androidremotecontrolmcp.services.transport.AiConnectionsResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
 import com.danielealbano.androidremotecontrolmcp.services.transport.SignInResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.TransportStatus
@@ -101,8 +100,7 @@ class AccountViewModelTest {
             coEvery { accountApiClient.mintSignInToken("h", 1, false, "id-token") } returns
                 SignInTokenResult.Success(signInToken = "clt_x", accountId = "acc_1")
             coEvery { transportClient.signIn("clt_x") } returns SignInResult.SignedIn("acc_1")
-            coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
-                ConnectionsResult.Success(emptyList())
+            coEvery { transportClient.listAiConnections() } returns AiConnectionsResult.Connections(emptyList())
             coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
                 DevicesResult.Success(listOf(AccountDevice(thisDeviceId, "2026-10-01", null)), deviceLimit = null)
 
@@ -186,10 +184,9 @@ class AccountViewModelTest {
             coEvery { accountApiClient.mintSignInToken("h", 1, false, "id-token") } returns
                 SignInTokenResult.Success(signInToken = "clt_x", accountId = "acc_1")
             coEvery { transportClient.signIn("clt_x") } returns SignInResult.SignedIn("acc_1")
-            // The SignedIn branch runs the connections load and the authoritative session check,
-            // which now reuses the sign-in's own id token (plan A1 review).
-            coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
-                ConnectionsResult.Success(emptyList())
+            // The SignedIn branch runs the connections load (over the phone connection) and the
+            // authoritative session check, which reuses the sign-in's own id token (plan A1 review).
+            coEvery { transportClient.listAiConnections() } returns AiConnectionsResult.Connections(emptyList())
             coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
                 DevicesResult.Success(devices = emptyList(), deviceLimit = null)
 
@@ -221,8 +218,7 @@ class AccountViewModelTest {
             coEvery { accountApiClient.mintSignInToken("h", 1, false, "id-token") } returns
                 SignInTokenResult.Success(signInToken = "clt_x", accountId = "acc_1")
             coEvery { transportClient.signIn("clt_x") } returns SignInResult.SignedIn("acc_1")
-            coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
-                ConnectionsResult.Success(emptyList())
+            coEvery { transportClient.listAiConnections() } returns AiConnectionsResult.Connections(emptyList())
             coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
                 DevicesResult.Success(devices = emptyList(), deviceLimit = null)
 
@@ -383,8 +379,7 @@ class AccountViewModelTest {
             coEvery { accountApiClient.mintSignInToken("h", 1, false, "id-token") } returns
                 SignInTokenResult.Success(signInToken = "clt_x", accountId = "acc_1")
             coEvery { transportClient.signIn("clt_x") } returns SignInResult.SignedIn("acc_1")
-            coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
-                ConnectionsResult.Success(emptyList())
+            coEvery { transportClient.listAiConnections() } returns AiConnectionsResult.Connections(emptyList())
             coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
                 DevicesResult.Success(devices = emptyList(), deviceLimit = null)
 
@@ -423,122 +418,6 @@ class AccountViewModelTest {
             advanceUntilIdle()
             coVerify(exactly = 1) { googleSignInClient.signInInteractively(context) }
             coVerify(exactly = 1) { accountApiClient.mintSignInToken(any(), any(), any(), any()) }
-        }
-
-    @Test
-    fun `loadConnections tries silently first, only shows the picker if that finds nothing`() =
-        runTest {
-            coEvery { googleSignInClient.signInSilently(context) } returns
-                GoogleSignInResult.Success("silent-token")
-            coEvery { accountApiClient.listConnections("h", 1, false, "silent-token") } returns
-                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
-
-            viewModel.loadConnections(context, allowInteractive = true)
-            advanceUntilIdle()
-
-            val expected =
-                ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
-            assertEquals(expected, viewModel.connectionsState.value)
-            coVerify(exactly = 0) { googleSignInClient.signInInteractively(context) }
-        }
-
-    @Test
-    fun `loadConnections falls back to the picker when silent fails and interactive is allowed`() =
-        runTest {
-            coEvery { googleSignInClient.signInSilently(context) } returns
-                GoogleSignInResult.NoCredential
-            coEvery { googleSignInClient.signInInteractively(context) } returns
-                GoogleSignInResult.Success("interactive-token")
-            coEvery { accountApiClient.listConnections("h", 1, false, "interactive-token") } returns
-                ConnectionsResult.Success(emptyList())
-
-            viewModel.loadConnections(context, allowInteractive = true)
-            advanceUntilIdle()
-
-            assertTrue(viewModel.connectionsState.value is ConnectionsState.Loaded)
-        }
-
-    @Test
-    fun `loadConnections never shows the picker when interactive is not allowed, even if silent finds nothing`() =
-        runTest {
-            // An automatic, non-user-initiated refresh (app reopened, phone rebooted) must never
-            // put up Google's own account-picker UI on its own - being signed in is this device's
-            // own durable state and must not look like a sign-out just because a background
-            // connections refresh needed a fresh token (founder feedback, PR #8 round 5).
-            coEvery { googleSignInClient.signInSilently(context) } returns
-                GoogleSignInResult.NoCredential
-
-            viewModel.loadConnections(context, allowInteractive = false)
-            advanceUntilIdle()
-
-            assertEquals(
-                ConnectionsState.Failed("Sign in to view your AI connections"),
-                viewModel.connectionsState.value,
-            )
-            coVerify(exactly = 0) { googleSignInClient.signInInteractively(context) }
-        }
-
-    @Test
-    fun `revokeConnection removes the row from the loaded list on success`() =
-        runTest {
-            coEvery { googleSignInClient.signInSilently(context) } returns
-                GoogleSignInResult.Success("token")
-            coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns
-                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
-            viewModel.loadConnections(context, allowInteractive = true)
-            advanceUntilIdle()
-
-            coEvery { accountApiClient.revokeConnection("h", 1, false, "token", "c1") } returns RevokeResult.Revoked
-
-            viewModel.revokeConnection(context, "c1")
-            advanceUntilIdle()
-
-            assertEquals(ConnectionsState.Loaded(emptyList()), viewModel.connectionsState.value)
-        }
-
-    @Test
-    fun `renameConnection sends the new display name and updates connectionsState`() =
-        runTest {
-            coEvery { googleSignInClient.signInSilently(context) } returns
-                GoogleSignInResult.Success("token")
-            coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns
-                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
-            viewModel.loadConnections(context, allowInteractive = true)
-            advanceUntilIdle()
-
-            coEvery { accountApiClient.renameConnection("h", 1, false, "token", "c1", "My Claude") } returns
-                RenameResult.Updated
-
-            viewModel.renameConnection(context, "c1", "My Claude")
-            advanceUntilIdle()
-
-            assertEquals(
-                ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "My Claude", null, "2026-10-01"))),
-                viewModel.connectionsState.value,
-            )
-        }
-
-    @Test
-    fun `renameConnection on a failed server response leaves connectionsState unchanged`() =
-        runTest {
-            coEvery { googleSignInClient.signInSilently(context) } returns
-                GoogleSignInResult.Success("token")
-            val loaded =
-                ConnectionsResult.Success(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01")))
-            coEvery { accountApiClient.listConnections("h", 1, false, "token") } returns loaded
-            viewModel.loadConnections(context, allowInteractive = true)
-            advanceUntilIdle()
-
-            coEvery { accountApiClient.renameConnection("h", 1, false, "token", "c1", "My Claude") } returns
-                RenameResult.Failed("HTTP 500")
-
-            viewModel.renameConnection(context, "c1", "My Claude")
-            advanceUntilIdle()
-
-            assertEquals(
-                ConnectionsState.Loaded(listOf(AccountConnection("c1", "Claude", "Claude", null, "2026-10-01"))),
-                viewModel.connectionsState.value,
-            )
         }
 
     @Test

@@ -10,10 +10,15 @@ import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoPro
 import com.danielealbano.androidremotecontrolmcp.services.identity.InstallHintProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.AiConnection
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.AiConnectionRevoked
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.AiConnectionsList
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Challenge
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ChallengeResponse
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Hello
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.ListAiConnections
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.RegenerateSecret
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.RevokeAiConnection
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SecretRegenerated
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignIn
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignInRejected
@@ -123,6 +128,40 @@ sealed interface SignInResult {
     data object NotConnected : SignInResult
 }
 
+/** Reply to [DeviceTransportClient.listAiConnections] — the wire's own
+ *  [AiConnectionsList]/[AiConnectionsError] shape, plus [AiConnectionsResult.TimedOut] for the
+ *  same "no reply within the bound" case [regenerateSecret] handles by returning `false`. */
+sealed interface AiConnectionsResult {
+    data class Connections(
+        val connections: List<AiConnection>,
+    ) : AiConnectionsResult
+
+    data class Error(
+        val code: String,
+        val message: String?,
+    ) : AiConnectionsResult
+
+    data object TimedOut : AiConnectionsResult
+
+    /** Not currently [TransportStatus.Connected] — nothing was sent, no wait occurred. */
+    data object NotConnected : AiConnectionsResult
+}
+
+/** Reply to [DeviceTransportClient.revokeAiConnection]. */
+sealed interface AiRevokeResult {
+    data object Revoked : AiRevokeResult
+
+    data class Error(
+        val code: String,
+        val message: String?,
+    ) : AiRevokeResult
+
+    data object TimedOut : AiRevokeResult
+
+    /** Not currently [TransportStatus.Connected] — nothing was sent, no wait occurred. */
+    data object NotConnected : AiRevokeResult
+}
+
 interface DeviceTransportClient {
     val status: StateFlow<TransportStatus>
     val updateInfo: StateFlow<UpdateInfo?>
@@ -153,6 +192,17 @@ interface DeviceTransportClient {
      *  outcome; a sign-out whose `signed_out` never arrived stays recorded as pending (via
      *  [AccountSettings.pendingSignOut]) so the next connection sends `sign_out` first. */
     suspend fun signOut(): Boolean
+
+    /** Sends `list_ai_connections` on the current connection and awaits `ai_connections_list`,
+     *  up to a 5s timeout. Returns [AiConnectionsResult.NotConnected] immediately, with no wait,
+     *  when not currently `Connected`. */
+    suspend fun listAiConnections(): AiConnectionsResult
+
+    /** Sends `revoke_ai_connection { connection_id }` on the current connection and awaits
+     *  `ai_connection_revoked`, up to a 5s timeout. `connectionId` is the connection's
+     *  `client_id` as listed by [listAiConnections]. Returns [AiRevokeResult.NotConnected]
+     *  immediately, with no wait, when not currently `Connected`. */
+    suspend fun revokeAiConnection(connectionId: String): AiRevokeResult
 }
 
 /**
@@ -219,10 +269,15 @@ class DeviceTransportClientImpl
         @Volatile
         private var pendingSignOutReply: CompletableDeferred<Unit>? = null
 
-        private fun currentDeviceId(): String {
-            val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
-            return deriveDeviceId(publicKeyDer)
-        }
+        private val aiListMutex = Mutex()
+
+        @Volatile
+        private var pendingAiConnections: CompletableDeferred<AiConnectionsResult>? = null
+
+        private val aiRevokeMutex = Mutex()
+
+        @Volatile
+        private var pendingAiRevoke: CompletableDeferred<AiRevokeResult>? = null
 
         override fun start(
             host: String,
@@ -263,7 +318,7 @@ class DeviceTransportClientImpl
         ) {
             if (registered.get()) return
             val publicKey = deviceIdentityKeyStore.ensurePublicKeyBase64()
-            val expectedId = currentDeviceId()
+            val expectedId = currentDeviceId(deviceIdentityKeyStore)
             when (val result = registrationClient.register(host, port, tls, publicKey)) {
                 is DeviceRegistrationResult.Success -> {
                     if (result.deviceId != expectedId) {
@@ -311,7 +366,14 @@ class DeviceTransportClientImpl
                     currentOutbox = outbox
 
                     try {
-                        send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), helloFor())))
+                        send(
+                            Frame.Text(
+                                wireJson.encodeToString(
+                                    WireMessage.serializer(),
+                                    helloFor(deviceInfoProvider, currentDeviceId(deviceIdentityKeyStore)),
+                                ),
+                            ),
+                        )
                         launch {
                             for (message in outbox) {
                                 send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), message)))
@@ -407,8 +469,16 @@ class DeviceTransportClientImpl
                     pendingSignOutReply?.complete(Unit)
                 }
 
-                // Hello/ChallengeResponse/RegenerateSecret/SignIn/SignOut/StepResult/StepError never
-                // arrive server -> device
+                is AiConnectionsList -> {
+                    completeAiConnectionsReply(message, pendingAiConnections)
+                }
+
+                is AiConnectionRevoked -> {
+                    completeAiRevokeReply(message, pendingAiRevoke)
+                }
+
+                // Hello/ChallengeResponse/RegenerateSecret/SignIn/SignOut/ListAiConnections/
+                // RevokeAiConnection/StepResult/StepError never arrive server -> device
                 else -> {}
             }
             return false
@@ -507,17 +577,37 @@ class DeviceTransportClientImpl
                 acked
             }
 
-        private fun helloFor(): Hello =
-            Hello(
-                protocolVersion = 2,
-                apkVersion = BuildConfig.VERSION_NAME,
-                deviceId = currentDeviceId(),
-                capabilities = emptyList(),
-                mode = "live",
-                flowManifest = emptyList(),
-                androidVersion = deviceInfoProvider.androidVersion,
-                deviceModel = deviceInfoProvider.deviceModel,
-            )
+        override suspend fun listAiConnections(): AiConnectionsResult =
+            aiListMutex.withLock {
+                if (_status.value !is TransportStatus.Connected) return@withLock AiConnectionsResult.NotConnected
+                val outbox = currentOutbox ?: return@withLock AiConnectionsResult.NotConnected
+                val deferred = CompletableDeferred<AiConnectionsResult>()
+                pendingAiConnections = deferred
+                // Same narrow session-teardown race regenerateSecret() guards against (see signIn).
+                if (!outbox.trySend(ListAiConnections).isSuccess) {
+                    pendingAiConnections = null
+                    return@withLock AiConnectionsResult.NotConnected
+                }
+                val result = withTimeoutOrNull(AI_CONNECTIONS_TIMEOUT_MS) { deferred.await() }
+                pendingAiConnections = null
+                result ?: AiConnectionsResult.TimedOut
+            }
+
+        override suspend fun revokeAiConnection(connectionId: String): AiRevokeResult =
+            aiRevokeMutex.withLock {
+                if (_status.value !is TransportStatus.Connected) return@withLock AiRevokeResult.NotConnected
+                val outbox = currentOutbox ?: return@withLock AiRevokeResult.NotConnected
+                val deferred = CompletableDeferred<AiRevokeResult>()
+                pendingAiRevoke = deferred
+                // Same narrow session-teardown race regenerateSecret() guards against (see signIn).
+                if (!outbox.trySend(RevokeAiConnection(connectionId)).isSuccess) {
+                    pendingAiRevoke = null
+                    return@withLock AiRevokeResult.NotConnected
+                }
+                val result = withTimeoutOrNull(AI_CONNECTIONS_TIMEOUT_MS) { deferred.await() }
+                pendingAiRevoke = null
+                result ?: AiRevokeResult.TimedOut
+            }
 
         override fun stop() {
             job?.cancel()
@@ -526,6 +616,8 @@ class DeviceTransportClientImpl
             pendingRegenerate = null
             pendingSignIn = null
             pendingSignOutReply = null
+            pendingAiConnections = null
+            pendingAiRevoke = null
             _status.value = TransportStatus.Idle
         }
 
@@ -535,6 +627,7 @@ class DeviceTransportClientImpl
             private const val REGENERATE_TIMEOUT_MS = 5_000L
             private const val SIGN_IN_TIMEOUT_MS = 5_000L
             private const val SIGN_OUT_TIMEOUT_MS = 5_000L
+            private const val AI_CONNECTIONS_TIMEOUT_MS = 5_000L
 
             /** Reply to a `step` that was HELD while paused (round 4 redesign of design doc §8.8's
              *  original "replies immediately" behavior - see [runStepCancellable]'s doc comment)
@@ -593,6 +686,63 @@ private suspend fun awaitResumeOrCapExpired(pauseSettings: PauseSettings): Boole
         }
         true
     } ?: false
+}
+
+/** Completes the waiter of an in-flight [DeviceTransportClient.listAiConnections] with the
+ *  server's `ai_connections_list` reply. A top-level function, not a class member - keeps
+ *  [DeviceTransportClientImpl] and [handleIncomingMessage] within detekt's function-count and
+ *  complexity limits, same reasoning as [decodeOrNull]. */
+private fun completeAiConnectionsReply(
+    message: AiConnectionsList,
+    pending: CompletableDeferred<AiConnectionsResult>?,
+) {
+    pending?.complete(
+        if (message.ok && message.connections != null) {
+            AiConnectionsResult.Connections(message.connections)
+        } else {
+            AiConnectionsResult.Error(message.error?.code ?: "unknown", message.error?.message)
+        },
+    )
+}
+
+/** Completes the waiter of an in-flight [DeviceTransportClient.revokeAiConnection] with the
+ *  server's `ai_connection_revoked` reply — same reasoning as [completeAiConnectionsReply]. */
+private fun completeAiRevokeReply(
+    message: AiConnectionRevoked,
+    pending: CompletableDeferred<AiRevokeResult>?,
+) {
+    pending?.complete(
+        if (message.ok) {
+            AiRevokeResult.Revoked
+        } else {
+            AiRevokeResult.Error(message.error?.code ?: "unknown", message.error?.message)
+        },
+    )
+}
+
+/** This phone's hello: protocol v2, the app's own version, and the device diagnostics. A
+ *  top-level function, not a class member - keeps [DeviceTransportClientImpl] under detekt's
+ *  `TooManyFunctions` threshold, same reasoning as [decodeOrNull]. */
+private fun helloFor(
+    deviceInfoProvider: DeviceInfoProvider,
+    deviceId: String,
+): Hello =
+    Hello(
+        protocolVersion = 2,
+        apkVersion = BuildConfig.VERSION_NAME,
+        deviceId = deviceId,
+        capabilities = emptyList(),
+        mode = "live",
+        flowManifest = emptyList(),
+        androidVersion = deviceInfoProvider.androidVersion,
+        deviceModel = deviceInfoProvider.deviceModel,
+    )
+
+/** This phone's derived device id - a cheap recompute (one base64 decode, one SHA-256 hash,
+ *  no I/O), never stored. Top-level, same reasoning as [helloFor]. */
+private fun currentDeviceId(deviceIdentityKeyStore: DeviceIdentityKeyStore): String {
+    val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
+    return deriveDeviceId(publicKeyDer)
 }
 
 /** The server's `CLOSE_REPLACED`: an established connection retired by another phone's `sign_in`

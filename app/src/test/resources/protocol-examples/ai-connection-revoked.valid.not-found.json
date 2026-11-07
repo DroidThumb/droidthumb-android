@@ -1,0 +1,1 @@
+{ "type": "ai_connection_revoked", "ok": false, "error": { "code": "not_found", "message": "no such connection for this account" } }
