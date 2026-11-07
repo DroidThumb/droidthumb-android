@@ -197,7 +197,7 @@ class AccountViewModel
                     _signInState.value = AccountSignInState.SigningInToServer
                     val signInResult =
                         guardedStep("Sign-in", _signInState) {
-                            sendSignInWhenConnected(signInToken, transportClient, pauseSettings, _signInState)
+                            sendSignInWhenConnected(signInToken, transportClient, config, pauseSettings, _signInState)
                         } ?: return@launch
                     finishSignIn(idToken, signInResult)
                 } finally {
@@ -597,11 +597,14 @@ private suspend fun mintSignInTokenForSignIn(
  *  status StateFlow's NEXT `Connected` emission — no timer, no polling — so the sign-in is sent
  *  exactly once, only after `Connected` (the `accounts` flag of that emission is checked the
  *  same way, by [connectedForSignIn]). If the owner paused the connection (the app's Pause),
- *  nothing is sent and the paused message is shown. The existing bounded wait for the server's
- *  reply inside [DeviceTransportClient.signIn] stays as-is. */
+ *  nothing is sent and the paused message is shown. When the transport sits on
+ *  [TransportStatus.Replaced] (its reconnect loop stopped after a 4004 close), it is restarted
+ *  from `config` first so that wait can actually be satisfied. The existing bounded wait for the
+ *  server's reply inside [DeviceTransportClient.signIn] stays as-is. */
 private suspend fun sendSignInWhenConnected(
     signInToken: String,
     transportClient: DeviceTransportClient,
+    config: TransportConfig,
     pauseSettings: PauseSettings,
     signInState: MutableStateFlow<AccountSignInState>,
 ): SignInResult? =
@@ -610,6 +613,10 @@ private suspend fun sendSignInWhenConnected(
         signInState.value = AccountSignInState.Failed("Your connection is paused. Resume it to link this phone.")
         null
     } else {
+        if (transportClient.status.value is TransportStatus.Replaced) {
+            Logger.i(TAG, "Restarting the transport stopped by a 4004 close so sign-in can connect")
+            transportClient.start(config.host, config.port, config.tls)
+        }
         val connected = connectedForSignIn(transportClient, signInState)
         if (connected != null) {
             Logger.i(TAG, "Sending the sign-in")

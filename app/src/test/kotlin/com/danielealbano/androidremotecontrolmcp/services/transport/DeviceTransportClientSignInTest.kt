@@ -8,7 +8,9 @@ import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignedOut
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Welcome
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.WireMessage
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.wireJson
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
+import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.mockk.coVerify
 import kotlinx.coroutines.cancel
@@ -214,6 +216,61 @@ class DeviceTransportClientSignInTest : DeviceTransportClientTestBase() {
                 }
                 // The second connection's sign_out must have been acknowledged, clearing the flag.
                 coVerify(timeout = 5_000, exactly = 1) { accountSettings.setPendingSignOut(false) }
+                client.stop()
+            }
+        }
+
+    @Test
+    fun `a 4004 close after welcome stops reconnecting, signs out locally, and leaves no pending flag`() =
+        runBlocking {
+            val accountSettings = accountSettingsMock()
+            val connectionCount = AtomicInteger(0)
+            withFakeServer(
+                handler = {
+                    connectionCount.getAndIncrement()
+                    incoming.receive() // hello
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(
+                                WireMessage.serializer(),
+                                Welcome(true, 2, accounts = true, accountId = "acc_1"),
+                            ),
+                        ),
+                    )
+                    close(CloseReason(4004, "replaced"))
+                },
+            ) { port ->
+                val client = newClient(accountSettings = accountSettings)
+                client.start("127.0.0.1", port, tls = false)
+                val replaced = awaitStatus<TransportStatus.Replaced>(client)
+                assertEquals(TransportStatus.Replaced, replaced)
+                // The loop is done: after a welcomed session a retry would come with no delay, so
+                // a second connection inside this window would mean the loop never stopped.
+                kotlinx.coroutines.delay(1_000)
+                assertEquals(1, connectionCount.get())
+                coVerify(exactly = 1) { accountSettings.clearAccountId() }
+                coVerify(exactly = 1) { accountSettings.setPendingSignOut(false) }
+                client.stop()
+            }
+        }
+
+    @Test
+    fun `a 4004 close before welcome keeps the Rejected behaviour and touches no account state`() =
+        runBlocking {
+            val accountSettings = accountSettingsMock()
+            withFakeServer(
+                handler = {
+                    incoming.receive() // hello
+                    close(CloseReason(4004, "replaced"))
+                },
+            ) { port ->
+                val client = newClient(accountSettings = accountSettings)
+                client.start("127.0.0.1", port, tls = false)
+                // Rejected is transient — the reconnect loop flips straight to Reconnecting after.
+                val rejected = awaitStatus<TransportStatus.Rejected>(client)
+                assertEquals(4004.toShort(), rejected.closeCode)
+                coVerify(exactly = 0) { accountSettings.clearAccountId() }
+                coVerify(exactly = 0) { accountSettings.setPendingSignOut(any()) }
                 client.stop()
             }
         }

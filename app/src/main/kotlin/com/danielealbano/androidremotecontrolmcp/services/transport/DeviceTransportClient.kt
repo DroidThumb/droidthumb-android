@@ -85,6 +85,12 @@ sealed interface TransportStatus {
         val reason: String,
     ) : TransportStatus
 
+    /** An established connection was closed with 4004 (`CLOSE_REPLACED`): another phone signed in
+     *  with `replace_device_id` and retired this one. The reconnect loop stops for good, the local
+     *  account association is cleared (no `sign_out` is sent — the server already moved this
+     *  phone), and sign-in stays possible only through an explicit restart of the transport. */
+    data object Replaced : TransportStatus
+
     data class Reconnecting(
         val attempt: Int,
         val delayMs: Long,
@@ -243,8 +249,9 @@ class DeviceTransportClientImpl
                             }
                         if (attempt > 0) delay(delayMs)
                         ensureRegistered(host, port, tls)
-                        val welcomed = runSession(host, port, tls)
-                        attempt = if (welcomed) 0 else attempt + 1
+                        val session = runSession(host, port, tls)
+                        if (session.replaced) break
+                        attempt = if (session.welcomed) 0 else attempt + 1
                     }
                 }
         }
@@ -278,15 +285,17 @@ class DeviceTransportClientImpl
             }
         }
 
-        /** Returns true iff a `welcome` was received this session — used to reset backoff on a
-         *  session that connected properly even if it later dropped. */
+        /** Runs one connection attempt. `welcomed` resets the reconnect backoff on a session that
+         *  connected properly even if it later dropped; `replaced` (a 4004 close on an established
+         *  session, applied by [handleSessionClose]) stops the reconnect loop for good. */
         @Suppress("TooGenericExceptionCaught")
         private suspend fun runSession(
             host: String,
             port: Int,
             tls: Boolean,
-        ): Boolean {
+        ): SessionOutcome {
             var welcomed = false
+            var replaced = false
             try {
                 client.webSocket(
                     method = HttpMethod.Get,
@@ -315,12 +324,7 @@ class DeviceTransportClientImpl
                         // `incoming` completed — the server closed the connection. This is the ONLY
                         // place a 4000-4003 close is observable (Ktor's client WS doesn't throw for a
                         // normal close frame, it just ends the channel).
-                        if (!welcomed) {
-                            val reason = closeReason.await()
-                            Logger.w(TAG, "Closed before welcome: code=${reason?.code} message=${reason?.message}")
-                            _status.value =
-                                TransportStatus.Rejected(reason?.code, reason?.message ?: "closed before welcome")
-                        }
+                        if (handleSessionClose(welcomed, _status, accountSettings)) replaced = true
                     } finally {
                         outbox.close()
                         if (currentOutbox === outbox) currentOutbox = null
@@ -335,7 +339,7 @@ class DeviceTransportClientImpl
                 if (!welcomed) _status.value = TransportStatus.Rejected(null, e.message ?: "connection failed")
                 Logger.w(TAG, "Transport session ended: ${e.message}")
             }
-            return welcomed
+            return SessionOutcome(welcomed, replaced)
         }
 
         /** Handles one decoded inbound message for the current session. Returns `true` iff
@@ -548,6 +552,13 @@ class DeviceTransportClientImpl
         }
     }
 
+/** What one [DeviceTransportClientImpl.runSession] attempt ended with: `welcomed` resets the
+ *  reconnect backoff, `replaced` stops the loop entirely (close code 4004). */
+private data class SessionOutcome(
+    val welcomed: Boolean,
+    val replaced: Boolean,
+)
+
 /** Builds the OkHttpClient the transport WebSocket runs on. Sets a 30s ping interval so a
  *  half-open/dead connection (phone left Wi-Fi, NAT timeout, server lost the socket without a
  *  close frame) is detected within ~2 pings: OkHttp fails the WebSocket when no pong comes back,
@@ -584,9 +595,45 @@ private suspend fun awaitResumeOrCapExpired(pauseSettings: PauseSettings): Boole
     } ?: false
 }
 
+/** The server's `CLOSE_REPLACED`: an established connection retired by another phone's `sign_in`
+ *  with `replace_device_id` (protocol `src/close-codes.ts`). */
+private const val CLOSE_REPLACED_CODE: Short = 4004
+
 /** How often [awaitResumeOrCapExpired] re-checks [PauseSettings.getPauseState] while holding a
  *  step - see that function's doc comment for why this polls instead of collecting the Flow. */
 private const val PAUSE_HOLD_POLL_INTERVAL_MS = 500L
+
+/** Applies the outcome of the server's close once `incoming` has completed — the only place a
+ *  4000-4004 close is observable (Ktor's client WS doesn't throw for a normal close frame, it just
+ *  ends the channel). Before a `welcome` any close is a handshake-level [TransportStatus.Rejected];
+ *  a 4004 (`CLOSE_REPLACED`) on an established session is [TransportStatus.Replaced]: the local
+ *  account association is cleared (no `sign_out` is sent — the server has already moved this
+ *  phone) and no pending flag is left, so the next connection replays nothing. Returns `true` iff
+ *  the close was a 4004 after welcome — the caller's reconnect loop stops on it. A top-level
+ *  function, not a class member - keeps [DeviceTransportClientImpl] within detekt's per-function
+ *  complexity/`TooManyFunctions` limits, same reasoning as [decodeOrNull]. */
+private suspend fun DefaultClientWebSocketSession.handleSessionClose(
+    welcomed: Boolean,
+    status: MutableStateFlow<TransportStatus>,
+    accountSettings: AccountSettings,
+): Boolean {
+    val reason = closeReason.await()
+    val replaced = welcomed && reason?.code == CLOSE_REPLACED_CODE
+    if (!welcomed) {
+        Logger.w(
+            "MCP:DeviceTransport",
+            "Closed before welcome: code=${reason?.code} message=${reason?.message}",
+        )
+        status.value = TransportStatus.Rejected(reason?.code, reason?.message ?: "closed before welcome")
+    }
+    if (replaced) {
+        Logger.w("MCP:DeviceTransport", "Closed with CLOSE_REPLACED: this phone was replaced")
+        accountSettings.clearAccountId()
+        accountSettings.setPendingSignOut(false)
+        status.value = TransportStatus.Replaced
+    }
+    return replaced
+}
 
 /** Decodes one inbound frame, or null for a non-text frame or a malformed payload (logged and
  *  skipped rather than tearing down the whole session over one bad frame). A top-level function,

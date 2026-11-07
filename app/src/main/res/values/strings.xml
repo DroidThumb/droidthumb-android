@@ -75,6 +75,7 @@
     <string name="account_sign_in_action">Sign in with Google</string>
     <string name="account_signing_in">Signing in…</string>
     <string name="account_accounts_unsupported">This server has no accounts.</string>
+    <string name="account_replaced_body">This account is now used on another phone. Sign in again to use DroidThumb here.</string>
     <string name="account_connections_title">AI connections</string>
     <string name="account_connections_empty">No AI clients are connected yet.</string>
     <string name="account_connections_load_failed">Could not load your connections.</string>

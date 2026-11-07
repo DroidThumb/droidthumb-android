@@ -207,6 +207,34 @@ class AccountViewModelTest {
         }
 
     @Test
+    fun `sign-in after Replaced restarts the stopped transport, then sends the sign-in`() =
+        runTest {
+            // A 4004 close stopped the transport's reconnect loop for good, so the plain
+            // wait-for-Connected path would hang forever; the sign-in restarts it from the
+            // settings' transport config instead, and the Connected that brings sends the sign-in.
+            transportStatusFlow.value = TransportStatus.Replaced
+            every { transportClient.start(any(), any(), any()) } answers {
+                transportStatusFlow.value = TransportStatus.Connected(2, accounts = true, accountId = null)
+            }
+            coEvery { googleSignInClient.signInInteractively(context) } returns
+                GoogleSignInResult.Success("id-token")
+            coEvery { accountApiClient.mintSignInToken("h", 1, false, "id-token") } returns
+                SignInTokenResult.Success(signInToken = "clt_x", accountId = "acc_1")
+            coEvery { transportClient.signIn("clt_x") } returns SignInResult.SignedIn("acc_1")
+            coEvery { accountApiClient.listConnections("h", 1, false, "id-token") } returns
+                ConnectionsResult.Success(emptyList())
+            coEvery { accountApiClient.listDevices("h", 1, false, "id-token") } returns
+                DevicesResult.Success(devices = emptyList(), deviceLimit = null)
+
+            viewModel.signIn(context)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { transportClient.start("h", 1, false) }
+            coVerify(exactly = 1) { transportClient.signIn("clt_x") }
+            assertEquals(AccountSignInState.SignedIn("acc_1"), viewModel.signInState.value)
+        }
+
+    @Test
     fun `sign-in requested while paused shows the paused message and sends nothing`() =
         runTest {
             coEvery { pauseSettings.getPauseState() } returns PauseState(isPaused = true, resumeAtEpochMs = null)

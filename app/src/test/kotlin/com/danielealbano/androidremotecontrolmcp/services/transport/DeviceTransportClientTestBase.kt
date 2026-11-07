@@ -22,6 +22,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -83,14 +84,19 @@ abstract class DeviceTransportClientTestBase {
             accountSettings,
         )
 
-    /** An [AccountSettings] mock whose pending-sign-out flag is backed by an [AtomicBoolean] —
-     *  `getPendingSignOut` reads it and `setPendingSignOut` writes it, so tests can seed the flag
-     *  a real DataStore would persist and observe it clearing. */
+    /** An [AccountSettings] mock whose pending-sign-out flag and account id are backed by
+     *  [AtomicBoolean]/[AtomicReference] — `getPendingSignOut`/`getAccountId` read them and
+     *  `setPendingSignOut`/`clearAccountId` write them, so tests can seed state a real DataStore
+     *  would persist and observe it changing. */
     protected fun accountSettingsMock(initialPendingSignOut: Boolean = false): AccountSettings {
         val pending = AtomicBoolean(initialPendingSignOut)
+        val accountId = AtomicReference<String?>("acc_1")
         return mockk {
             coEvery { getPendingSignOut() } answers { pending.get() }
             coEvery { setPendingSignOut(any()) } answers { pending.set(firstArg()) }
+            coEvery { getAccountId() } answers { accountId.get() }
+            coEvery { updateAccountId(any()) } answers { accountId.set(firstArg()) }
+            coEvery { clearAccountId() } answers { accountId.set(null) }
         }
     }
 

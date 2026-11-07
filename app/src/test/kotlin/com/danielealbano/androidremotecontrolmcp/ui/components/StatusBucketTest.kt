@@ -48,6 +48,14 @@ class StatusBucketTest {
     }
 
     @Test
+    fun `replaced maps to ERROR with its own copy, not the generic error copy`() {
+        val bucket = statusBucket(TransportStatus.Replaced, paused = false)
+
+        assertEquals(StatusBucket.ERROR, bucket)
+        assertEquals(REPLACED_COPY, statusText(bucket, TransportStatus.Replaced, resumeAtEpochMs = null))
+    }
+
+    @Test
     fun `paused always wins regardless of the underlying transport status`() {
         val bucket =
             statusBucket(
