@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test
 class StatusBucketTest {
     @Test
     fun `connected maps to CONNECTED with fixed copy`() {
-        val status = TransportStatus.Connected(protocolVersion = 1)
+        val status = TransportStatus.Connected(protocolVersion = 1, accounts = true, accountId = null)
         val bucket = statusBucket(status, paused = false)
 
         assertEquals(StatusBucket.CONNECTED, bucket)
@@ -49,7 +49,11 @@ class StatusBucketTest {
 
     @Test
     fun `paused always wins regardless of the underlying transport status`() {
-        val bucket = statusBucket(TransportStatus.Connected(protocolVersion = 1), paused = true)
+        val bucket =
+            statusBucket(
+                TransportStatus.Connected(protocolVersion = 1, accounts = true, accountId = null),
+                paused = true,
+            )
 
         assertEquals(StatusBucket.PAUSED, bucket)
     }

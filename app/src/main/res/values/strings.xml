@@ -69,16 +69,12 @@
     <string name="server_logs_type_channel">Channel</string>
     <string name="server_logs_type_settings">Settings</string>
 
-    <!-- Account (D-33): sign-in, claim, AI connections -->
+    <!-- Account (D-33): sign-in, AI connections -->
     <string name="account_card_title">Account</string>
     <string name="account_signed_out_body">Sign in to connect this phone to your account.</string>
     <string name="account_sign_in_action">Sign in with Google</string>
     <string name="account_signing_in">Signing in…</string>
-    <string name="account_claiming">Claiming this device…</string>
-    <string name="account_claimed_body">This device is signed in.</string>
-    <string name="account_already_claimed_title">Already claimed by another account</string>
-    <string name="account_already_claimed_body">A different account has already claimed this device.</string>
-    <string name="account_claim_failed_title">Sign-in failed</string>
+    <string name="account_accounts_unsupported">This server has no accounts.</string>
     <string name="account_connections_title">AI connections</string>
     <string name="account_connections_empty">No AI clients are connected yet.</string>
     <string name="account_connections_load_failed">Could not load your connections.</string>

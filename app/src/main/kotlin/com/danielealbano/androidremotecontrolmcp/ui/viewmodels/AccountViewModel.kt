@@ -11,18 +11,18 @@ import com.danielealbano.androidremotecontrolmcp.services.account.AccountApiClie
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountConnection
 import com.danielealbano.androidremotecontrolmcp.services.account.AccountDevice
 import com.danielealbano.androidremotecontrolmcp.services.account.ApiErrorKind
-import com.danielealbano.androidremotecontrolmcp.services.account.ClaimTokenResult
 import com.danielealbano.androidremotecontrolmcp.services.account.ConnectionsResult
 import com.danielealbano.androidremotecontrolmcp.services.account.DevicesResult
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInClient
 import com.danielealbano.androidremotecontrolmcp.services.account.GoogleSignInResult
 import com.danielealbano.androidremotecontrolmcp.services.account.RenameResult
 import com.danielealbano.androidremotecontrolmcp.services.account.RevokeResult
+import com.danielealbano.androidremotecontrolmcp.services.account.SignInTokenResult
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
-import com.danielealbano.androidremotecontrolmcp.services.transport.ClaimResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.DeviceTransportClient
+import com.danielealbano.androidremotecontrolmcp.services.transport.SignInResult
 import com.danielealbano.androidremotecontrolmcp.services.transport.TransportStatus
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,29 +40,30 @@ import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
-/** State of the sign-in -> claim-token -> claim_account chain (design doc D-33). */
-sealed interface AccountClaimState {
-    data object Idle : AccountClaimState
+/** State of the sign-in -> sign-in-token -> sign_in chain (design doc D-33). */
+sealed interface AccountSignInState {
+    data object Idle : AccountSignInState
 
-    data object SigningIn : AccountClaimState
+    data object SigningIn : AccountSignInState
 
-    data object Claiming : AccountClaimState
+    data object SigningInToServer : AccountSignInState
 
-    data class Claimed(
+    data class SignedIn(
         val accountId: String,
-    ) : AccountClaimState
+    ) : AccountSignInState
 
-    /** The claim is ready to send but the transport isn't `Connected` yet — the claim goes over
-     *  the WebSocket once the status flow next emits `Connected` (plan A1b: wait on that event,
-     *  no timer, no polling). */
-    data object WaitingForConnection : AccountClaimState
+    /** The sign-in is ready to send but the transport isn't `Connected` yet — the sign-in goes
+     *  over the WebSocket once the status flow next emits `Connected` (plan A1b: wait on that
+     *  event, no timer, no polling). */
+    data object WaitingForConnection : AccountSignInState
 
-    /** A different account already claimed this device — a real, expected outcome, not an error. */
-    data object AlreadyClaimedByOther : AccountClaimState
+    /** The server has no accounts (`welcome.accounts == false`, or `sign_in_rejected` with reason
+     *  `accounts_unsupported`) — sign-in isn't offered and nothing was sent. */
+    data object AccountsUnsupported : AccountSignInState
 
     data class Failed(
         val message: String,
-    ) : AccountClaimState
+    ) : AccountSignInState
 }
 
 /** State of fetching the account's AI connections (D-37/D-38). */
@@ -96,11 +97,11 @@ data class AccountProfile(
 sealed interface AccountSessionState {
     data object Checking : AccountSessionState
 
-    /** [claimed] `true` means this phone's derived device id is in the server's returned device
+    /** [linked] `true` means this phone's derived device id is in the server's returned device
      *  list, and [device] is that device's own record; `false` (and a `null` [device]) means the
-     *  server accepted the token but this phone isn't linked to the account yet. */
+     *  server accepted the token but this phone isn't signed in to the account yet. */
     data class SignedIn(
-        val claimed: Boolean,
+        val linked: Boolean,
         val device: AccountDevice? = null,
     ) : AccountSessionState
 
@@ -136,8 +137,8 @@ class AccountViewModel
             settingsRepository.accountId
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
 
-        private val _claimState = MutableStateFlow<AccountClaimState>(AccountClaimState.Idle)
-        val claimState: StateFlow<AccountClaimState> = _claimState.asStateFlow()
+        private val _signInState = MutableStateFlow<AccountSignInState>(AccountSignInState.Idle)
+        val signInState: StateFlow<AccountSignInState> = _signInState.asStateFlow()
 
         private val _connectionsState = MutableStateFlow<ConnectionsState>(ConnectionsState.Idle)
         val connectionsState: StateFlow<ConnectionsState> = _connectionsState.asStateFlow()
@@ -152,9 +153,9 @@ class AccountViewModel
          *  trigger while one is in flight does not start another. */
         private val sessionCheckInFlight = AtomicBoolean(false)
 
-        /** Single-flight guard for [signInAndClaim]: only one sign-in chain at a time — a tap
+        /** Single-flight guard for [signIn]: only one sign-in chain at a time — a tap
          *  while one is in flight (e.g. still waiting for the connection) starts nothing, so the
-         *  server can never receive two claims from one button (plan A1 review). */
+         *  server can never receive two sign-ins from one button (plan A1 review). */
         private val signInInFlight = AtomicBoolean(false)
 
         /** Every [AccountSessionState] transition is logged (plan A1b) — state class names only;
@@ -167,59 +168,60 @@ class AccountViewModel
             _sessionState.value = state
         }
 
-        /** Runs the full Google sign-in -> claim-token -> claim_account chain (design doc D-33).
+        /** Runs the full Google sign-in -> sign-in-token -> sign_in chain (design doc D-33).
          *  `context` must be an Activity context — Credential Manager's account picker UI needs it.
          *
          *  Plan A1b: every step is guarded — a failure shows which step failed and the real reason,
          *  and never leaves the state on "Signing in". Cancellation (the coroutine cancelled while
          *  Google's sheet was in front, or the Activity went away) is NOT shown as an error: the
          *  state is left alone and the next A1a session check, when the app is next in front, shows
-         *  the real state. The claim goes over the WebSocket: [sendClaimWhenConnected] waits on the
-         *  status flow's next `Connected` emission when the transport isn't connected yet, and
-         *  sends nothing at all when the connection is paused. */
-        fun signInAndClaim(context: Context) {
+         *  the real state. The sign-in goes over the WebSocket: [sendSignInWhenConnected] waits on
+         *  the status flow's next `Connected` emission when the transport isn't connected yet,
+         *  sends nothing at all when the connection is paused, and sends nothing either when the
+         *  server reports it has no accounts. */
+        fun signIn(context: Context) {
             if (!signInInFlight.compareAndSet(false, true)) {
                 Logger.i(TAG, "Sign-in ignored: one is already in flight")
                 return
             }
             viewModelScope.launch(ioDispatcher) {
                 try {
-                    _claimState.value = AccountClaimState.SigningIn
+                    _signInState.value = AccountSignInState.SigningIn
                     Logger.i(TAG, "Sign-in started")
                     val config = settingsRepository.getTransportConfig()
                     val idToken =
-                        obtainInteractiveIdToken(context, googleSignInClient, _accountProfile, _claimState)
+                        obtainInteractiveIdToken(context, googleSignInClient, _accountProfile, _signInState)
                             ?: return@launch
-                    val claimToken =
-                        mintClaimTokenForSignIn(idToken, accountApiClient, config, _claimState) ?: return@launch
-                    _claimState.value = AccountClaimState.Claiming
-                    val claimResult =
-                        guardedStep("Claim", _claimState) {
-                            sendClaimWhenConnected(claimToken, transportClient, pauseSettings, _claimState)
+                    val signInToken =
+                        mintSignInTokenForSignIn(idToken, accountApiClient, config, _signInState) ?: return@launch
+                    _signInState.value = AccountSignInState.SigningInToServer
+                    val signInResult =
+                        guardedStep("Sign-in", _signInState) {
+                            sendSignInWhenConnected(signInToken, transportClient, pauseSettings, _signInState)
                         } ?: return@launch
-                    finishClaim(idToken, claimResult)
+                    finishSignIn(idToken, signInResult)
                 } finally {
                     signInInFlight.set(false)
                 }
             }
         }
 
-        /** Applies the server's claim reply (plan A1b): the reply decides. A rejection shows the
-         *  server's own reason; the bounded reply wait expiring is reported as a failure and never
-         *  retried on its own. */
-        private suspend fun finishClaim(
+        /** Applies the server's sign-in reply (plan A1b): the reply decides. A rejection shows the
+         *  server's own reason (`accounts_unsupported` is surfaced as its own state); the bounded
+         *  reply wait expiring is reported as a failure and never retried on its own. */
+        private suspend fun finishSignIn(
             idToken: String,
-            claimResult: ClaimResult,
+            signInResult: SignInResult,
         ) {
-            when (claimResult) {
-                is ClaimResult.Claimed -> {
-                    settingsRepository.updateAccountId(claimResult.accountId)
-                    _claimState.value = AccountClaimState.Claimed(claimResult.accountId)
-                    Logger.i(TAG, "Claim ok")
-                    // HomeScreen's own LaunchedEffect(accountId) guards on claimState not yet
-                    // being Claimed (it only auto-refreshes once, on a cold start) - by the time
-                    // its recomposition sees the new accountId, claimState above is already
-                    // Claimed, so that effect never fires for a fresh claim. Both loads here
+            when (signInResult) {
+                is SignInResult.SignedIn -> {
+                    settingsRepository.updateAccountId(signInResult.accountId)
+                    _signInState.value = AccountSignInState.SignedIn(signInResult.accountId)
+                    Logger.i(TAG, "Sign-in ok")
+                    // HomeScreen's own LaunchedEffect(accountId) guards on signInState not yet
+                    // being SignedIn (it only auto-refreshes once, on a cold start) - by the time
+                    // its recomposition sees the new accountId, signInState above is already
+                    // SignedIn, so that effect never fires for a fresh sign-in. Both loads here
                     // are this path's own responsibility, not something the effect also covers.
                     // Reuse the SAME idToken this interactive sign-in just obtained, rather than
                     // going through loadConnections(allowInteractive = true)/freshIdTokenOrNull,
@@ -244,29 +246,29 @@ class AccountViewModel
                     )
                 }
 
-                is ClaimResult.Rejected -> {
-                    Logger.w(TAG, "Claim rejected by the server")
-                    _claimState.value =
-                        if (claimResult.reason == "already_claimed") {
-                            AccountClaimState.AlreadyClaimedByOther
+                is SignInResult.Rejected -> {
+                    Logger.w(TAG, "Sign-in rejected by the server")
+                    _signInState.value =
+                        if (signInResult.reason == "accounts_unsupported") {
+                            AccountSignInState.AccountsUnsupported
                         } else {
                             // The server's own reason is shown, verbatim (plan A1b).
-                            AccountClaimState.Failed("Claim rejected: ${claimResult.reason}")
+                            AccountSignInState.Failed("Sign-in rejected: ${signInResult.reason}")
                         }
                 }
 
-                is ClaimResult.TimedOut -> {
+                is SignInResult.TimedOut -> {
                     // The bounded wait for the reply expired. Reported as a failure, never
                     // retried on its own (plan A1b).
-                    Logger.w(TAG, "Claim timed out waiting for the server's reply")
-                    _claimState.value = AccountClaimState.Failed("The server didn't answer. Try again.")
+                    Logger.w(TAG, "Sign-in timed out waiting for the server's reply")
+                    _signInState.value = AccountSignInState.Failed("The server didn't answer. Try again.")
                 }
 
-                is ClaimResult.NotConnected -> {
-                    // sendClaimWhenConnected only sends once Connected, so this is a narrow
+                is SignInResult.NotConnected -> {
+                    // sendSignInWhenConnected only sends once Connected, so this is a narrow
                     // race with session teardown. Shown as a failure, never silently retried.
-                    Logger.w(TAG, "Claim not sent: the transport dropped before the send")
-                    _claimState.value = AccountClaimState.Failed("Not connected to the server")
+                    Logger.w(TAG, "Sign-in not sent: the transport dropped before the send")
+                    _signInState.value = AccountSignInState.Failed("Not connected to the server")
                 }
             }
         }
@@ -274,14 +276,14 @@ class AccountViewModel
         /** Fetches the account's AI connections, re-using an already-signed-in Google account
          *  silently (no UI) wherever Credential Manager allows it — see [GoogleSignInClient.signIn].
          *  [allowInteractive] must be `false` for any call this device owner didn't directly
-         *  trigger (e.g. an automatic refresh on opening the app) — being claimed is this device's
+         *  trigger (e.g. an automatic refresh on opening the app) — being signed in is this device's
          *  own persisted, durable state (design doc D-33), unrelated to whether Credential Manager
          *  still considers the Google session "silent"; an automatic background refresh must never
          *  surface Google's own account-picker UI on its own, or every cold start (app reopened,
          *  phone rebooted) would look like being signed out and asked to sign back in again, purely
          *  because a background connections-list refresh happened to need a fresh ID token
          *  (founder feedback, PR #8 round 5). `true` is for the cases the user actually asked for
-         *  this: the "Retry" button, and right after [signInAndClaim] itself just finished its own
+         *  this: the "Retry" button, and right after [signIn] itself just finished its own
          *  interactive sign-in. */
         fun loadConnections(
             context: Context,
@@ -299,7 +301,7 @@ class AccountViewModel
         }
 
         /** Does the actual fetch once a caller already has a usable `idToken` in hand - [loadConnections]
-         *  delegates to this after obtaining one itself; [signInAndClaim] calls it directly with the
+         *  delegates to this after obtaining one itself; [signIn] calls it directly with the
          *  token its own interactive sign-in just produced, skipping a second Credential Manager
          *  round-trip entirely. */
         private suspend fun loadConnectionsWithToken(idToken: String) {
@@ -411,18 +413,22 @@ class AccountViewModel
         }
 
         /** Clears this device's local account association ("Sign out", plan 70 US3's account
-         *  avatar menu) — mirrors [GoogleSignInClient.signOut]'s own contract: nothing server-side
-         *  is un-claimed, so signing back in with the same Google account reaches this same device. */
+         *  avatar menu) and sends `sign_out` over the transport. Mirrors
+         *  [GoogleSignInClient.signOut]'s own contract: signing back in with the same Google
+         *  account reaches this same device. Local sign-out happens immediately, whether or not
+         *  the transport's `signed_out` reply arrives (the transport records a pending sign-out
+         *  in that case and replays it on the next connection). */
         fun signOut(context: Context) {
             viewModelScope.launch(ioDispatcher) {
                 googleSignInClient.signOut(context)
                 settingsRepository.clearAccountId()
                 _accountProfile.value = null
-                _claimState.value = AccountClaimState.Idle
+                _signInState.value = AccountSignInState.Idle
                 _connectionsState.value = ConnectionsState.Idle
                 // The next authoritative check (next Home resume / Retry) re-derives this from the
                 // server; SignedOut is the state this device is in until then (no credential left).
                 setSessionState(AccountSessionState.SignedOut)
+                transportClient.signOut()
             }
         }
 
@@ -484,14 +490,14 @@ class AccountViewModel
 private const val TAG = "MCP:Account"
 
 /** Runs one chain step (plan A1b): any exception other than cancellation is caught, logged with
- *  the step name plus the exception class and message, and shown as a Failed claim state naming
+ *  the step name plus the exception class and message, and shown as a Failed sign-in state naming
  *  the step — the state never stays on "Signing in" after a failure. Cancellation is rethrown so
  *  it is not shown as an error. Top-level so [AccountViewModel] stays within detekt's
  *  function-count limit; it touches only what it is given. */
 @Suppress("TooGenericExceptionCaught")
 private suspend fun <T> guardedStep(
     step: String,
-    claimState: MutableStateFlow<AccountClaimState>,
+    signInState: MutableStateFlow<AccountSignInState>,
     block: suspend () -> T,
 ): T? =
     try {
@@ -500,8 +506,8 @@ private suspend fun <T> guardedStep(
         throw e
     } catch (e: Exception) {
         Logger.w(TAG, "Sign-in step \"$step\" failed: ${e::class.java.simpleName}: ${e.message}")
-        claimState.value =
-            AccountClaimState.Failed("$step failed: ${e.message ?: e::class.java.simpleName}")
+        signInState.value =
+            AccountSignInState.Failed("$step failed: ${e.message ?: e::class.java.simpleName}")
         null
     }
 
@@ -513,11 +519,11 @@ private suspend fun obtainInteractiveIdToken(
     context: Context,
     googleSignInClient: GoogleSignInClient,
     accountProfile: MutableStateFlow<AccountProfile?>,
-    claimState: MutableStateFlow<AccountClaimState>,
+    signInState: MutableStateFlow<AccountSignInState>,
 ): String? =
     when (
         val result =
-            guardedStep("Google sign-in", claimState) {
+            guardedStep("Google sign-in", signInState) {
                 googleSignInClient.signInInteractively(context)
             }
     ) {
@@ -537,86 +543,113 @@ private suspend fun obtainInteractiveIdToken(
             // sign-in button again (a bare spinner would never clear), and the next session
             // check (next resume / Retry) shows the real state.
             Logger.i(TAG, "Sign-in stopped at Google sign-in: cancelled by the user")
-            claimState.value = AccountClaimState.Idle
+            signInState.value = AccountSignInState.Idle
             null
         }
 
         is GoogleSignInResult.NoCredential -> {
             Logger.w(TAG, "Sign-in stopped at Google sign-in: no credential")
-            claimState.value = AccountClaimState.Failed("No Google account was selected")
+            signInState.value = AccountSignInState.Failed("No Google account was selected")
             null
         }
 
         is GoogleSignInResult.Failed -> {
             Logger.w(TAG, "Sign-in stopped at Google sign-in: ${result.message}")
-            claimState.value = AccountClaimState.Failed("Google sign-in failed: ${result.message}")
+            signInState.value = AccountSignInState.Failed("Google sign-in failed: ${result.message}")
             null
         }
     }
 
-/** The claim-token step of the sign-in chain (plan A1b). `null` means the chain stops here. */
-private suspend fun mintClaimTokenForSignIn(
+/** The sign-in-token step of the sign-in chain (plan A1b). `null` means the chain stops here. */
+private suspend fun mintSignInTokenForSignIn(
     idToken: String,
     accountApiClient: AccountApiClient,
     config: TransportConfig,
-    claimState: MutableStateFlow<AccountClaimState>,
+    signInState: MutableStateFlow<AccountSignInState>,
 ): String? =
     when (
         val result =
-            guardedStep("Claim token", claimState) {
-                accountApiClient.mintClaimToken(config.host, config.port, config.tls, idToken)
+            guardedStep("Sign-in token", signInState) {
+                accountApiClient.mintSignInToken(config.host, config.port, config.tls, idToken)
             }
     ) {
         null -> {
             null
         }
 
-        is ClaimTokenResult.Success -> {
-            Logger.i(TAG, "Claim token ok")
-            result.claimToken
+        is SignInTokenResult.Success -> {
+            Logger.i(TAG, "Sign-in token ok")
+            result.signInToken
         }
 
-        is ClaimTokenResult.Failed -> {
-            Logger.w(TAG, "Sign-in stopped at claim token: ${result.message}")
-            claimState.value = AccountClaimState.Failed("Claim token failed: ${result.message}")
+        is SignInTokenResult.Failed -> {
+            Logger.w(TAG, "Sign-in stopped at sign-in token: ${result.message}")
+            signInState.value = AccountSignInState.Failed("Sign-in token failed: ${result.message}")
             null
         }
     }
 
-/** Sends the claim over the WebSocket (plan A1b). If the transport is already
- *  [TransportStatus.Connected] the claim is sent straight away; otherwise the state shows
- *  [AccountClaimState.WaitingForConnection] ("Connecting to the server…") and this waits for the
- *  status StateFlow's NEXT `Connected` emission — no timer, no polling — so the claim is sent
- *  exactly once, only after `Connected`. If the owner paused the connection (the app's Pause),
+/** Sends the sign-in over the WebSocket (plan A1b). If the transport is already
+ *  [TransportStatus.Connected] the sign-in is sent straight away — unless that connection
+ *  reported `accounts == false`, in which case nothing is sent at all and the state shows
+ *  [AccountSignInState.AccountsUnsupported]; otherwise the state shows
+ *  [AccountSignInState.WaitingForConnection] ("Connecting to the server…") and this waits for the
+ *  status StateFlow's NEXT `Connected` emission — no timer, no polling — so the sign-in is sent
+ *  exactly once, only after `Connected` (the `accounts` flag of that emission is checked the
+ *  same way, by [connectedForSignIn]). If the owner paused the connection (the app's Pause),
  *  nothing is sent and the paused message is shown. The existing bounded wait for the server's
- *  reply inside [DeviceTransportClient.claimAccount] stays as-is; `null` here means the chain is
- *  done (the state was already set). */
-private suspend fun sendClaimWhenConnected(
-    claimToken: String,
+ *  reply inside [DeviceTransportClient.signIn] stays as-is. */
+private suspend fun sendSignInWhenConnected(
+    signInToken: String,
     transportClient: DeviceTransportClient,
     pauseSettings: PauseSettings,
-    claimState: MutableStateFlow<AccountClaimState>,
-): ClaimResult? {
+    signInState: MutableStateFlow<AccountSignInState>,
+): SignInResult? =
     if (pauseSettings.getPauseState().isEffectivePause(System.currentTimeMillis())) {
-        Logger.w(TAG, "Claim not sent: the connection is paused")
-        claimState.value = AccountClaimState.Failed("Your connection is paused. Resume it to link this phone.")
-        return null
-    }
-    if (transportClient.status.value !is TransportStatus.Connected) {
-        Logger.i(TAG, "Claim waiting for the transport to connect")
-        claimState.value = AccountClaimState.WaitingForConnection
-        transportClient.status.filterIsInstance<TransportStatus.Connected>().first()
-        Logger.i(TAG, "Transport connected; sending the claim")
+        Logger.w(TAG, "Sign-in not sent: the connection is paused")
+        signInState.value = AccountSignInState.Failed("Your connection is paused. Resume it to link this phone.")
+        null
     } else {
-        Logger.i(TAG, "Sending the claim")
+        val connected = connectedForSignIn(transportClient, signInState)
+        if (connected != null) {
+            Logger.i(TAG, "Sending the sign-in")
+            transportClient.signIn(signInToken)
+        } else {
+            null
+        }
     }
-    return transportClient.claimAccount(claimToken)
+
+/** Resolves the `Connected` snapshot the sign-in is sent against, or `null` — after setting
+ *  [AccountSignInState.AccountsUnsupported] — when the resolved connection reports
+ *  `accounts == false`. When the transport isn't `Connected` yet the state shows
+ *  [AccountSignInState.WaitingForConnection] and the next `Connected` emission is awaited; its
+ *  `accounts` flag is checked exactly the same way. Top-level so [AccountViewModel] stays within
+ *  detekt's function-count limit. */
+private suspend fun connectedForSignIn(
+    transportClient: DeviceTransportClient,
+    signInState: MutableStateFlow<AccountSignInState>,
+): TransportStatus.Connected? {
+    val current = transportClient.status.value
+    val connected =
+        current as? TransportStatus.Connected
+            ?: run {
+                Logger.i(TAG, "Sign-in waiting for the transport to connect")
+                signInState.value = AccountSignInState.WaitingForConnection
+                transportClient.status
+                    .filterIsInstance<TransportStatus.Connected>()
+                    .first()
+                    .also { Logger.i(TAG, "Transport connected; sending the sign-in") }
+            }
+    if (connected.accounts) return connected
+    Logger.w(TAG, "Sign-in not sent: the server has no accounts")
+    signInState.value = AccountSignInState.AccountsUnsupported
+    return null
 }
 
 /** The authoritative session check for a token already in hand (plan A1 review) — the shared
  *  server half of [AccountViewModel.checkSession]: the same `POST /v1/accounts/devices` call and
  *  the same mapping onto [AccountSessionState], with NO Google request. Used by [checkSession]'s
- *  chain and by [AccountViewModel.finishClaim] after a successful claim, with the id token the
+ *  chain and by [AccountViewModel.finishSignIn] after a successful sign-in, with the id token the
  *  interactive sign-in itself just obtained (a fresh silent fetch right after an interactive grant
  *  can fail). Single-flight via [sessionCheckInFlight]: if another check is in flight, this one
  *  starts nothing. Top-level so [AccountViewModel] stays within detekt's function-count limit. */
@@ -670,7 +703,7 @@ private suspend fun applyServerSessionState(
         is DevicesResult.Success -> {
             val thisDeviceId = currentDeviceId(deviceIdentityKeyStore)
             val device = result.devices.firstOrNull { it.deviceId == thisDeviceId }
-            setState(AccountSessionState.SignedIn(claimed = device != null, device = device))
+            setState(AccountSessionState.SignedIn(linked = device != null, device = device))
         }
 
         is DevicesResult.Failed -> {

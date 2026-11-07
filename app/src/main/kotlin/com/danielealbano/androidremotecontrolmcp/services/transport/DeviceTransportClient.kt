@@ -1,21 +1,25 @@
 package com.danielealbano.androidremotecontrolmcp.services.transport
 
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
+import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
+import com.danielealbano.androidremotecontrolmcp.services.identity.InstallHintProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Challenge
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ChallengeResponse
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimAccount
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimRejected
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.Claimed
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Hello
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.RegenerateSecret
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SecretRegenerated
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignIn
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignInRejected
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignOut
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignedIn
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignedOut
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Step
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepDispatcher
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepError
@@ -65,6 +69,13 @@ sealed interface TransportStatus {
 
     data class Connected(
         val protocolVersion: Int,
+        /** The welcome's `accounts` flag — `true` when the server has accounts and this phone can
+         *  be signed in to one; `false` means every `sign_in` is rejected with
+         *  `accounts_unsupported` and sign-in is hidden. */
+        val accounts: Boolean,
+        /** The welcome's `account_id` — the account signed in on this phone, or `null` when the
+         *  phone is signed out or the server has no accounts. */
+        val accountId: String?,
     ) : TransportStatus
 
     /** The connection closed (or never opened) before a `welcome` arrived — a handshake-level
@@ -88,22 +99,22 @@ data class UpdateInfo(
     val downloadUrl: String?,
 )
 
-/** Reply to [DeviceTransportClient.claimAccount] — mirrors the wire's own [Claimed]/[ClaimRejected]
+/** Reply to [DeviceTransportClient.signIn] — mirrors the wire's own [SignedIn]/[SignInRejected]
  *  shape, plus [TimedOut] for the same "no reply within the bound" case [regenerateSecret] handles
  *  by returning `false`. */
-sealed interface ClaimResult {
-    data class Claimed(
+sealed interface SignInResult {
+    data class SignedIn(
         val accountId: String,
-    ) : ClaimResult
+    ) : SignInResult
 
     data class Rejected(
         val reason: String,
-    ) : ClaimResult
+    ) : SignInResult
 
-    data object TimedOut : ClaimResult
+    data object TimedOut : SignInResult
 
     /** Not currently [TransportStatus.Connected] — nothing was sent, no wait occurred. */
-    data object NotConnected : ClaimResult
+    data object NotConnected : SignInResult
 }
 
 interface DeviceTransportClient {
@@ -124,14 +135,22 @@ interface DeviceTransportClient {
      *  immediately, with no wait, when not currently `Connected`. */
     suspend fun regenerateSecret(): Boolean
 
-    /** Sends `claim_account { account_token }` on the current connection and awaits `claimed` or
-     *  `claim_rejected`, up to a 5s timeout (design doc D-33) — `accountToken` is the short-lived,
-     *  single-use token from `POST /v1/accounts/claim-token`, not the raw Google/OAuth token. */
-    suspend fun claimAccount(accountToken: String): ClaimResult
+    /** Sends `sign_in { account_token, install_hint }` on the current connection and awaits
+     *  `signed_in` or `sign_in_rejected`, up to a 5s timeout — `accountToken` is the short-lived,
+     *  single-use token from `POST /v1/accounts/sign-in-token`, not the raw Google/OAuth token;
+     *  `install_hint` comes from [InstallHintProvider]. */
+    suspend fun signIn(accountToken: String): SignInResult
+
+    /** Sends `sign_out` on the current connection and awaits `signed_out`, up to the same 5s
+     *  bound as [signIn]. Returns `false` immediately, with no wait, when not currently
+     *  `Connected` or when the send failed. The caller signs out locally regardless of the
+     *  outcome; a sign-out whose `signed_out` never arrived stays recorded as pending (via
+     *  [AccountSettings.pendingSignOut]) so the next connection sends `sign_out` first. */
+    suspend fun signOut(): Boolean
 }
 
 /**
- * The M2/M3 outbound WebSocket client: offers `droidthumb.v1`, sends `hello`, answers a `challenge`
+ * The outbound WebSocket client: offers `droidthumb.v2`, sends `hello`, answers a `challenge`
  * with the Keystore-signed nonce (D-27) before `welcome` can arrive, dispatches inbound `step`s
  * through [StepDispatcher], and carries [RegenerateSecret]/[SecretRegenerated] once connected.
  * Reconnects with capped exponential backoff on any drop. `device_id` is never stored — it's
@@ -158,6 +177,8 @@ class DeviceTransportClientImpl
         private val connectorUrlSettings: ConnectorUrlSettings,
         private val pauseSettings: PauseSettings,
         private val controlBarCoordinator: ControlBarCoordinator,
+        private val installHintProvider: InstallHintProvider,
+        private val accountSettings: AccountSettings,
     ) : DeviceTransportClient {
         private val _status = MutableStateFlow<TransportStatus>(TransportStatus.Idle)
         override val status: StateFlow<TransportStatus> = _status.asStateFlow()
@@ -182,10 +203,15 @@ class DeviceTransportClientImpl
         @Volatile
         private var pendingRegenerate: CompletableDeferred<String>? = null
 
-        private val claimMutex = Mutex()
+        private val signInMutex = Mutex()
 
         @Volatile
-        private var pendingClaim: CompletableDeferred<ClaimResult>? = null
+        private var pendingSignIn: CompletableDeferred<SignInResult>? = null
+
+        private val signOutMutex = Mutex()
+
+        @Volatile
+        private var pendingSignOutReply: CompletableDeferred<Unit>? = null
 
         private fun currentDeviceId(): String {
             val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
@@ -203,13 +229,19 @@ class DeviceTransportClientImpl
                 CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                     var attempt = 0
                     while (isActive) {
+                        val delayMs =
+                            if (attempt == 0) {
+                                0L
+                            } else {
+                                BACKOFF_SCHEDULE_MS.getOrElse(attempt - 1) { BACKOFF_SCHEDULE_MS.last() }
+                            }
                         _status.value =
                             if (attempt == 0) {
                                 TransportStatus.Connecting
                             } else {
-                                TransportStatus.Reconnecting(attempt, backoffMs(attempt))
+                                TransportStatus.Reconnecting(attempt, delayMs)
                             }
-                        if (attempt > 0) delay(backoffMs(attempt))
+                        if (attempt > 0) delay(delayMs)
                         ensureRegistered(host, port, tls)
                         val welcomed = runSession(host, port, tls)
                         attempt = if (welcomed) 0 else attempt + 1
@@ -316,11 +348,11 @@ class DeviceTransportClientImpl
          *  held while paused (`runStepCancellable`) now blocks this whole function - and therefore
          *  the `for (frame in incoming)` loop in `runSession` that calls it - for up to
          *  `PauseSettings.getPauseHoldCapMs` (default 60s) before the NEXT inbound frame
-         *  (`SecretRegenerated`, `Claimed`/`ClaimRejected`, or the server closing the socket) is even
+         *  (`SecretRegenerated`, `SignedIn`/`SignInRejected`, or the server closing the socket) is even
          *  read. Previously a paused step replied instantly, so this was a non-issue. Accepted
          *  because: only one step is ever in flight per connection by design (serialized dispatch,
          *  documented on `registerCurrentStep`) and the device owner driving a session while ALSO
-         *  mid-`regenerateSecret()`/`claimAccount()` on the very same connection is already an edge
+         *  mid-`regenerateSecret()`/`signIn()` on the very same connection is already an edge
          *  case; a real fix (processing other inbound messages concurrently with a held step) is a
          *  larger structural change than this round's scope. */
         private suspend fun DefaultClientWebSocketSession.handleIncomingMessage(message: WireMessage): Boolean {
@@ -334,7 +366,15 @@ class DeviceTransportClientImpl
                     Logger.i(TAG, "Connected: protocol_version=${message.protocolVersion}")
                     _updateInfo.value =
                         UpdateInfo(message.latestAppVersion, message.minimumSupportedAppVersion, message.downloadUrl)
-                    _status.value = TransportStatus.Connected(message.protocolVersion)
+                    _status.value =
+                        TransportStatus.Connected(message.protocolVersion, message.accounts, message.accountId)
+                    // A sign-out requested while the phone was offline is replayed as the first
+                    // app-driven message on the new connection; the pending flag clears only
+                    // when `signed_out` comes back.
+                    if (accountSettings.getPendingSignOut()) {
+                        Logger.i(TAG, "Sending pending sign_out on the new connection")
+                        send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), SignOut)))
+                    }
                     return true
                 }
 
@@ -348,15 +388,22 @@ class DeviceTransportClientImpl
                     pendingRegenerate?.complete(message.connectorUrl)
                 }
 
-                is Claimed -> {
-                    pendingClaim?.complete(ClaimResult.Claimed(message.accountId))
+                is SignedIn -> {
+                    pendingSignIn?.complete(SignInResult.SignedIn(message.accountId))
                 }
 
-                is ClaimRejected -> {
-                    pendingClaim?.complete(ClaimResult.Rejected(message.reason))
+                is SignInRejected -> {
+                    pendingSignIn?.complete(SignInResult.Rejected(message.reason))
                 }
 
-                // Hello/ChallengeResponse/RegenerateSecret/ClaimAccount/StepResult/StepError never
+                is SignedOut -> {
+                    // The only place the persisted pending-sign-out flag clears: the server has
+                    // now acknowledged the sign-out (or the phone was already signed out).
+                    accountSettings.setPendingSignOut(false)
+                    pendingSignOutReply?.complete(Unit)
+                }
+
+                // Hello/ChallengeResponse/RegenerateSecret/SignIn/SignOut/StepResult/StepError never
                 // arrive server -> device
                 else -> {}
             }
@@ -422,27 +469,43 @@ class DeviceTransportClientImpl
                 result != null
             }
 
-        override suspend fun claimAccount(accountToken: String): ClaimResult =
-            claimMutex.withLock {
-                if (_status.value !is TransportStatus.Connected) return@withLock ClaimResult.NotConnected
-                val outbox = currentOutbox ?: return@withLock ClaimResult.NotConnected
-                val deferred = CompletableDeferred<ClaimResult>()
-                pendingClaim = deferred
+        override suspend fun signIn(accountToken: String): SignInResult =
+            signInMutex.withLock {
+                if (_status.value !is TransportStatus.Connected) return@withLock SignInResult.NotConnected
+                val outbox = currentOutbox ?: return@withLock SignInResult.NotConnected
+                val deferred = CompletableDeferred<SignInResult>()
+                pendingSignIn = deferred
                 // Same narrow session-teardown race regenerateSecret() guards against: checked
                 // explicitly so a send that never actually went out fails fast instead of waiting
                 // out the full timeout.
-                if (!outbox.trySend(ClaimAccount(accountToken)).isSuccess) {
-                    pendingClaim = null
-                    return@withLock ClaimResult.NotConnected
+                if (!outbox.trySend(SignIn(accountToken, installHintProvider.installHint)).isSuccess) {
+                    pendingSignIn = null
+                    return@withLock SignInResult.NotConnected
                 }
-                val result = withTimeoutOrNull(CLAIM_TIMEOUT_MS) { deferred.await() }
-                pendingClaim = null
-                result ?: ClaimResult.TimedOut
+                val result = withTimeoutOrNull(SIGN_IN_TIMEOUT_MS) { deferred.await() }
+                pendingSignIn = null
+                result ?: SignInResult.TimedOut
+            }
+
+        override suspend fun signOut(): Boolean =
+            signOutMutex.withLock {
+                if (_status.value !is TransportStatus.Connected) return@withLock false
+                val outbox = currentOutbox ?: return@withLock false
+                val deferred = CompletableDeferred<Unit>()
+                pendingSignOutReply = deferred
+                // Same narrow session-teardown race regenerateSecret() guards against (see signIn).
+                if (!outbox.trySend(SignOut).isSuccess) {
+                    pendingSignOutReply = null
+                    return@withLock false
+                }
+                val acked = withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) { deferred.await() } != null
+                pendingSignOutReply = null
+                acked
             }
 
         private fun helloFor(): Hello =
             Hello(
-                protocolVersion = 1,
+                protocolVersion = 2,
                 apkVersion = BuildConfig.VERSION_NAME,
                 deviceId = currentDeviceId(),
                 capabilities = emptyList(),
@@ -457,20 +520,17 @@ class DeviceTransportClientImpl
             job = null
             currentOutbox = null
             pendingRegenerate = null
-            pendingClaim = null
+            pendingSignIn = null
+            pendingSignOutReply = null
             _status.value = TransportStatus.Idle
-        }
-
-        private fun backoffMs(attempt: Int): Long {
-            val schedule = BACKOFF_SCHEDULE_MS
-            return schedule.getOrElse(attempt - 1) { schedule.last() }
         }
 
         companion object {
             private const val TAG = "MCP:DeviceTransport"
-            const val SUBPROTOCOL = "droidthumb.v1"
+            const val SUBPROTOCOL = "droidthumb.v2"
             private const val REGENERATE_TIMEOUT_MS = 5_000L
-            private const val CLAIM_TIMEOUT_MS = 5_000L
+            private const val SIGN_IN_TIMEOUT_MS = 5_000L
+            private const val SIGN_OUT_TIMEOUT_MS = 5_000L
 
             /** Reply to a `step` that was HELD while paused (round 4 redesign of design doc §8.8's
              *  original "replies immediately" behavior - see [runStepCancellable]'s doc comment)

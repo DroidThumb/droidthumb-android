@@ -44,15 +44,15 @@ data class AccountDevice(
     val lastConnectedAt: String?,
 )
 
-sealed interface ClaimTokenResult {
+sealed interface SignInTokenResult {
     data class Success(
-        val claimToken: String,
+        val signInToken: String,
         val accountId: String,
-    ) : ClaimTokenResult
+    ) : SignInTokenResult
 
     data class Failed(
         val message: String,
-    ) : ClaimTokenResult
+    ) : SignInTokenResult
 }
 
 sealed interface ConnectionsResult {
@@ -117,12 +117,12 @@ sealed interface DevicesResult {
  * single listener every other call in this app already talks to.
  */
 interface AccountApiClient {
-    suspend fun mintClaimToken(
+    suspend fun mintSignInToken(
         host: String,
         port: Int,
         tls: Boolean,
         googleIdToken: String,
-    ): ClaimTokenResult
+    ): SignInTokenResult
 
     suspend fun listConnections(
         host: String,
@@ -175,8 +175,8 @@ private data class RenameBody(
 )
 
 @Serializable
-private data class ClaimTokenResponseBody(
-    @SerialName("claim_token") val claimToken: String,
+private data class SignInTokenResponseBody(
+    @SerialName("sign_in_token") val signInToken: String,
     @SerialName("account_id") val accountId: String,
 )
 
@@ -223,12 +223,12 @@ class AccountApiClientImpl
         }
 
         @Suppress("TooGenericExceptionCaught")
-        override suspend fun mintClaimToken(
+        override suspend fun mintSignInToken(
             host: String,
             port: Int,
             tls: Boolean,
             googleIdToken: String,
-        ): ClaimTokenResult =
+        ): SignInTokenResult =
             withContext(Dispatchers.IO) {
                 try {
                     val response: HttpResponse =
@@ -237,23 +237,23 @@ class AccountApiClientImpl
                                 protocol = if (tls) URLProtocol.HTTPS else URLProtocol.HTTP
                                 this.host = host
                                 this.port = port
-                                path(CLAIM_TOKEN_PATH)
+                                path(SIGN_IN_TOKEN_PATH)
                             }
                             contentType(ContentType.Application.Json)
                             setBody(GoogleIdTokenBody(googleIdToken))
                         }
                     when (response.status) {
                         HttpStatusCode.OK -> {
-                            val body = response.body<ClaimTokenResponseBody>()
-                            ClaimTokenResult.Success(body.claimToken, body.accountId)
+                            val body = response.body<SignInTokenResponseBody>()
+                            SignInTokenResult.Success(body.signInToken, body.accountId)
                         }
 
                         else -> {
-                            ClaimTokenResult.Failed("HTTP ${response.status.value}")
+                            SignInTokenResult.Failed("HTTP ${response.status.value}")
                         }
                     }
                 } catch (e: Exception) {
-                    ClaimTokenResult.Failed(e.message ?: "claim-token request failed")
+                    SignInTokenResult.Failed(e.message ?: "sign-in-token request failed")
                 }
             }
 
@@ -434,7 +434,7 @@ class AccountApiClientImpl
 
         private companion object {
             private const val TAG = "MCP:AccountApi"
-            const val CLAIM_TOKEN_PATH = "/v1/accounts/claim-token"
+            const val SIGN_IN_TOKEN_PATH = "/v1/accounts/sign-in-token"
             const val CONNECTIONS_PATH = "/v1/accounts/connections"
             const val REVOKE_PATH = "/v1/accounts/connections/revoke"
             const val RENAME_PATH = "/v1/accounts/connections/rename"

@@ -33,7 +33,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.ui.components.OemBackgroundGuidanceSection
-import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountClaimState
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountSignInState
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.OnboardingStep
@@ -61,7 +61,7 @@ fun OnboardingScreen(
 
     val step by onboardingViewModel.step.collectAsStateWithLifecycle()
     val accountId by accountViewModel.accountId.collectAsStateWithLifecycle()
-    val claimState by accountViewModel.claimState.collectAsStateWithLifecycle()
+    val signInState by accountViewModel.signInState.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         onboardingViewModel.refresh(context, accountId)
@@ -79,8 +79,8 @@ fun OnboardingScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(claimState) {
-        if (claimState is AccountClaimState.Claimed) onboardingViewModel.markSignedIn()
+    LaunchedEffect(signInState) {
+        if (signInState is AccountSignInState.SignedIn) onboardingViewModel.markSignedIn()
     }
 
     // Without this Surface, Text here falls back to Compose's hard-coded default content color
@@ -115,8 +115,8 @@ fun OnboardingScreen(
 
                 OnboardingStep.GOOGLE_SIGN_IN -> {
                     GoogleSignInStep(
-                        claimState = claimState,
-                        onSignInClick = { accountViewModel.signInAndClaim(context) },
+                        signInState = signInState,
+                        onSignInClick = { accountViewModel.signIn(context) },
                         onSkipClick = { onboardingViewModel.skipSignIn() },
                     )
                 }
@@ -192,7 +192,7 @@ private fun BatteryStep(
 
 @Composable
 private fun GoogleSignInStep(
-    claimState: AccountClaimState,
+    signInState: AccountSignInState,
     onSignInClick: () -> Unit,
     onSkipClick: () -> Unit,
 ) {
@@ -200,27 +200,25 @@ private fun GoogleSignInStep(
     Spacer(Modifier.height(12.dp))
     Text(stringResource(R.string.onboarding_signin_body), style = MaterialTheme.typography.bodyMedium)
     Spacer(Modifier.height(24.dp))
-    when (claimState) {
-        is AccountClaimState.SigningIn, is AccountClaimState.Claiming -> {
+    when (signInState) {
+        is AccountSignInState.SigningIn, is AccountSignInState.SigningInToServer -> {
             CircularProgressIndicator(modifier = Modifier.height(32.dp))
         }
 
-        is AccountClaimState.WaitingForConnection -> {
-            // The claim goes over the WebSocket; the transport isn't Connected yet. We wait on the
+        is AccountSignInState.WaitingForConnection -> {
+            // The sign-in goes over the WebSocket; the transport isn't Connected yet. We wait on the
             // status flow's next Connected emission - no timer, no retry (plan A1b).
             CircularProgressIndicator(modifier = Modifier.height(32.dp))
             Spacer(Modifier.height(8.dp))
             Text("Connecting to the server…")
         }
 
-        is AccountClaimState.AlreadyClaimedByOther -> {
-            Text(stringResource(R.string.account_already_claimed_body), color = MaterialTheme.colorScheme.error)
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = onSignInClick) { Text(stringResource(R.string.account_sign_in_action)) }
+        is AccountSignInState.AccountsUnsupported -> {
+            Text(stringResource(R.string.account_accounts_unsupported), color = MaterialTheme.colorScheme.error)
         }
 
-        is AccountClaimState.Failed -> {
-            Text(claimState.message, color = MaterialTheme.colorScheme.error)
+        is AccountSignInState.Failed -> {
+            Text(signInState.message, color = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(8.dp))
             Button(onClick = onSignInClick) { Text(stringResource(R.string.account_sign_in_action)) }
         }

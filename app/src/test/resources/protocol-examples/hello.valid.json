@@ -1,6 +1,6 @@
 {
   "type": "hello",
-  "protocol_version": 1,
+  "protocol_version": 2,
   "apk_version": "1.2.3",
   "android_version": 34,
   "device_model": "Google Pixel 8",

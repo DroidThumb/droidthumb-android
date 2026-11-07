@@ -16,15 +16,15 @@ class AccountSessionCardTest {
     }
 
     @Test
-    fun `SignedIn claimed shows nothing - the steady signed-in state has no card`() {
-        val state = AccountSessionState.SignedIn(claimed = true)
+    fun `SignedIn linked shows nothing - the steady signed-in state has no card`() {
+        val state = AccountSessionState.SignedIn(linked = true)
         assertNull(sessionMessage(state))
         assertNull(sessionActionLabel(state))
     }
 
     @Test
-    fun `SignedIn not claimed shows the link copy with the Link this phone action`() {
-        val state = AccountSessionState.SignedIn(claimed = false)
+    fun `SignedIn not linked shows the link copy with the Link this phone action`() {
+        val state = AccountSessionState.SignedIn(linked = false)
         assertEquals("This phone isn't linked to your account.", sessionMessage(state))
         assertEquals("Link this phone", sessionActionLabel(state))
     }

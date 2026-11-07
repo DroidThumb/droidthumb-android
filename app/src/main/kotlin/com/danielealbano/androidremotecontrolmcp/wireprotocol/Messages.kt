@@ -62,12 +62,18 @@ data class ChallengeResponse(
     val signature: String,
 ) : WireMessage
 
-/** server -> device, replies to `hello` once the connection is accepted. */
+/** server -> device, replies to `hello` once the connection is accepted. `accounts` is `true`
+ *  when this server has accounts (a phone can only be driven through the account signed in on
+ *  it); `false` when it has none, in which case `accountId` is always `null` and every `sign_in`
+ *  is rejected with reason `accounts_unsupported`. `accountId` is the account signed in on this
+ *  phone, or `null` when the phone is signed out or the server has no accounts. */
 @Serializable
 @SerialName("welcome")
 data class Welcome(
     val accepted: Boolean,
     @SerialName("protocol_version") val protocolVersion: Int,
+    val accounts: Boolean,
+    @SerialName("account_id") val accountId: String? = null,
     val settings: WelcomeSettings? = null,
     @SerialName("latest_app_version") val latestAppVersion: String? = null,
     @SerialName("minimum_supported_app_version") val minimumSupportedAppVersion: String? = null,
@@ -121,32 +127,62 @@ data class SecretRegenerated(
     @SerialName("connector_url") val connectorUrl: String,
 ) : WireMessage
 
-/** device -> server, sent on the already challenge-authenticated connection to claim this device
- *  into an account (design doc D-33). `account_token` is the short-lived, single-use token minted
- *  by `POST /v1/accounts/claim-token` right after Google sign-in — never the raw OAuth/id token
- *  itself; carries no device identifier, since the connection itself already proves key
- *  possession, the same trust model [RegenerateSecret] already uses. */
+/** device -> server, sent on the established (challenge-verified) connection to sign this phone
+ *  in to the account `accountToken` belongs to (sign-in.schema.json). If the phone is signed in
+ *  to a different account, it moves to this one at once; signing in again with the account the
+ *  phone is already signed in to succeeds and changes nothing. `accountToken` is the short-lived,
+ *  single-use token minted by `POST /v1/accounts/sign-in-token` right after Google sign-in —
+ *  never the raw OAuth/id token itself. `installHint` is Android's per-app device ID (ANDROID_ID);
+ *  the server keeps only a keyed hash of it and uses it to recognise the same phone after a
+ *  reinstall. This app never sends `replace_device_id`. */
 @Serializable
-@SerialName("claim_account")
-data class ClaimAccount(
+@SerialName("sign_in")
+data class SignIn(
     @SerialName("account_token") val accountToken: String,
+    @SerialName("install_hint") val installHint: String,
 ) : WireMessage
 
-/** server -> device, reply to [ClaimAccount] on success — sent for both a new claim and an
- *  idempotent re-claim by the same account that already owns this device. */
+/** server -> device, reply to [SignIn] on success — sent for both a new sign-in and a re-sign-in
+ *  with the account the phone is already signed in to (which succeeds and changes nothing). */
 @Serializable
-@SerialName("claimed")
-data class Claimed(
+@SerialName("signed_in")
+data class SignedIn(
     @SerialName("account_id") val accountId: String,
 ) : WireMessage
 
-/** server -> device, reply to [ClaimAccount] on failure. `already_claimed`: a different account
- *  already owns this device. `invalid_token`: the token is invalid, expired, or already used. */
+/** server -> device, reply to [SignIn] on failure. `invalid_token`: the token is invalid,
+ *  expired, or already used. `device_limit_reached`: the account is at its device limit — [devices]
+ *  lists the account's current devices, and is present only with this reason. `unknown_device`:
+ *  a `replace_device_id` named a device that isn't one of the account's phones (never sent by
+ *  this app, but decodable). `accounts_unsupported`: this server has no accounts. */
 @Serializable
-@SerialName("claim_rejected")
-data class ClaimRejected(
+@SerialName("sign_in_rejected")
+data class SignInRejected(
     val reason: String,
+    val devices: List<SignInRejectedDevice>? = null,
 ) : WireMessage
+
+/** One entry of [SignInRejected.devices] — an account device at the device limit. */
+@Serializable
+data class SignInRejectedDevice(
+    @SerialName("device_id") val deviceId: String,
+    val name: String,
+    val model: String,
+    @SerialName("last_seen") val lastSeen: String,
+)
+
+/** device -> server, sent on the established (challenge-verified) connection to sign this phone
+ *  out of its account; afterwards the phone belongs to no account and can't be driven. A phone
+ *  that signed out while offline sends this as soon as its connection is established. */
+@Serializable
+@SerialName("sign_out")
+data object SignOut : WireMessage
+
+/** server -> device, reply to [SignOut]. Also sent when the phone was already signed out, and by
+ *  a server without accounts. */
+@Serializable
+@SerialName("signed_out")
+data object SignedOut : WireMessage
 
 /**
  * D-21. Referenced from within a `step`'s `params` or a `result`'s `output` wherever a value may
@@ -217,9 +253,11 @@ val wireJson =
                     subclass(StepError::class, StepError.serializer())
                     subclass(RegenerateSecret::class, RegenerateSecret.serializer())
                     subclass(SecretRegenerated::class, SecretRegenerated.serializer())
-                    subclass(ClaimAccount::class, ClaimAccount.serializer())
-                    subclass(Claimed::class, Claimed.serializer())
-                    subclass(ClaimRejected::class, ClaimRejected.serializer())
+                    subclass(SignIn::class, SignIn.serializer())
+                    subclass(SignedIn::class, SignedIn.serializer())
+                    subclass(SignInRejected::class, SignInRejected.serializer())
+                    subclass(SignOut::class, SignOut.serializer())
+                    subclass(SignedOut::class, SignedOut.serializer())
                 }
             }
     }

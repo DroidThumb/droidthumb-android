@@ -22,7 +22,7 @@ import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewMode
  * [accountViewModel]/[transportViewModel] are passed down from [MainScreen] (Activity-scoped)
  * rather than obtained here - this NavHost recreates its own NavBackStackEntry (and anything
  * `hiltViewModel()`'d against it) from scratch every time this whole tab leaves and re-enters
- * composition, which would silently reset sign-in/claim state on every tab switch (see
+ * composition, which would silently reset sign-in state on every tab switch (see
  * [MainScreen]'s own doc comment).
  */
 @Composable

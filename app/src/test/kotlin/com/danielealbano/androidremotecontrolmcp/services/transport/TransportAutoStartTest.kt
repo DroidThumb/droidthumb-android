@@ -42,7 +42,7 @@ class TransportAutoStartTest {
     @Test
     fun `starts on accessibility alone - no account required`() =
         runTest {
-            // Gating this on an account would deadlock claiming entirely: claim_account is sent
+            // Gating this on an account would deadlock sign-in entirely: sign_in is sent
             // *over* an already-connected transport, so the transport must be able to start
             // before any account exists (real regression, found live on a phone - see this
             // class's own doc comment).

@@ -81,9 +81,9 @@ class OnboardingViewModel
                     wasDone -> OnboardingStep.DONE
                     else -> OnboardingStep.GOOGLE_SIGN_IN
                 }
-            // The transport connects on device identity alone, not the account (claim_account is
+            // The transport connects on device identity alone, not the account (sign_in is
             // sent *over* an already-connected transport, so gating this on accountId would
-            // deadlock claiming) - runs on every refresh once accessibility is enabled, covering
+            // deadlock sign-in) - runs on every refresh once accessibility is enabled, covering
             // both the first time that becomes true and every later cold start
             // (TransportAutoStart.maybeStart is idempotent - TransportService's own `started`
             // guard no-ops a redundant start).
