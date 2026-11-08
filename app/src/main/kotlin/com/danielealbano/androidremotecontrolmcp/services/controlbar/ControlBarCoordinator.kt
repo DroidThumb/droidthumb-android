@@ -48,7 +48,7 @@ class ControlBarCoordinator
         // Written from the step-dispatch path (IO dispatcher, via StepDispatcher/DeviceTransportClient)
         // and read/written from bar button taps (Main dispatcher) - @Volatile for the same reason
         // DeviceTransportClientImpl marks its own equivalent cross-thread fields (currentOutbox,
-        // pendingRegenerate, pendingClaim) @Volatile; plain vars here would let a Stop tap race
+        // pendingRegenerate, pendingSignIn) @Volatile; plain vars here would let a Stop tap race
         // invisibly against a step just starting or finishing.
         @Volatile
         private var lastStepAtMs = 0L

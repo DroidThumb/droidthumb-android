@@ -64,6 +64,7 @@ fun AiClientDetailScreen(
 ) {
     val context = LocalContext.current
     val connectionsState by accountViewModel.connectionsState.collectAsStateWithLifecycle()
+    val revokeError by accountViewModel.revokeError.collectAsStateWithLifecycle()
     val connection =
         (connectionsState as? ConnectionsState.Loaded)?.connections?.firstOrNull { it.clientId == clientId }
 
@@ -170,6 +171,13 @@ fun AiClientDetailScreen(
             TextButton(onClick = { showRemoveConfirm = true }) {
                 Text("Remove connection", color = DESTRUCTIVE_COLOR)
             }
+            revokeError?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DESTRUCTIVE_COLOR,
+                )
+            }
         }
     }
 
@@ -188,7 +196,7 @@ fun AiClientDetailScreen(
                     onClick = {
                         showRemoveConfirm = false
                         removalRequested = true
-                        accountViewModel.revokeConnection(context, clientId)
+                        accountViewModel.revokeConnection(clientId)
                     },
                 ) {
                     Text("Remove", color = DESTRUCTIVE_COLOR)

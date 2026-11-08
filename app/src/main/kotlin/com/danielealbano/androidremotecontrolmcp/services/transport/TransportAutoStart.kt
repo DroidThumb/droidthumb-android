@@ -17,10 +17,10 @@ import javax.inject.Singleton
  * whenever accessibility is enabled, [TransportBootReceiver] on `BOOT_COMPLETED`, and
  * [TransportPackageReplacedReceiver] on `MY_PACKAGE_REPLACED`.
  *
- * Deliberately NOT gated on having a claimed account: the device identity (Keystore key), not the
- * account, is what the transport connects and authenticates with — `claim_account` is sent *over*
- * an already-connected transport (`AccountViewModel.signInAndClaim` → `DeviceTransportClient
- * .claimAccount`), so requiring an account first would deadlock claiming entirely (confirmed live:
+ * Deliberately NOT gated on being signed in to an account: the device identity (Keystore key), not
+ * the account, is what the transport connects and authenticates with — `sign_in` is sent *over*
+ * an already-connected transport (`AccountViewModel.signIn` → `DeviceTransportClient.signIn`), so
+ * requiring an account first would deadlock sign-in entirely (confirmed live:
  * founder's phone test round 2, "Not connected to the server" on every sign-in attempt after an
  * earlier version of this file required `accountId != null` here). A self-hosted device that skips
  * sign-in entirely (design doc D-33 Phase 2) also legitimately runs with no account, ever.

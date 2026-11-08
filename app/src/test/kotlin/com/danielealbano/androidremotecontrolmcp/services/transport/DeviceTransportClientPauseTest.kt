@@ -45,7 +45,7 @@ class DeviceTransportClientPauseTest : DeviceTransportClientTestBase() {
     ): suspend io.ktor.server.websocket.DefaultWebSocketServerSession.() -> Unit =
         {
             incoming.receive() // hello
-            send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+            send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true))))
             send(
                 Frame.Text(
                     wireJson.encodeToString(

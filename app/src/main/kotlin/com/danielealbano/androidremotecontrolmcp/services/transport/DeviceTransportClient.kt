@@ -1,21 +1,30 @@
 package com.danielealbano.androidremotecontrolmcp.services.transport
 
 import com.danielealbano.androidremotecontrolmcp.BuildConfig
+import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
+import com.danielealbano.androidremotecontrolmcp.services.identity.InstallHintProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.deriveDeviceId
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.AiConnection
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.AiConnectionRevoked
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.AiConnectionsList
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Challenge
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ChallengeResponse
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimAccount
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimRejected
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.Claimed
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Hello
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.ListAiConnections
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.RegenerateSecret
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.RevokeAiConnection
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SecretRegenerated
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignIn
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignInRejected
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignOut
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignedIn
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignedOut
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Step
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepDispatcher
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepError
@@ -42,6 +51,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,6 +66,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.coroutineContext
 
 /** Connection lifecycle for this device's outbound transport connection. */
 sealed interface TransportStatus {
@@ -65,6 +76,13 @@ sealed interface TransportStatus {
 
     data class Connected(
         val protocolVersion: Int,
+        /** The welcome's `accounts` flag — `true` when the server has accounts and this phone can
+         *  be signed in to one; `false` means every `sign_in` is rejected with
+         *  `accounts_unsupported` and sign-in is hidden. */
+        val accounts: Boolean,
+        /** The welcome's `account_id` — the account signed in on this phone, or `null` when the
+         *  phone is signed out or the server has no accounts. */
+        val accountId: String?,
     ) : TransportStatus
 
     /** The connection closed (or never opened) before a `welcome` arrived — a handshake-level
@@ -73,6 +91,12 @@ sealed interface TransportStatus {
         val closeCode: Short?,
         val reason: String,
     ) : TransportStatus
+
+    /** An established connection was closed with 4004 (`CLOSE_REPLACED`): another phone signed in
+     *  with `replace_device_id` and retired this one. The reconnect loop stops for good, the local
+     *  account association is cleared (no `sign_out` is sent — the server already moved this
+     *  phone), and sign-in stays possible only through an explicit restart of the transport. */
+    data object Replaced : TransportStatus
 
     data class Reconnecting(
         val attempt: Int,
@@ -88,22 +112,56 @@ data class UpdateInfo(
     val downloadUrl: String?,
 )
 
-/** Reply to [DeviceTransportClient.claimAccount] — mirrors the wire's own [Claimed]/[ClaimRejected]
+/** Reply to [DeviceTransportClient.signIn] — mirrors the wire's own [SignedIn]/[SignInRejected]
  *  shape, plus [TimedOut] for the same "no reply within the bound" case [regenerateSecret] handles
  *  by returning `false`. */
-sealed interface ClaimResult {
-    data class Claimed(
+sealed interface SignInResult {
+    data class SignedIn(
         val accountId: String,
-    ) : ClaimResult
+    ) : SignInResult
 
     data class Rejected(
         val reason: String,
-    ) : ClaimResult
+    ) : SignInResult
 
-    data object TimedOut : ClaimResult
+    data object TimedOut : SignInResult
 
     /** Not currently [TransportStatus.Connected] — nothing was sent, no wait occurred. */
-    data object NotConnected : ClaimResult
+    data object NotConnected : SignInResult
+}
+
+/** Reply to [DeviceTransportClient.listAiConnections] — the wire's own
+ *  [AiConnectionsList]/[AiConnectionsError] shape, plus [AiConnectionsResult.TimedOut] for the
+ *  same "no reply within the bound" case [regenerateSecret] handles by returning `false`. */
+sealed interface AiConnectionsResult {
+    data class Connections(
+        val connections: List<AiConnection>,
+    ) : AiConnectionsResult
+
+    data class Error(
+        val code: String,
+        val message: String?,
+    ) : AiConnectionsResult
+
+    data object TimedOut : AiConnectionsResult
+
+    /** Not currently [TransportStatus.Connected] — nothing was sent, no wait occurred. */
+    data object NotConnected : AiConnectionsResult
+}
+
+/** Reply to [DeviceTransportClient.revokeAiConnection]. */
+sealed interface AiRevokeResult {
+    data object Revoked : AiRevokeResult
+
+    data class Error(
+        val code: String,
+        val message: String?,
+    ) : AiRevokeResult
+
+    data object TimedOut : AiRevokeResult
+
+    /** Not currently [TransportStatus.Connected] — nothing was sent, no wait occurred. */
+    data object NotConnected : AiRevokeResult
 }
 
 interface DeviceTransportClient {
@@ -124,14 +182,35 @@ interface DeviceTransportClient {
      *  immediately, with no wait, when not currently `Connected`. */
     suspend fun regenerateSecret(): Boolean
 
-    /** Sends `claim_account { account_token }` on the current connection and awaits `claimed` or
-     *  `claim_rejected`, up to a 5s timeout (design doc D-33) — `accountToken` is the short-lived,
-     *  single-use token from `POST /v1/accounts/claim-token`, not the raw Google/OAuth token. */
-    suspend fun claimAccount(accountToken: String): ClaimResult
+    /** Sends `sign_in { account_token, install_hint }` on the current connection and awaits
+     *  `signed_in` or `sign_in_rejected`, up to a 5s timeout — `accountToken` is the short-lived,
+     *  single-use token from `POST /v1/accounts/sign-in-token`, not the raw Google/OAuth token;
+     *  `install_hint` comes from [InstallHintProvider]. */
+    suspend fun signIn(accountToken: String): SignInResult
+
+    /** Sends `sign_out` on the current connection and awaits `signed_out`, up to the same 5s
+     *  bound as [signIn]. Returns `false` immediately, with no wait, when not currently
+     *  `Connected` or when the send failed. The pending flag (via [AccountSettings.pendingSignOut])
+     *  is set FIRST — before the Connected check — so a sign-out requested while the phone is
+     *  offline is still recorded; the caller signs out locally regardless of the outcome, and a
+     *  sign-out whose `signed_out` never arrived stays recorded as pending so the next connection
+     *  sends `sign_out` first. */
+    suspend fun signOut(): Boolean
+
+    /** Sends `list_ai_connections` on the current connection and awaits `ai_connections_list`,
+     *  up to a 5s timeout. Returns [AiConnectionsResult.NotConnected] immediately, with no wait,
+     *  when not currently `Connected`. */
+    suspend fun listAiConnections(): AiConnectionsResult
+
+    /** Sends `revoke_ai_connection { connection_id }` on the current connection and awaits
+     *  `ai_connection_revoked`, up to a 5s timeout. `connectionId` is the connection's
+     *  `client_id` as listed by [listAiConnections]. Returns [AiRevokeResult.NotConnected]
+     *  immediately, with no wait, when not currently `Connected`. */
+    suspend fun revokeAiConnection(connectionId: String): AiRevokeResult
 }
 
 /**
- * The M2/M3 outbound WebSocket client: offers `droidthumb.v1`, sends `hello`, answers a `challenge`
+ * The outbound WebSocket client: offers `droidthumb.v2`, sends `hello`, answers a `challenge`
  * with the Keystore-signed nonce (D-27) before `welcome` can arrive, dispatches inbound `step`s
  * through [StepDispatcher], and carries [RegenerateSecret]/[SecretRegenerated] once connected.
  * Reconnects with capped exponential backoff on any drop. `device_id` is never stored — it's
@@ -158,6 +237,8 @@ class DeviceTransportClientImpl
         private val connectorUrlSettings: ConnectorUrlSettings,
         private val pauseSettings: PauseSettings,
         private val controlBarCoordinator: ControlBarCoordinator,
+        private val installHintProvider: InstallHintProvider,
+        private val accountSettings: AccountSettings,
     ) : DeviceTransportClient {
         private val _status = MutableStateFlow<TransportStatus>(TransportStatus.Idle)
         override val status: StateFlow<TransportStatus> = _status.asStateFlow()
@@ -182,15 +263,25 @@ class DeviceTransportClientImpl
         @Volatile
         private var pendingRegenerate: CompletableDeferred<String>? = null
 
-        private val claimMutex = Mutex()
+        private val signInMutex = Mutex()
 
         @Volatile
-        private var pendingClaim: CompletableDeferred<ClaimResult>? = null
+        private var pendingSignIn: CompletableDeferred<SignInResult>? = null
 
-        private fun currentDeviceId(): String {
-            val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
-            return deriveDeviceId(publicKeyDer)
-        }
+        private val signOutMutex = Mutex()
+
+        @Volatile
+        private var pendingSignOutReply: CompletableDeferred<Unit>? = null
+
+        private val aiListMutex = Mutex()
+
+        @Volatile
+        private var pendingAiConnections: CompletableDeferred<AiConnectionsResult>? = null
+
+        private val aiRevokeMutex = Mutex()
+
+        @Volatile
+        private var pendingAiRevoke: CompletableDeferred<AiRevokeResult>? = null
 
         override fun start(
             host: String,
@@ -203,16 +294,23 @@ class DeviceTransportClientImpl
                 CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                     var attempt = 0
                     while (isActive) {
+                        val delayMs =
+                            if (attempt == 0) {
+                                0L
+                            } else {
+                                BACKOFF_SCHEDULE_MS.getOrElse(attempt - 1) { BACKOFF_SCHEDULE_MS.last() }
+                            }
                         _status.value =
                             if (attempt == 0) {
                                 TransportStatus.Connecting
                             } else {
-                                TransportStatus.Reconnecting(attempt, backoffMs(attempt))
+                                TransportStatus.Reconnecting(attempt, delayMs)
                             }
-                        if (attempt > 0) delay(backoffMs(attempt))
+                        if (attempt > 0) delay(delayMs)
                         ensureRegistered(host, port, tls)
-                        val welcomed = runSession(host, port, tls)
-                        attempt = if (welcomed) 0 else attempt + 1
+                        val session = runSession(host, port, tls)
+                        if (session.replaced) break
+                        attempt = if (session.welcomed) 0 else attempt + 1
                     }
                 }
         }
@@ -224,7 +322,7 @@ class DeviceTransportClientImpl
         ) {
             if (registered.get()) return
             val publicKey = deviceIdentityKeyStore.ensurePublicKeyBase64()
-            val expectedId = currentDeviceId()
+            val expectedId = currentDeviceId(deviceIdentityKeyStore)
             when (val result = registrationClient.register(host, port, tls, publicKey)) {
                 is DeviceRegistrationResult.Success -> {
                     if (result.deviceId != expectedId) {
@@ -246,15 +344,17 @@ class DeviceTransportClientImpl
             }
         }
 
-        /** Returns true iff a `welcome` was received this session — used to reset backoff on a
-         *  session that connected properly even if it later dropped. */
+        /** Runs one connection attempt. `welcomed` resets the reconnect backoff on a session that
+         *  connected properly even if it later dropped; `replaced` (a 4004 close on an established
+         *  session, applied by [handleSessionClose]) stops the reconnect loop for good. */
         @Suppress("TooGenericExceptionCaught")
         private suspend fun runSession(
             host: String,
             port: Int,
             tls: Boolean,
-        ): Boolean {
+        ): SessionOutcome {
             var welcomed = false
+            var replaced = false
             try {
                 client.webSocket(
                     method = HttpMethod.Get,
@@ -270,7 +370,14 @@ class DeviceTransportClientImpl
                     currentOutbox = outbox
 
                     try {
-                        send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), helloFor())))
+                        send(
+                            Frame.Text(
+                                wireJson.encodeToString(
+                                    WireMessage.serializer(),
+                                    helloFor(deviceInfoProvider, currentDeviceId(deviceIdentityKeyStore)),
+                                ),
+                            ),
+                        )
                         launch {
                             for (message in outbox) {
                                 send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), message)))
@@ -283,15 +390,21 @@ class DeviceTransportClientImpl
                         // `incoming` completed — the server closed the connection. This is the ONLY
                         // place a 4000-4003 close is observable (Ktor's client WS doesn't throw for a
                         // normal close frame, it just ends the channel).
-                        if (!welcomed) {
-                            val reason = closeReason.await()
-                            Logger.w(TAG, "Closed before welcome: code=${reason?.code} message=${reason?.message}")
-                            _status.value =
-                                TransportStatus.Rejected(reason?.code, reason?.message ?: "closed before welcome")
-                        }
+                        if (handleSessionClose(welcomed, _status, accountSettings)) replaced = true
                     } finally {
                         outbox.close()
                         if (currentOutbox === outbox) currentOutbox = null
+                        // The connection is gone (or stop() cancelled the session): every reply
+                        // still being waited for must be resolved NOW, not left to time out five
+                        // seconds later against a server that can no longer answer. A cancelled
+                        // sign-out reply leaves the pending flag set, so the next welcome replays.
+                        completePendingRepliesOnDisconnect(
+                            pendingRegenerate,
+                            pendingSignIn,
+                            pendingSignOutReply,
+                            pendingAiConnections,
+                            pendingAiRevoke,
+                        )
                     }
                 }
             } catch (e: CancellationException) {
@@ -303,7 +416,7 @@ class DeviceTransportClientImpl
                 if (!welcomed) _status.value = TransportStatus.Rejected(null, e.message ?: "connection failed")
                 Logger.w(TAG, "Transport session ended: ${e.message}")
             }
-            return welcomed
+            return SessionOutcome(welcomed, replaced)
         }
 
         /** Handles one decoded inbound message for the current session. Returns `true` iff
@@ -316,11 +429,11 @@ class DeviceTransportClientImpl
          *  held while paused (`runStepCancellable`) now blocks this whole function - and therefore
          *  the `for (frame in incoming)` loop in `runSession` that calls it - for up to
          *  `PauseSettings.getPauseHoldCapMs` (default 60s) before the NEXT inbound frame
-         *  (`SecretRegenerated`, `Claimed`/`ClaimRejected`, or the server closing the socket) is even
+         *  (`SecretRegenerated`, `SignedIn`/`SignInRejected`, or the server closing the socket) is even
          *  read. Previously a paused step replied instantly, so this was a non-issue. Accepted
          *  because: only one step is ever in flight per connection by design (serialized dispatch,
          *  documented on `registerCurrentStep`) and the device owner driving a session while ALSO
-         *  mid-`regenerateSecret()`/`claimAccount()` on the very same connection is already an edge
+         *  mid-`regenerateSecret()`/`signIn()` on the very same connection is already an edge
          *  case; a real fix (processing other inbound messages concurrently with a held step) is a
          *  larger structural change than this round's scope. */
         private suspend fun DefaultClientWebSocketSession.handleIncomingMessage(message: WireMessage): Boolean {
@@ -334,7 +447,16 @@ class DeviceTransportClientImpl
                     Logger.i(TAG, "Connected: protocol_version=${message.protocolVersion}")
                     _updateInfo.value =
                         UpdateInfo(message.latestAppVersion, message.minimumSupportedAppVersion, message.downloadUrl)
-                    _status.value = TransportStatus.Connected(message.protocolVersion)
+                    // A sign-out requested while the phone was offline is replayed as the first
+                    // app-driven message on the new connection — before Connected is published, so
+                    // callers never see a Connected window where sign_out was still owed; the
+                    // pending flag clears only when `signed_out` comes back.
+                    if (accountSettings.getPendingSignOut()) {
+                        Logger.i(TAG, "Sending pending sign_out on the new connection")
+                        send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), SignOut)))
+                    }
+                    _status.value =
+                        TransportStatus.Connected(message.protocolVersion, message.accounts, message.accountId)
                     return true
                 }
 
@@ -348,16 +470,34 @@ class DeviceTransportClientImpl
                     pendingRegenerate?.complete(message.connectorUrl)
                 }
 
-                is Claimed -> {
-                    pendingClaim?.complete(ClaimResult.Claimed(message.accountId))
+                is SignedIn -> {
+                    // The user's latest action was signing in, so an older unacknowledged
+                    // sign-out must not be replayed on the next connection.
+                    accountSettings.setPendingSignOut(false)
+                    pendingSignIn?.complete(SignInResult.SignedIn(message.accountId))
                 }
 
-                is ClaimRejected -> {
-                    pendingClaim?.complete(ClaimResult.Rejected(message.reason))
+                is SignInRejected -> {
+                    pendingSignIn?.complete(SignInResult.Rejected(message.reason))
                 }
 
-                // Hello/ChallengeResponse/RegenerateSecret/ClaimAccount/StepResult/StepError never
-                // arrive server -> device
+                is SignedOut -> {
+                    // The only place the persisted pending-sign-out flag clears: the server has
+                    // now acknowledged the sign-out (or the phone was already signed out).
+                    accountSettings.setPendingSignOut(false)
+                    pendingSignOutReply?.complete(Unit)
+                }
+
+                is AiConnectionsList -> {
+                    completeAiConnectionsReply(message, pendingAiConnections)
+                }
+
+                is AiConnectionRevoked -> {
+                    completeAiRevokeReply(message, pendingAiRevoke)
+                }
+
+                // Hello/ChallengeResponse/RegenerateSecret/SignIn/SignOut/ListAiConnections/
+                // RevokeAiConnection/StepResult/StepError never arrive server -> device
                 else -> {}
             }
             return false
@@ -417,60 +557,131 @@ class DeviceTransportClientImpl
                     pendingRegenerate = null
                     return@withLock false
                 }
-                val result = withTimeoutOrNull(REGENERATE_TIMEOUT_MS) { deferred.await() }
+                val result =
+                    try {
+                        withTimeoutOrNull(REGENERATE_TIMEOUT_MS) { deferred.await() }
+                    } catch (_: CancellationException) {
+                        // The session dropped and completePendingRepliesOnDisconnect cancelled this
+                        // wait: not a success (the caller's own cancellation rethrows first).
+                        coroutineContext.ensureActive()
+                        null
+                    }
                 pendingRegenerate = null
                 result != null
             }
 
-        override suspend fun claimAccount(accountToken: String): ClaimResult =
-            claimMutex.withLock {
-                if (_status.value !is TransportStatus.Connected) return@withLock ClaimResult.NotConnected
-                val outbox = currentOutbox ?: return@withLock ClaimResult.NotConnected
-                val deferred = CompletableDeferred<ClaimResult>()
-                pendingClaim = deferred
+        override suspend fun signIn(accountToken: String): SignInResult =
+            signInMutex.withLock {
+                if (_status.value !is TransportStatus.Connected) return@withLock SignInResult.NotConnected
+                val outbox = currentOutbox ?: return@withLock SignInResult.NotConnected
+                // sign_in.install_hint is required and minLength 1 (sign-in.schema.json): a blank
+                // hint would be rejected at the schema, so fail here without sending anything.
+                val installHint = installHintProvider.installHint
+                if (installHint.isBlank()) return@withLock SignInResult.Rejected("install_hint_unavailable")
+                val deferred = CompletableDeferred<SignInResult>()
+                pendingSignIn = deferred
                 // Same narrow session-teardown race regenerateSecret() guards against: checked
                 // explicitly so a send that never actually went out fails fast instead of waiting
                 // out the full timeout.
-                if (!outbox.trySend(ClaimAccount(accountToken)).isSuccess) {
-                    pendingClaim = null
-                    return@withLock ClaimResult.NotConnected
+                if (!outbox.trySend(SignIn(accountToken, installHint)).isSuccess) {
+                    pendingSignIn = null
+                    return@withLock SignInResult.NotConnected
                 }
-                val result = withTimeoutOrNull(CLAIM_TIMEOUT_MS) { deferred.await() }
-                pendingClaim = null
-                result ?: ClaimResult.TimedOut
+                val result = withTimeoutOrNull(SIGN_IN_TIMEOUT_MS) { deferred.await() }
+                pendingSignIn = null
+                result ?: SignInResult.TimedOut
             }
 
-        private fun helloFor(): Hello =
-            Hello(
-                protocolVersion = 1,
-                apkVersion = BuildConfig.VERSION_NAME,
-                deviceId = currentDeviceId(),
-                capabilities = emptyList(),
-                mode = "live",
-                flowManifest = emptyList(),
-                androidVersion = deviceInfoProvider.androidVersion,
-                deviceModel = deviceInfoProvider.deviceModel,
-            )
+        override suspend fun signOut(): Boolean =
+            signOutMutex.withLock {
+                // Persisted first, before any Connected/outbox check: a sign-out requested while
+                // the phone is offline must still be recorded, so the next connection replays it
+                // (see handleIncomingMessage's Welcome branch). Cleared only on `signed_out`.
+                accountSettings.setPendingSignOut(true)
+                if (_status.value !is TransportStatus.Connected) return@withLock false
+                val outbox = currentOutbox ?: return@withLock false
+                val deferred = CompletableDeferred<Unit>()
+                pendingSignOutReply = deferred
+                // Same narrow session-teardown race regenerateSecret() guards against (see signIn).
+                if (!outbox.trySend(SignOut).isSuccess) {
+                    pendingSignOutReply = null
+                    return@withLock false
+                }
+                val acked =
+                    try {
+                        withTimeoutOrNull(SIGN_OUT_TIMEOUT_MS) { deferred.await() } != null
+                    } catch (_: CancellationException) {
+                        // The session dropped and completePendingRepliesOnDisconnect cancelled this
+                        // wait: treat it as not acked WITHOUT crashing — and without clearing the
+                        // pending flag, which was set above and stays set so the next welcome
+                        // replays the sign-out (the caller signs out locally regardless).
+                        coroutineContext.ensureActive()
+                        false
+                    }
+                pendingSignOutReply = null
+                acked
+            }
+
+        override suspend fun listAiConnections(): AiConnectionsResult =
+            aiListMutex.withLock {
+                if (_status.value !is TransportStatus.Connected) return@withLock AiConnectionsResult.NotConnected
+                val outbox = currentOutbox ?: return@withLock AiConnectionsResult.NotConnected
+                val deferred = CompletableDeferred<AiConnectionsResult>()
+                pendingAiConnections = deferred
+                // Same narrow session-teardown race regenerateSecret() guards against (see signIn).
+                if (!outbox.trySend(ListAiConnections).isSuccess) {
+                    pendingAiConnections = null
+                    return@withLock AiConnectionsResult.NotConnected
+                }
+                val result = withTimeoutOrNull(AI_CONNECTIONS_TIMEOUT_MS) { deferred.await() }
+                pendingAiConnections = null
+                result ?: AiConnectionsResult.TimedOut
+            }
+
+        override suspend fun revokeAiConnection(connectionId: String): AiRevokeResult =
+            aiRevokeMutex.withLock {
+                if (_status.value !is TransportStatus.Connected) return@withLock AiRevokeResult.NotConnected
+                val outbox = currentOutbox ?: return@withLock AiRevokeResult.NotConnected
+                val deferred = CompletableDeferred<AiRevokeResult>()
+                pendingAiRevoke = deferred
+                // Same narrow session-teardown race regenerateSecret() guards against (see signIn).
+                if (!outbox.trySend(RevokeAiConnection(connectionId)).isSuccess) {
+                    pendingAiRevoke = null
+                    return@withLock AiRevokeResult.NotConnected
+                }
+                val result = withTimeoutOrNull(AI_CONNECTIONS_TIMEOUT_MS) { deferred.await() }
+                pendingAiRevoke = null
+                result ?: AiRevokeResult.TimedOut
+            }
 
         override fun stop() {
             job?.cancel()
             job = null
+            // Resolve every outstanding reply wait BEFORE the fields are nulled: a stop() during a
+            // wait must complete it now, not leave it hanging until the 5s timeout.
+            completePendingRepliesOnDisconnect(
+                pendingRegenerate,
+                pendingSignIn,
+                pendingSignOutReply,
+                pendingAiConnections,
+                pendingAiRevoke,
+            )
             currentOutbox = null
             pendingRegenerate = null
-            pendingClaim = null
+            pendingSignIn = null
+            pendingSignOutReply = null
+            pendingAiConnections = null
+            pendingAiRevoke = null
             _status.value = TransportStatus.Idle
-        }
-
-        private fun backoffMs(attempt: Int): Long {
-            val schedule = BACKOFF_SCHEDULE_MS
-            return schedule.getOrElse(attempt - 1) { schedule.last() }
         }
 
         companion object {
             private const val TAG = "MCP:DeviceTransport"
-            const val SUBPROTOCOL = "droidthumb.v1"
+            const val SUBPROTOCOL = "droidthumb.v2"
             private const val REGENERATE_TIMEOUT_MS = 5_000L
-            private const val CLAIM_TIMEOUT_MS = 5_000L
+            private const val SIGN_IN_TIMEOUT_MS = 5_000L
+            private const val SIGN_OUT_TIMEOUT_MS = 5_000L
+            private const val AI_CONNECTIONS_TIMEOUT_MS = 5_000L
 
             /** Reply to a `step` that was HELD while paused (round 4 redesign of design doc §8.8's
              *  original "replies immediately" behavior - see [runStepCancellable]'s doc comment)
@@ -487,6 +698,13 @@ class DeviceTransportClientImpl
             internal const val PING_INTERVAL_SECONDS = 30L
         }
     }
+
+/** What one [DeviceTransportClientImpl.runSession] attempt ended with: `welcomed` resets the
+ *  reconnect backoff, `replaced` stops the loop entirely (close code 4004). */
+private data class SessionOutcome(
+    val welcomed: Boolean,
+    val replaced: Boolean,
+)
 
 /** Builds the OkHttpClient the transport WebSocket runs on. Sets a 30s ping interval so a
  *  half-open/dead connection (phone left Wi-Fi, NAT timeout, server lost the socket without a
@@ -524,9 +742,125 @@ private suspend fun awaitResumeOrCapExpired(pauseSettings: PauseSettings): Boole
     } ?: false
 }
 
+/** Completes the waiter of an in-flight [DeviceTransportClient.listAiConnections] with the
+ *  server's `ai_connections_list` reply. A top-level function, not a class member - keeps
+ *  [DeviceTransportClientImpl] and [handleIncomingMessage] within detekt's function-count and
+ *  complexity limits, same reasoning as [decodeOrNull]. */
+private fun completeAiConnectionsReply(
+    message: AiConnectionsList,
+    pending: CompletableDeferred<AiConnectionsResult>?,
+) {
+    pending?.complete(
+        if (message.ok && message.connections != null) {
+            AiConnectionsResult.Connections(message.connections)
+        } else {
+            AiConnectionsResult.Error(message.error?.code ?: "unknown", message.error?.message)
+        },
+    )
+}
+
+/** Resolves every reply a caller is still waiting for when the session dies or [stop] runs:
+ *  sign-in, AI-connections list and revoke waiters complete with their own not-connected result;
+ *  the regenerate and sign-out reply waiters have no not-connected value, so they are CANCELLED —
+ *  each awaiting caller catches that cancellation, treats it as "not connected" (regenerate:
+ *  `false`; sign-out: `false`) and rethrows if its own coroutine was the thing cancelled. The
+ *  pending sign-out flag is NOT touched here: a sign-out whose reply never came stays pending, so
+ *  the next connection replays it. A top-level function, not a class member - keeps
+ *  [DeviceTransportClientImpl] within detekt's function-count limits, same reasoning as
+ *  [decodeOrNull]. */
+private fun completePendingRepliesOnDisconnect(
+    pendingRegenerate: CompletableDeferred<String>?,
+    pendingSignIn: CompletableDeferred<SignInResult>?,
+    pendingSignOutReply: CompletableDeferred<Unit>?,
+    pendingAiConnections: CompletableDeferred<AiConnectionsResult>?,
+    pendingAiRevoke: CompletableDeferred<AiRevokeResult>?,
+) {
+    pendingRegenerate?.cancel()
+    pendingSignIn?.complete(SignInResult.NotConnected)
+    pendingSignOutReply?.cancel()
+    pendingAiConnections?.complete(AiConnectionsResult.NotConnected)
+    pendingAiRevoke?.complete(AiRevokeResult.NotConnected)
+}
+
+/** Completes the waiter of an in-flight [DeviceTransportClient.revokeAiConnection] with the
+ *  server's `ai_connection_revoked` reply — same reasoning as [completeAiConnectionsReply]. */
+private fun completeAiRevokeReply(
+    message: AiConnectionRevoked,
+    pending: CompletableDeferred<AiRevokeResult>?,
+) {
+    pending?.complete(
+        if (message.ok) {
+            AiRevokeResult.Revoked
+        } else {
+            AiRevokeResult.Error(message.error?.code ?: "unknown", message.error?.message)
+        },
+    )
+}
+
+/** This phone's hello: protocol v2, the app's own version, and the device diagnostics. A
+ *  top-level function, not a class member - keeps [DeviceTransportClientImpl] under detekt's
+ *  `TooManyFunctions` threshold, same reasoning as [decodeOrNull]. */
+private fun helloFor(
+    deviceInfoProvider: DeviceInfoProvider,
+    deviceId: String,
+): Hello =
+    Hello(
+        protocolVersion = 2,
+        apkVersion = BuildConfig.VERSION_NAME,
+        deviceId = deviceId,
+        capabilities = emptyList(),
+        mode = "live",
+        flowManifest = emptyList(),
+        androidVersion = deviceInfoProvider.androidVersion,
+        deviceModel = deviceInfoProvider.deviceModel,
+    )
+
+/** This phone's derived device id - a cheap recompute (one base64 decode, one SHA-256 hash,
+ *  no I/O), never stored. Top-level, same reasoning as [helloFor]. */
+private fun currentDeviceId(deviceIdentityKeyStore: DeviceIdentityKeyStore): String {
+    val publicKeyDer = Base64.getDecoder().decode(deviceIdentityKeyStore.ensurePublicKeyBase64())
+    return deriveDeviceId(publicKeyDer)
+}
+
+/** The server's `CLOSE_REPLACED`: an established connection retired by another phone's `sign_in`
+ *  with `replace_device_id` (protocol `src/close-codes.ts`). */
+private const val CLOSE_REPLACED_CODE: Short = 4004
+
 /** How often [awaitResumeOrCapExpired] re-checks [PauseSettings.getPauseState] while holding a
  *  step - see that function's doc comment for why this polls instead of collecting the Flow. */
 private const val PAUSE_HOLD_POLL_INTERVAL_MS = 500L
+
+/** Applies the outcome of the server's close once `incoming` has completed — the only place a
+ *  4000-4004 close is observable (Ktor's client WS doesn't throw for a normal close frame, it just
+ *  ends the channel). Before a `welcome` any close is a handshake-level [TransportStatus.Rejected];
+ *  a 4004 (`CLOSE_REPLACED`) on an established session is [TransportStatus.Replaced]: the local
+ *  account association is cleared (no `sign_out` is sent — the server has already moved this
+ *  phone) and no pending flag is left, so the next connection replays nothing. Returns `true` iff
+ *  the close was a 4004 after welcome — the caller's reconnect loop stops on it. A top-level
+ *  function, not a class member - keeps [DeviceTransportClientImpl] within detekt's per-function
+ *  complexity/`TooManyFunctions` limits, same reasoning as [decodeOrNull]. */
+private suspend fun DefaultClientWebSocketSession.handleSessionClose(
+    welcomed: Boolean,
+    status: MutableStateFlow<TransportStatus>,
+    accountSettings: AccountSettings,
+): Boolean {
+    val reason = closeReason.await()
+    val replaced = welcomed && reason?.code == CLOSE_REPLACED_CODE
+    if (!welcomed) {
+        Logger.w(
+            "MCP:DeviceTransport",
+            "Closed before welcome: code=${reason?.code} message=${reason?.message}",
+        )
+        status.value = TransportStatus.Rejected(reason?.code, reason?.message ?: "closed before welcome")
+    }
+    if (replaced) {
+        Logger.w("MCP:DeviceTransport", "Closed with CLOSE_REPLACED: this phone was replaced")
+        accountSettings.clearAccountId()
+        accountSettings.setPendingSignOut(false)
+        status.value = TransportStatus.Replaced
+    }
+    return replaced
+}
 
 /** Decodes one inbound frame, or null for a non-text frame or a malformed payload (logged and
  *  skipped rather than tearing down the whole session over one bad frame). A top-level function,
@@ -538,7 +872,10 @@ private fun decodeOrNull(frame: Frame): WireMessage? {
     return try {
         wireJson.decodeFromString(WireMessage.serializer(), frame.readText())
     } catch (e: Exception) {
-        Logger.w("MCP:DeviceTransport", "Ignoring malformed frame: ${e.message}")
+        // kotlinx.serialization error messages embed the raw JSON input, so logging e.message
+        // would put arbitrary (possibly sensitive) frame contents into logcat — log only the
+        // exception class.
+        Logger.w("MCP:DeviceTransport", "Ignoring malformed frame: ${e::class.simpleName}")
         null
     }
 }

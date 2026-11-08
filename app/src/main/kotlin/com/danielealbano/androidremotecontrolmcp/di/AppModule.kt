@@ -24,6 +24,8 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.Accessib
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProviderImpl
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionExecutor
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ActionExecutorImpl
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ImeSubmitController
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ImeSubmitControllerImpl
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenStateSnapshotCache
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.ScreenStateSnapshotCacheImpl
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.TypeInputController
@@ -43,11 +45,15 @@ import com.danielealbano.androidremotecontrolmcp.services.controlbar.CurrentFore
 import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCrypto
 import com.danielealbano.androidremotecontrolmcp.services.identity.ConnectorSecretCryptoImpl
 import com.danielealbano.androidremotecontrolmcp.services.identity.DefaultDeviceInfoProvider
+import com.danielealbano.androidremotecontrolmcp.services.identity.DefaultInstallHintProvider
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStoreImpl
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
+import com.danielealbano.androidremotecontrolmcp.services.identity.InstallHintProvider
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcher
 import com.danielealbano.androidremotecontrolmcp.services.intents.IntentDispatcherImpl
+import com.danielealbano.androidremotecontrolmcp.services.lockscreen.LockStateProvider
+import com.danielealbano.androidremotecontrolmcp.services.lockscreen.LockStateProviderImpl
 import com.danielealbano.androidremotecontrolmcp.services.power.BatteryOptimizationManager
 import com.danielealbano.androidremotecontrolmcp.services.power.BatteryOptimizationManagerImpl
 import com.danielealbano.androidremotecontrolmcp.services.screencapture.ApiLevelProvider
@@ -205,6 +211,18 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindDeviceInfoProvider(impl: DefaultDeviceInfoProvider): DeviceInfoProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindInstallHintProvider(impl: DefaultInstallHintProvider): InstallHintProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindImeSubmitController(impl: ImeSubmitControllerImpl): ImeSubmitController
+
+    @Binds
+    @Singleton
+    abstract fun bindLockStateProvider(impl: LockStateProviderImpl): LockStateProvider
 
     @Binds
     @Singleton

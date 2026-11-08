@@ -33,13 +33,13 @@ fun MainScreen(
     onRequestNotificationPermission: () -> Unit,
     viewModel: MainViewModel = hiltViewModel(),
     // Hoisted here (not obtained via hiltViewModel() inside HomeTabScreen's own NavHost) so
-    // sign-in/claim state, the connections list and the live transport status all survive
+    // sign-in state, the connections list and the live transport status all survive
     // switching away to another tab and back - the NavHost's own NavBackStackEntry (and every
     // hiltViewModel() scoped to it) is torn down and rebuilt from scratch every time
     // HomeTabScreen itself leaves and re-enters composition, which was silently resetting
-    // AccountViewModel's claimState to Idle on every tab switch, re-triggering a full Google
+    // AccountViewModel's signInState to Idle on every tab switch, re-triggering a full Google
     // sign-in prompt each time (founder feedback, PR #8 round 4) even though the device was
-    // already signed in and claimed.
+    // already signed in.
     accountViewModel: AccountViewModel = hiltViewModel(),
     transportViewModel: TransportViewModel = hiltViewModel(),
 ) {

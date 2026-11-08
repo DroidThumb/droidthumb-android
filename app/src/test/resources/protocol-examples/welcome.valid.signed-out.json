@@ -1,0 +1,1 @@
+{ "type": "welcome", "accepted": true, "protocol_version": 2, "accounts": true, "account_id": null, "settings": { "default_step_timeout_ms": 30000 } }

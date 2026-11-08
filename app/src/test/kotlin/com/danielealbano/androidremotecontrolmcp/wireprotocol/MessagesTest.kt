@@ -60,13 +60,27 @@ class MessagesTest {
         val welcome =
             Welcome(
                 accepted = true,
-                protocolVersion = 1,
+                protocolVersion = 2,
+                accounts = true,
+                accountId = "acc_1",
                 settings = WelcomeSettings(defaultStepTimeoutMs = 30000L),
             )
         val encoded = wireJson.encodeToString(WireMessage.serializer(), welcome)
         val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
         assertEquals(welcome, decoded)
         assertTrue(decoded is Welcome)
+    }
+
+    @Test
+    fun `welcome decodes accounts false with a null account_id`() {
+        val decoded =
+            wireJson.decodeFromString(
+                WireMessage.serializer(),
+                """{"type":"welcome","accepted":true,"protocol_version":2,"accounts":false,"account_id":null}""",
+            )
+        check(decoded is Welcome)
+        assertEquals(false, decoded.accounts)
+        assertEquals(null, decoded.accountId)
     }
 
     @Test
@@ -181,7 +195,9 @@ class MessagesTest {
         val welcome =
             Welcome(
                 accepted = true,
-                protocolVersion = 1,
+                protocolVersion = 2,
+                accounts = true,
+                accountId = null,
                 settings = null,
                 latestAppVersion = "2.0.0",
                 minimumSupportedAppVersion = "1.5.0",
@@ -209,7 +225,7 @@ class MessagesTest {
     fun `decodes the protocol repo's hello valid fixture`() {
         val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("hello.valid.json"))
         check(decoded is Hello)
-        assertEquals(1, decoded.protocolVersion)
+        assertEquals(2, decoded.protocolVersion)
         assertEquals("1.2.3", decoded.apkVersion)
         assertEquals(34, decoded.androidVersion)
         assertEquals("Google Pixel 8", decoded.deviceModel)
@@ -220,22 +236,13 @@ class MessagesTest {
     }
 
     @Test
-    fun `decodes the protocol repo's hello valid legacy fixture`() {
-        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("hello.valid.legacy.json"))
-        check(decoded is Hello)
-        assertEquals("1.0.0", decoded.apkVersion)
-        assertEquals("pixel-8-abc123", decoded.deviceId)
-        assertEquals(null, decoded.androidVersion)
-        assertEquals(null, decoded.deviceModel)
-        assertEquals(emptyList<String>(), decoded.capabilities)
-        assertEquals(emptyList<FlowManifestEntry>(), decoded.flowManifest)
-    }
-
-    @Test
     fun `decodes the protocol repo's welcome valid fixture`() {
         val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("welcome.valid.json"))
         check(decoded is Welcome)
         assertEquals(true, decoded.accepted)
+        assertEquals(2, decoded.protocolVersion)
+        assertEquals(true, decoded.accounts)
+        assertEquals("acc_0123456789abcdef", decoded.accountId)
         assertEquals("1.3.0", decoded.latestAppVersion)
         assertEquals("1.0.0", decoded.minimumSupportedAppVersion)
         assertEquals("https://github.com/DroidThumb/droidthumb-android/releases/latest", decoded.downloadUrl)
@@ -243,13 +250,22 @@ class MessagesTest {
     }
 
     @Test
-    fun `decodes the protocol repo's welcome valid legacy fixture`() {
-        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("welcome.valid.legacy.json"))
+    fun `decodes the protocol repo's welcome valid accounts-false fixture`() {
+        val decoded =
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("welcome.valid.accounts-false.json"))
         check(decoded is Welcome)
         assertEquals(true, decoded.accepted)
-        assertEquals(null, decoded.latestAppVersion)
-        assertEquals(null, decoded.minimumSupportedAppVersion)
-        assertEquals(null, decoded.downloadUrl)
+        assertEquals(false, decoded.accounts)
+        assertEquals(null, decoded.accountId)
+    }
+
+    @Test
+    fun `decodes the protocol repo's welcome valid signed-out fixture`() {
+        val decoded =
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("welcome.valid.signed-out.json"))
+        check(decoded is Welcome)
+        assertEquals(true, decoded.accounts)
+        assertEquals(null, decoded.accountId)
     }
 
     @Test
@@ -269,50 +285,279 @@ class MessagesTest {
     }
 
     @Test
-    fun `claim_account round-trips`() {
-        val message = ClaimAccount(accountToken = "clt_abc123")
+    fun `sign_in round-trips`() {
+        val message = SignIn(accountToken = "clt_abc123", installHint = "3fa2f1c9d4e5b6a7")
         val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
         val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
         assertEquals(message, decoded)
-        assertTrue(decoded is ClaimAccount)
+        assertTrue(decoded is SignIn)
+        assertTrue(encoded.contains("\"install_hint\""), "encoded sign_in missing install_hint: $encoded")
     }
 
     @Test
-    fun `claimed round-trips`() {
-        val message = Claimed(accountId = "acc_01J8Q7K2X9ABCDEFGHJKMNPQRS")
+    fun `signed_in round-trips`() {
+        val message = SignedIn(accountId = "acc_01J8Q7K2X9ABCDEFGHJKMNPQRS")
         val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
         val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
         assertEquals(message, decoded)
-        assertTrue(decoded is Claimed)
+        assertTrue(decoded is SignedIn)
     }
 
     @Test
-    fun `claim_rejected round-trips`() {
-        val message = ClaimRejected(reason = "invalid_token")
+    fun `sign_in_rejected round-trips with a reason only`() {
+        val message = SignInRejected(reason = "invalid_token")
         val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
         val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
         assertEquals(message, decoded)
-        assertTrue(decoded is ClaimRejected)
+        assertTrue(decoded is SignInRejected)
     }
 
     @Test
-    fun `decodes the protocol repo's claim-account valid fixture`() {
-        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("claim-account.valid.json"))
-        check(decoded is ClaimAccount)
+    fun `sign_in_rejected round-trips with devices`() {
+        val message =
+            SignInRejected(
+                reason = "device_limit_reached",
+                devices =
+                    listOf(
+                        SignInRejectedDevice("dt_1", "Pixel 8", "Google Pixel 8", "2026-10-21T09:30:00Z"),
+                        SignInRejectedDevice("dt_2", "Old phone", "OnePlus Nord", "2026-10-14T18:02:11Z"),
+                    ),
+            )
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        check(decoded is SignInRejected)
+        assertEquals("dt_1", decoded.devices?.first()?.deviceId)
+        assertEquals("2026-10-14T18:02:11Z", decoded.devices?.last()?.lastSeen)
+    }
+
+    @Test
+    fun `sign_out encodes with only a type field`() {
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), SignOut)
+        assertEquals("""{"type":"sign_out"}""", encoded)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(SignOut, decoded)
+        assertTrue(decoded is SignOut)
+    }
+
+    @Test
+    fun `signed_out encodes with only a type field`() {
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), SignedOut)
+        assertEquals("""{"type":"signed_out"}""", encoded)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(SignedOut, decoded)
+        assertTrue(decoded is SignedOut)
+    }
+
+    @Test
+    fun `decodes the protocol repo's sign-in valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("sign-in.valid.json"))
+        check(decoded is SignIn)
         assertEquals("clt_0123456789abcdefghijklmnopqrstuvwxyz", decoded.accountToken)
+        assertEquals("3fa2f1c9d4e5b6a7", decoded.installHint)
     }
 
     @Test
-    fun `decodes the protocol repo's claimed valid fixture`() {
-        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("claimed.valid.json"))
-        check(decoded is Claimed)
+    fun `decodes the protocol repo's signed-in valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("signed-in.valid.json"))
+        check(decoded is SignedIn)
         assertEquals("acc_01J8Q7K2X9ABCDEFGHJKMNPQRS", decoded.accountId)
     }
 
     @Test
-    fun `decodes the protocol repo's claim-rejected valid fixture`() {
-        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("claim-rejected.valid.json"))
-        check(decoded is ClaimRejected)
-        assertEquals("already_claimed", decoded.reason)
+    fun `decodes the protocol repo's sign-in-rejected invalid-token fixture`() {
+        val decoded =
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("sign-in-rejected.valid.invalid-token.json"))
+        check(decoded is SignInRejected)
+        assertEquals("invalid_token", decoded.reason)
+        assertEquals(null, decoded.devices)
+    }
+
+    @Test
+    fun `decodes the protocol repo's sign-in-rejected device-limit-reached fixture`() {
+        val decoded =
+            wireJson.decodeFromString(
+                WireMessage.serializer(),
+                fixture("sign-in-rejected.valid.device-limit-reached.json"),
+            )
+        check(decoded is SignInRejected)
+        assertEquals("device_limit_reached", decoded.reason)
+        assertEquals(2, decoded.devices?.size)
+        assertEquals("Pixel 8", decoded.devices?.first()?.name)
+        assertEquals("OnePlus Nord", decoded.devices?.last()?.model)
+    }
+
+    @Test
+    fun `decodes the protocol repo's sign-in-rejected accounts-unsupported fixture`() {
+        val decoded =
+            wireJson.decodeFromString(
+                WireMessage.serializer(),
+                fixture("sign-in-rejected.valid.accounts-unsupported.json"),
+            )
+        check(decoded is SignInRejected)
+        assertEquals("accounts_unsupported", decoded.reason)
+        assertEquals(null, decoded.devices)
+    }
+
+    @Test
+    fun `decodes the protocol repo's sign-in-rejected unknown-device fixture`() {
+        val decoded =
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("sign-in-rejected.valid.unknown-device.json"))
+        check(decoded is SignInRejected)
+        assertEquals("unknown_device", decoded.reason)
+    }
+
+    @Test
+    fun `decoding the protocol repo's sign-in missing-install-hint invalid fixture fails`() {
+        assertThrows(SerializationException::class.java) {
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("sign-in.invalid.missing-install-hint.json"))
+        }
+    }
+
+    @Test
+    fun `decoding the protocol repo's sign-in missing-token invalid fixture fails`() {
+        assertThrows(SerializationException::class.java) {
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("sign-in.invalid.missing-token.json"))
+        }
+    }
+
+    @Test
+    fun `decoding the protocol repo's signed-in missing-account-id invalid fixture fails`() {
+        assertThrows(SerializationException::class.java) {
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("signed-in.invalid.missing-account-id.json"))
+        }
+    }
+
+    @Test
+    fun `decodes the protocol repo's sign-out valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("sign-out.valid.json"))
+        assertTrue(decoded is SignOut)
+    }
+
+    @Test
+    fun `decodes the protocol repo's signed-out valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("signed-out.valid.json"))
+        assertTrue(decoded is SignedOut)
+    }
+
+    @Test
+    fun `list_ai_connections encodes with only a type field`() {
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), ListAiConnections)
+        assertEquals("""{"type":"list_ai_connections"}""", encoded)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(ListAiConnections, decoded)
+        assertTrue(decoded is ListAiConnections)
+    }
+
+    @Test
+    fun `ai_connections_list round-trips with connections`() {
+        val message =
+            AiConnectionsList(
+                ok = true,
+                connections =
+                    listOf(
+                        AiConnection(
+                            clientId = "clt_1",
+                            clientName = "Claude",
+                            displayName = "My Claude",
+                            imageUrl = null,
+                            connectedAt = "2026-10-21T09:30:00Z",
+                            lastUsedAt = null,
+                        ),
+                    ),
+            )
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        assertTrue(decoded is AiConnectionsList)
+        assertTrue(encoded.contains("\"client_id\""), "encoded list missing client_id: $encoded")
+    }
+
+    @Test
+    fun `ai_connections_list round-trips an error reply without connections`() {
+        val message = AiConnectionsList(ok = false, error = AiConnectionsError("not_signed_in", "sign in first"))
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        check(decoded is AiConnectionsList)
+        assertEquals(false, decoded.ok)
+        assertEquals(null, decoded.connections)
+        assertEquals("not_signed_in", decoded.error?.code)
+    }
+
+    @Test
+    fun `revoke_ai_connection round-trips`() {
+        val message = RevokeAiConnection(connectionId = "clt_1")
+        val encoded = wireJson.encodeToString(WireMessage.serializer(), message)
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), encoded)
+        assertEquals(message, decoded)
+        assertTrue(decoded is RevokeAiConnection)
+        assertTrue(encoded.contains("\"connection_id\""), "encoded revoke missing connection_id: $encoded")
+    }
+
+    @Test
+    fun `ai_connection_revoked round-trips ok and with an error`() {
+        val ok = AiConnectionRevoked(ok = true)
+        val okEncoded = wireJson.encodeToString(WireMessage.serializer(), ok)
+        val okDecoded = wireJson.decodeFromString(WireMessage.serializer(), okEncoded)
+        assertEquals(ok, okDecoded)
+
+        val failed = AiConnectionRevoked(ok = false, error = AiConnectionsError("not_found", "no such connection"))
+        val failedEncoded = wireJson.encodeToString(WireMessage.serializer(), failed)
+        val failedDecoded = wireJson.decodeFromString(WireMessage.serializer(), failedEncoded)
+        assertEquals(failed, failedDecoded)
+    }
+
+    @Test
+    fun `decodes the protocol repo's list-ai-connections valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("list-ai-connections.valid.json"))
+        assertTrue(decoded is ListAiConnections)
+    }
+
+    @Test
+    fun `decodes the protocol repo's ai-connections-list valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("ai-connections-list.valid.json"))
+        check(decoded is AiConnectionsList)
+        assertEquals(true, decoded.ok)
+        assertEquals(2, decoded.connections?.size)
+        val connection = decoded.connections!!.first()
+        assertEquals("cl_0123456789abcdef", connection.clientId)
+        assertEquals("Claude (work)", connection.displayName)
+        assertEquals("https://example.com/claude.png", connection.imageUrl)
+        assertEquals(null, decoded.connections!!.last().lastUsedAt)
+    }
+
+    @Test
+    fun `decodes the protocol repo's ai-connections-list not-signed-in fixture`() {
+        val decoded =
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("ai-connections-list.valid.not-signed-in.json"))
+        check(decoded is AiConnectionsList)
+        assertEquals(false, decoded.ok)
+        assertEquals(null, decoded.connections)
+        assertEquals("not_signed_in", decoded.error?.code)
+    }
+
+    @Test
+    fun `decodes the protocol repo's revoke-ai-connection valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("revoke-ai-connection.valid.json"))
+        check(decoded is RevokeAiConnection)
+        assertEquals("cl_0123456789abcdef", decoded.connectionId)
+    }
+
+    @Test
+    fun `decodes the protocol repo's ai-connection-revoked valid fixture`() {
+        val decoded = wireJson.decodeFromString(WireMessage.serializer(), fixture("ai-connection-revoked.valid.json"))
+        check(decoded is AiConnectionRevoked)
+        assertEquals(true, decoded.ok)
+        assertEquals(null, decoded.error)
+    }
+
+    @Test
+    fun `decodes the protocol repo's ai-connection-revoked not-found fixture`() {
+        val decoded =
+            wireJson.decodeFromString(WireMessage.serializer(), fixture("ai-connection-revoked.valid.not-found.json"))
+        check(decoded is AiConnectionRevoked)
+        assertEquals(false, decoded.ok)
+        assertEquals("not_found", decoded.error?.code)
     }
 }

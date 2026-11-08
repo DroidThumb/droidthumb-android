@@ -94,10 +94,10 @@ class OnboardingViewModelTest {
             viewModel.refresh(context, accountId = null)
             advanceUntilIdle()
 
-            // The transport connects on device identity, not the account - claim_account is sent
+            // The transport connects on device identity, not the account - sign_in is sent
             // *over* an already-connected transport, so this must NOT be gated on accountId (a
             // real regression found live: gating on accountId deadlocked sign-in entirely, since
-            // claiming requires a connection that would never have been allowed to start).
+            // signing in requires a connection that would never have been allowed to start).
             coVerify { transportAutoStart.maybeStart(context) }
         }
 
@@ -112,7 +112,7 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `an already-claimed account (restored from a previous session) skips straight to done`() =
+    fun `an already signed-in account (restored from a previous session) skips straight to done`() =
         runTest(testDispatcher) {
             stubAccessibility(true)
             every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns true
@@ -165,7 +165,7 @@ class OnboardingViewModelTest {
         }
 
     @Test
-    fun `skipBattery with an already-claimed account lands on done, not a stale sign-in prompt`() =
+    fun `skipBattery with an already signed-in account lands on done, not a stale sign-in prompt`() =
         runTest(testDispatcher) {
             stubAccessibility(true)
             every { batteryOptimizationManager.isIgnoringBatteryOptimizations() } returns false

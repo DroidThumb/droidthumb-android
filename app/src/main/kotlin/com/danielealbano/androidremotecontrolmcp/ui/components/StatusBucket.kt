@@ -22,11 +22,16 @@ fun statusBucket(
     when {
         paused -> StatusBucket.PAUSED
         status is TransportStatus.Connected -> StatusBucket.CONNECTED
-        status is TransportStatus.Rejected -> StatusBucket.ERROR
+        status is TransportStatus.Rejected || status is TransportStatus.Replaced -> StatusBucket.ERROR
         else -> StatusBucket.CONNECTING
     }
 
 private const val ERROR_COPY = "We seem to be having a problem but are aware and working hard to fix it"
+
+/** [TransportStatus.Replaced]'s own copy in the ERROR bucket — the account moved to another phone,
+ *  which is not the generic "having a problem" message (the string resource with the same wording
+ *  is what the composable actually shows). */
+internal const val REPLACED_COPY = "This account is now used on another phone. Sign in again to use DroidThumb here."
 
 /** [resumeAtEpochMs] only matters for [StatusBucket.PAUSED] — ignored for every other bucket. */
 fun statusText(
@@ -44,7 +49,7 @@ fun statusText(
         }
 
         StatusBucket.ERROR -> {
-            ERROR_COPY
+            if (status is TransportStatus.Replaced) REPLACED_COPY else ERROR_COPY
         }
 
         StatusBucket.PAUSED -> {

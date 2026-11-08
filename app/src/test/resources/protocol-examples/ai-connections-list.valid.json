@@ -1,0 +1,22 @@
+{
+  "type": "ai_connections_list",
+  "ok": true,
+  "connections": [
+    {
+      "client_id": "cl_0123456789abcdef",
+      "client_name": "Claude",
+      "display_name": "Claude (work)",
+      "image_url": "https://example.com/claude.png",
+      "connected_at": "2026-09-30T12:00:00Z",
+      "last_used_at": "2026-10-20T22:15:00Z"
+    },
+    {
+      "client_id": "cl_1111222233334444",
+      "client_name": "Custom",
+      "display_name": "My script",
+      "image_url": null,
+      "connected_at": "2026-10-01T08:30:00Z",
+      "last_used_at": null
+    }
+  ]
+}

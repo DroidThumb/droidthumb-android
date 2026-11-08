@@ -1,0 +1,13 @@
+{
+  "type": "ai_connections_list",
+  "ok": true,
+  "connections": [
+    {
+      "client_id": "cl_0123456789abcdef",
+      "client_name": "Claude",
+      "display_name": "Claude (work)",
+      "image_url": "https://example.com/claude.png",
+      "connected_at": "yesterday"
+    }
+  ]
+}
