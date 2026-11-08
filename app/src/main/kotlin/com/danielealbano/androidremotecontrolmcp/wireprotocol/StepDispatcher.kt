@@ -21,10 +21,12 @@ import com.danielealbano.androidremotecontrolmcp.services.accessibility.Accessib
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityServiceProvider
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.AccessibilityTreeParser
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.FindBy
+import com.danielealbano.androidremotecontrolmcp.services.accessibility.ImeSubmitController
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.findNodeAtPoint
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.pickSelectorCandidate
 import com.danielealbano.androidremotecontrolmcp.services.accessibility.selectorForNode
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
+import com.danielealbano.androidremotecontrolmcp.services.lockscreen.LockStateProvider
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
@@ -80,6 +82,8 @@ class StepDispatcher
         private val treeParser: AccessibilityTreeParser,
         private val accessibilityServiceProvider: AccessibilityServiceProvider,
         private val nodeCache: AccessibilityNodeCache,
+        private val imeSubmitController: ImeSubmitController,
+        private val lockStateProvider: LockStateProvider,
         private val controlBarCoordinator: ControlBarCoordinator,
     ) {
         /** Never throws — every failure becomes a [StepError], never an unhandled exception out of
@@ -93,9 +97,15 @@ class StepDispatcher
         suspend fun dispatch(step: Step): WireMessage =
             try {
                 val params = step.params as? JsonObject ?: JsonObject(emptyMap())
-                StepResult(stepId = step.stepId, output = dispatchOp(step.op, params))
+                if (step.op != "read_screen" && lockStateProvider.isLocked()) {
+                    StepError(step.stepId, code = "device_locked", message = DEVICE_LOCKED_MESSAGE)
+                } else {
+                    StepResult(stepId = step.stepId, output = dispatchOp(step.op, params))
+                }
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: SubmitUnsupportedException) {
+                StepError(step.stepId, code = "submit_unsupported", message = e.message ?: "")
             } catch (e: McpToolException) {
                 StepError(step.stepId, code = e::class.simpleName ?: "InternalError", message = e.message ?: "")
             } catch (e: Exception) {
@@ -186,6 +196,7 @@ class StepDispatcher
             val image = result.content.filterIsInstance<ToolContent.Image>().firstOrNull()
             return buildJsonObject {
                 put("tree", text)
+                put("locked", lockStateProvider.isLocked())
                 image?.let {
                     putJsonObject("screenshot") {
                         put("kind", "inline")
@@ -267,25 +278,58 @@ class StepDispatcher
                 null
             }
 
-        private suspend fun typeText(params: JsonObject): ToolResult {
+        /** `type_text`'s required params: the field to type into and the text to type. */
+        private fun typeTextParams(params: JsonObject): Pair<JsonObject, String> {
             val selector =
                 params["selector"]?.jsonObject
                     ?: throw McpToolException.InvalidParams("type_text requires 'selector'")
-            awaitSelectorPresent(selector, autoWaitTimeoutMs(params))
-            val clear = params["clear"]?.jsonPrimitive?.booleanOrNull ?: false
-            return if (clear) {
-                typeClearTextTool.execute(buildJsonObject { put("selector", selector) })
-            } else {
-                val text =
-                    params["text"]?.jsonPrimitive?.contentOrNull
-                        ?: throw McpToolException.InvalidParams("type_text requires 'text' unless clear:true")
-                typeAppendTextTool.execute(
-                    buildJsonObject {
-                        put("selector", selector)
-                        put("text", text)
-                    },
-                )
+            val text =
+                params["text"]?.jsonPrimitive?.contentOrNull
+                    ?: throw McpToolException.InvalidParams("type_text requires 'text'")
+            return selector to text
+        }
+
+        /** `type_text` replaces the field's content by default (`append` defaults to false):
+         *  the field's existing content is cleared first, then the new text is typed at the
+         *  cursor. `append: true` skips the clear and types at the cursor. `submit: true`
+         *  additionally performs the keyboard's own action (send/search/go) on the focused
+         *  field once the text is typed — failing that fails the whole step with
+         *  `submit_unsupported`, leaving the typed text in place. */
+        private suspend fun typeText(params: JsonObject): ToolResult {
+            val (selector, text) = typeTextParams(params)
+            val append = params["append"]?.jsonPrimitive?.booleanOrNull ?: false
+            // Append with nothing to append would leave the field untouched yet report success —
+            // rejected before any screen interaction (and before the selector wait), so the field
+            // is guaranteed unchanged. Replace with empty text is meaningful: it clears the field.
+            if (append && text.isEmpty()) {
+                throw McpToolException.InvalidParams("type_text requires a non-empty 'text' when append is true")
             }
+            awaitSelectorPresent(selector, autoWaitTimeoutMs(params))
+            val result =
+                if (append) {
+                    typeAppendTextTool.execute(
+                        buildJsonObject {
+                            put("selector", selector)
+                            put("text", text)
+                        },
+                    )
+                } else {
+                    val cleared = typeClearTextTool.execute(buildJsonObject { put("selector", selector) })
+                    if (text.isEmpty()) {
+                        cleared
+                    } else {
+                        typeAppendTextTool.execute(
+                            buildJsonObject {
+                                put("selector", selector)
+                                put("text", text)
+                            },
+                        )
+                    }
+                }
+            if (params["submit"]?.jsonPrimitive?.booleanOrNull == true && !imeSubmitController.submitFocusedField()) {
+                throw SubmitUnsupportedException(SUBMIT_UNSUPPORTED_MESSAGE)
+            }
+            return result
         }
 
         /** `scroll_to_node` now owns the whole "not even in the tree yet" retry loop itself
@@ -441,5 +485,18 @@ class StepDispatcher
             private val EMPTY_OUTPUT = JsonObject(emptyMap())
             private const val DEFAULT_AUTO_WAIT_TIMEOUT_MS = 5000L
             private const val DEFAULT_IDLE_TIMEOUT_MS = 2000L
+
+            /** Message on every `device_locked` step error. */
+            const val DEVICE_LOCKED_MESSAGE = "the phone is locked"
+
+            /** Message on the `submit_unsupported` step error. */
+            const val SUBMIT_UNSUPPORTED_MESSAGE = "the keyboard has no send/search action to press"
         }
     }
+
+/** Thrown when `type_text`'s `submit: true` cannot be performed — the focused field offers no
+ *  keyboard action to send, or the framework reported the action as not performed. [StepDispatcher.dispatch]
+ *  turns this into a `submit_unsupported` step error rather than one of the generic codes. */
+class SubmitUnsupportedException(
+    message: String,
+) : Exception(message)

@@ -1,11 +1,13 @@
 package com.danielealbano.androidremotecontrolmcp.services.transport
 
 import com.danielealbano.androidremotecontrolmcp.data.model.PauseState
+import com.danielealbano.androidremotecontrolmcp.data.repository.AccountSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSettings
 import com.danielealbano.androidremotecontrolmcp.data.repository.PauseSettings
 import com.danielealbano.androidremotecontrolmcp.services.controlbar.ControlBarCoordinator
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceIdentityKeyStore
 import com.danielealbano.androidremotecontrolmcp.services.identity.DeviceInfoProvider
+import com.danielealbano.androidremotecontrolmcp.services.identity.InstallHintProvider
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepDispatcher
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
@@ -19,6 +21,8 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -35,6 +39,7 @@ abstract class DeviceTransportClientTestBase {
         const val TEST_PUBLIC_KEY_BASE64 =
             "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaLYBkdZrrs2nrNpdnPkFSS4F00NwONoA5e6B4Q6pB/5Oaxi6NUPTW7pJ80l8L+0Aaxt1V/87nXFRb83soCH0Sw=="
         const val TEST_DEVICE_ID = "dt_1d5aaa900ef5ffb98ae91a05932113643681ebc96ed43bdd084195ce34a9b09e"
+        const val TEST_INSTALL_HINT = "test-install-hint"
     }
 
     protected fun newClient(
@@ -61,6 +66,11 @@ abstract class DeviceTransportClientTestBase {
                 coEvery { getPauseHoldCapMs() } returns 60_000L
             },
         controlBarCoordinator: ControlBarCoordinator = mockk(relaxed = true),
+        installHintProvider: InstallHintProvider =
+            mockk {
+                every { installHint } returns TEST_INSTALL_HINT
+            },
+        accountSettings: AccountSettings = accountSettingsMock(),
     ): DeviceTransportClientImpl =
         DeviceTransportClientImpl(
             dispatcher,
@@ -70,7 +80,25 @@ abstract class DeviceTransportClientTestBase {
             connectorUrlSettings,
             pauseSettings,
             controlBarCoordinator,
+            installHintProvider,
+            accountSettings,
         )
+
+    /** An [AccountSettings] mock whose pending-sign-out flag and account id are backed by
+     *  [AtomicBoolean]/[AtomicReference] — `getPendingSignOut`/`getAccountId` read them and
+     *  `setPendingSignOut`/`clearAccountId` write them, so tests can seed state a real DataStore
+     *  would persist and observe it changing. */
+    protected fun accountSettingsMock(initialPendingSignOut: Boolean = false): AccountSettings {
+        val pending = AtomicBoolean(initialPendingSignOut)
+        val accountId = AtomicReference<String?>("acc_1")
+        return mockk {
+            coEvery { getPendingSignOut() } answers { pending.get() }
+            coEvery { setPendingSignOut(any()) } answers { pending.set(firstArg()) }
+            coEvery { getAccountId() } answers { accountId.get() }
+            coEvery { updateAccountId(any()) } answers { accountId.set(firstArg()) }
+            coEvery { clearAccountId() } answers { accountId.set(null) }
+        }
+    }
 
     /**
      * Waits until `client.status` matches [T], returning that exact snapshot — never re-reading

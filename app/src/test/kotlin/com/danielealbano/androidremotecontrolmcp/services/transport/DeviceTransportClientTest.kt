@@ -4,12 +4,14 @@ import com.danielealbano.androidremotecontrolmcp.data.repository.ConnectorUrlSet
 import com.danielealbano.androidremotecontrolmcp.utils.Logger
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Challenge
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.ChallengeResponse
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimAccount
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.ClaimRejected
-import com.danielealbano.androidremotecontrolmcp.wireprotocol.Claimed
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Hello
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.RegenerateSecret
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.SecretRegenerated
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignIn
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignInRejected
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignOut
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignedIn
+import com.danielealbano.androidremotecontrolmcp.wireprotocol.SignedOut
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Step
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.StepResult
 import com.danielealbano.androidremotecontrolmcp.wireprotocol.Welcome
@@ -72,7 +74,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                 handler = {
                     if (connections.incrementAndGet() == 1) {
                         incoming.receive() // hello
-                        send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                        send(
+                            Frame.Text(
+                                wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                            ),
+                        )
                         // flush() puts the Welcome bytes on the wire before the teardown below:
                         // cancelling the handler right after send() alone can abort the outgoing
                         // write and drop the frame, so the client sometimes never saw Connected -
@@ -130,15 +136,19 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                     val helloFrame = incoming.receive() as Frame.Text
                     val hello = wireJson.decodeFromString(WireMessage.serializer(), helloFrame.readText())
                     check(hello is Hello) { "expected hello, got $hello" }
-                    check(hello.protocolVersion == 1)
+                    check(hello.protocolVersion == 2) { "unexpected protocol_version: ${hello.protocolVersion}" }
                     check(hello.mode == "live")
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
                 },
             ) { port ->
                 val client = newClient()
                 client.start("127.0.0.1", port, tls = false)
                 val connected = awaitStatus<TransportStatus.Connected>(client)
-                assertEquals(TransportStatus.Connected(1), connected)
+                assertEquals(TransportStatus.Connected(2, accounts = true, accountId = null), connected)
                 client.stop()
             }
         }
@@ -173,7 +183,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
             withFakeServer(
                 handler = {
                     incoming.receive() // hello
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
                     send(
                         Frame.Text(
                             wireJson.encodeToString(
@@ -228,7 +242,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
             withFakeServer(
                 handler = {
                     incoming.receive()
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
                 },
             ) { port ->
                 val client = newClient()
@@ -251,7 +269,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                     val hello = wireJson.decodeFromString(WireMessage.serializer(), helloFrame.readText())
                     check(hello is Hello)
                     receivedDeviceId.set(hello.deviceId)
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
                 },
             ) { port ->
                 val client = newClient()
@@ -275,13 +297,17 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                     val response = wireJson.decodeFromString(WireMessage.serializer(), responseFrame.readText())
                     check(response is ChallengeResponse)
                     check(response.signature == "sig-for-nonce-1") { "unexpected signature: ${response.signature}" }
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
                 },
             ) { port ->
                 val client = newClient()
                 client.start("127.0.0.1", port, tls = false)
                 val connected = awaitStatus<TransportStatus.Connected>(client)
-                assertEquals(TransportStatus.Connected(1), connected)
+                assertEquals(TransportStatus.Connected(2, accounts = true, accountId = null), connected)
                 client.stop()
             }
         }
@@ -296,7 +322,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                     val hello = wireJson.decodeFromString(WireMessage.serializer(), helloFrame.readText())
                     check(hello is Hello)
                     received.set(hello)
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
                 },
             ) { port ->
                 val client = newClient()
@@ -325,7 +355,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                     if (connectionCount.getAndIncrement() == 0) {
                         close(CloseReason(1011, "forcing a reconnect"))
                     } else {
-                        send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                        send(
+                            Frame.Text(
+                                wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                            ),
+                        )
                     }
                 },
             ) { port ->
@@ -351,7 +385,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
             withFakeServer(
                 handler = {
                     incoming.receive() // hello
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
                 },
             ) { port ->
                 val client =
@@ -404,7 +442,15 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                         Frame.Text(
                             wireJson.encodeToString(
                                 WireMessage.serializer(),
-                                Welcome(true, 1, null, "2.0.0", "1.5.0", "https://h/apk"),
+                                Welcome(
+                                    accepted = true,
+                                    protocolVersion = 2,
+                                    accounts = true,
+                                    accountId = null,
+                                    latestAppVersion = "2.0.0",
+                                    minimumSupportedAppVersion = "1.5.0",
+                                    downloadUrl = "https://h/apk",
+                                ),
                             ),
                         ),
                     )
@@ -428,7 +474,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
             withFakeServer(
                 handler = {
                     incoming.receive() // hello
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
                     val next = incoming.receive() as Frame.Text
                     val message = wireJson.decodeFromString(WireMessage.serializer(), next.readText())
                     check(message is RegenerateSecret)
@@ -461,7 +511,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
             withFakeServer(
                 handler = {
                     incoming.receive() // hello
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                    send(
+                        Frame.Text(
+                            wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                        ),
+                    )
                     incoming.receive() // regenerate_secret, deliberately never answered
                 },
             ) { port ->
@@ -484,84 +538,6 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
             assertFalse(result)
         }
 
-    @Test
-    fun `claimAccount sends claim_account and completes on claimed`() =
-        runBlocking {
-            withFakeServer(
-                handler = {
-                    incoming.receive() // hello
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
-                    val next = incoming.receive() as Frame.Text
-                    val message = wireJson.decodeFromString(WireMessage.serializer(), next.readText())
-                    check(message is ClaimAccount)
-                    assertEquals("clt_abc123", message.accountToken)
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Claimed("acc_1"))))
-                },
-            ) { port ->
-                val client = newClient()
-                client.start("127.0.0.1", port, tls = false)
-                withTimeout(15.seconds) {
-                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
-                }
-                val result = withTimeout(8.seconds) { client.claimAccount("clt_abc123") }
-                assertEquals(ClaimResult.Claimed("acc_1"), result)
-                client.stop()
-            }
-        }
-
-    @Test
-    fun `claimAccount completes with Rejected on claim_rejected`() =
-        runBlocking {
-            withFakeServer(
-                handler = {
-                    incoming.receive() // hello
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
-                    incoming.receive() // claim_account
-                    val rejected = ClaimRejected("already_claimed")
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), rejected)))
-                },
-            ) { port ->
-                val client = newClient()
-                client.start("127.0.0.1", port, tls = false)
-                withTimeout(15.seconds) {
-                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
-                }
-                val result = withTimeout(8.seconds) { client.claimAccount("clt_abc123") }
-                assertEquals(ClaimResult.Rejected("already_claimed"), result)
-                client.stop()
-            }
-        }
-
-    @Test
-    fun `claimAccount times out when the server sends no reply`() =
-        runBlocking {
-            withFakeServer(
-                handler = {
-                    incoming.receive() // hello
-                    send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
-                    incoming.receive() // claim_account, deliberately never answered
-                },
-            ) { port ->
-                val client = newClient()
-                client.start("127.0.0.1", port, tls = false)
-                withTimeout(15.seconds) {
-                    while (client.status.value !is TransportStatus.Connected) kotlinx.coroutines.yield()
-                }
-                val result = withTimeout(8.seconds) { client.claimAccount("clt_abc123") }
-                assertEquals(ClaimResult.TimedOut, result)
-                client.stop()
-            }
-        }
-
-    @Test
-    fun `claimAccount returns NotConnected immediately when never connected`() =
-        runBlocking {
-            val client = newClient()
-            val result = client.claimAccount("clt_abc123")
-            assertEquals(ClaimResult.NotConnected, result)
-        }
-
-    @Test
     fun `tls = true attempts a TLS handshake, which fails against a plain (non-TLS) fake server`() =
         runBlocking {
             withFakeServer(
@@ -609,7 +585,11 @@ class DeviceTransportClientTest : DeviceTransportClientTestBase() {
                 withFakeServer(
                     handler = {
                         incoming.receive() // hello
-                        send(Frame.Text(wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 1, null))))
+                        send(
+                            Frame.Text(
+                                wireJson.encodeToString(WireMessage.serializer(), Welcome(true, 2, accounts = true)),
+                            ),
+                        )
                         val next = incoming.receive() as Frame.Text
                         val message = wireJson.decodeFromString(WireMessage.serializer(), next.readText())
                         check(message is RegenerateSecret)

@@ -88,9 +88,9 @@ fun ThisDeviceSection(
 
 private fun thisDeviceSubtitle(state: AccountSessionState): String =
     when {
-        state is AccountSessionState.SignedIn && state.claimed -> {
+        state is AccountSessionState.SignedIn && state.linked -> {
             state.device?.let { "Added ${formatIsoDate(it.createdAt)}" }
-                // Right after a fresh claim, this device's own registration can momentarily not
+                // Right after a fresh sign-in, this device's own registration can momentarily not
                 // show up yet in the account's device list - not an error, just not caught up yet.
                 ?: "Still showing up on the server — try again shortly"
         }

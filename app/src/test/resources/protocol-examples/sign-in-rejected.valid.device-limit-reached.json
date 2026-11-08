@@ -1,0 +1,8 @@
+{
+  "type": "sign_in_rejected",
+  "reason": "device_limit_reached",
+  "devices": [
+    { "device_id": "dt_1111111111111111111111111111111111111111111111111111111111111111", "name": "Pixel 8", "model": "Google Pixel 8", "last_seen": "2026-10-21T09:30:00Z" },
+    { "device_id": "dt_2222222222222222222222222222222222222222222222222222222222222222", "name": "Old phone", "model": "OnePlus Nord", "last_seen": "2026-10-14T18:02:11Z" }
+  ]
+}

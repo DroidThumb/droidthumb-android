@@ -42,7 +42,7 @@ import com.danielealbano.androidremotecontrolmcp.ui.components.HomeStatusIndicat
 import com.danielealbano.androidremotecontrolmcp.ui.components.OemBackgroundGuidanceSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.SavedFlowsSection
 import com.danielealbano.androidremotecontrolmcp.ui.components.ThisDeviceSection
-import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountClaimState
+import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountSignInState
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.MainViewModel
 import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.TransportViewModel
@@ -95,7 +95,7 @@ fun HomeScreen(
     val pauseState by transportViewModel.pauseState.collectAsStateWithLifecycle()
 
     val accountId by accountViewModel.accountId.collectAsStateWithLifecycle()
-    val claimState by accountViewModel.claimState.collectAsStateWithLifecycle()
+    val signInState by accountViewModel.signInState.collectAsStateWithLifecycle()
     val connectionsState by accountViewModel.connectionsState.collectAsStateWithLifecycle()
     val accountProfile by accountViewModel.accountProfile.collectAsStateWithLifecycle()
     val sessionState by accountViewModel.sessionState.collectAsStateWithLifecycle()
@@ -108,12 +108,12 @@ fun HomeScreen(
         onPauseOrDispose { }
     }
 
-    // Same durable-claim semantics as the old ServerScreen: an automatic refresh on reopening the
-    // app must never put up Google's own account-picker UI by itself (founder feedback, PR #8
-    // round 5) - allowInteractive=false here, same as before.
+    // Same durable sign-in semantics as the old ServerScreen: the list refresh never puts up
+    // Google's own account-picker UI by itself (founder feedback, PR #8 round 5) — the refresh
+    // only touches Google silently, and the list itself travels over the phone connection.
     LaunchedEffect(accountId) {
-        if (accountId != null && claimState !is AccountClaimState.Claimed) {
-            accountViewModel.loadConnections(context, allowInteractive = false)
+        if (accountId != null && signInState !is AccountSignInState.SignedIn) {
+            accountViewModel.loadConnections(context)
         }
     }
 
@@ -125,7 +125,7 @@ fun HomeScreen(
                 AccountAvatarMenu(
                     profile = accountProfile,
                     sessionState = sessionState,
-                    onSignInClick = { accountViewModel.signInAndClaim(context) },
+                    onSignInClick = { accountViewModel.signIn(context) },
                     onSignOutClick = { accountViewModel.signOut(context) },
                     modifier = Modifier.padding(end = 12.dp),
                 )
@@ -240,12 +240,12 @@ fun HomeScreen(
             Spacer(Modifier.height(20.dp))
 
             // One sign-in status card driven by the single AccountSessionState (plan A1a); hidden
-            // entirely in the signed-in-and-claimed steady state.
+            // entirely in the signed-in steady state.
             AccountSessionCard(
                 sessionState = sessionState,
-                onSignInClick = { accountViewModel.signInAndClaim(context) },
-                // "Link this phone" runs the claim (plan A1b) — the same one-pass chain.
-                onLinkPhoneClick = { accountViewModel.signInAndClaim(context) },
+                onSignInClick = { accountViewModel.signIn(context) },
+                // "Link this phone" runs the sign-in (plan A1b) — the same one-pass chain.
+                onLinkPhoneClick = { accountViewModel.signIn(context) },
                 onRetryClick = { accountViewModel.checkSession(context) },
             )
 

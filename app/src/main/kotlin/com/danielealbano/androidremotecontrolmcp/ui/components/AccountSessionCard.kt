@@ -24,7 +24,7 @@ import com.danielealbano.androidremotecontrolmcp.ui.viewmodels.AccountSessionSta
 private val CARD_BACKGROUND = Color(0xFF1C1C24)
 
 /** The sign-in status message for [state], or `null` when there is nothing to show (the
- *  signed-in-and-claimed steady state). Top-level and `internal` so the copy mapping is
+ *  signed-in steady state). Top-level and `internal` so the copy mapping is
  *  unit-testable — the wording is the plan's exact UI copy. */
 internal fun sessionMessage(state: AccountSessionState): String? =
     when (state) {
@@ -33,7 +33,7 @@ internal fun sessionMessage(state: AccountSessionState): String? =
         }
 
         is AccountSessionState.SignedIn -> {
-            if (state.claimed) {
+            if (state.linked) {
                 null
             } else {
                 "This phone isn't linked to your account."
@@ -61,7 +61,7 @@ internal fun sessionActionLabel(state: AccountSessionState): String? =
         }
 
         is AccountSessionState.SignedIn -> {
-            if (state.claimed) {
+            if (state.linked) {
                 null
             } else {
                 "Link this phone"
@@ -79,7 +79,7 @@ internal fun sessionActionLabel(state: AccountSessionState): String? =
 
 /**
  * Home's sign-in status card (plan A1a): one card showing the current [AccountSessionState]'s
- * message and its single action. Hidden entirely in the signed-in-and-claimed steady state.
+ * message and its single action. Hidden entirely in the signed-in steady state.
  * One tap is one attempt — the card never retries on its own.
  */
 @Composable

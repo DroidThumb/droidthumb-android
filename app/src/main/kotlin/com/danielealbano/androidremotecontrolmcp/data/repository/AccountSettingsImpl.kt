@@ -2,6 +2,7 @@ package com.danielealbano.androidremotecontrolmcp.data.repository
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -27,9 +28,9 @@ class AccountSettingsImpl
             dataStore.edit { prefs -> prefs[ACCOUNT_ID_KEY] = accountId }
             settingsChangeLogger.submit("account_id", "", "x") { _, _ ->
                 if (hadPrevious) {
-                    "Device re-claimed for the signed-in account"
+                    "Device re-signed-in for the signed-in account"
                 } else {
-                    "Device claimed for the signed-in account"
+                    "Device signed in to the account"
                 }
             }
         }
@@ -39,7 +40,24 @@ class AccountSettingsImpl
             settingsChangeLogger.submit("account_id", "x", "") { _, _ -> "Signed out of the account" }
         }
 
+        override val pendingSignOut: Flow<Boolean> =
+            dataStore.data.map { prefs -> prefs[PENDING_SIGN_OUT_KEY] ?: false }
+
+        override suspend fun getPendingSignOut(): Boolean = pendingSignOut.first()
+
+        override suspend fun setPendingSignOut(pending: Boolean) {
+            dataStore.edit { prefs -> prefs[PENDING_SIGN_OUT_KEY] = pending }
+            settingsChangeLogger.submit(
+                "pending_sign_out",
+                if (pending) "" else "x",
+                if (pending) "x" else "",
+            ) { _, _ ->
+                if (pending) "Sign-out pending server acknowledgement" else "Sign-out acknowledged by the server"
+            }
+        }
+
         private companion object {
             private val ACCOUNT_ID_KEY = stringPreferencesKey("account_id")
+            private val PENDING_SIGN_OUT_KEY = booleanPreferencesKey("pending_sign_out")
         }
     }

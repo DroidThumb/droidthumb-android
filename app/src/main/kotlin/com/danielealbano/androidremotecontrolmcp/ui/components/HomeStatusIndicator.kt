@@ -29,9 +29,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.danielealbano.androidremotecontrolmcp.R
 import com.danielealbano.androidremotecontrolmcp.data.model.PauseState
 import com.danielealbano.androidremotecontrolmcp.services.transport.TransportStatus
 
@@ -73,7 +75,14 @@ fun HomeStatusIndicator(
 ) {
     val paused = pauseState.isEffectivePause(System.currentTimeMillis())
     val bucket = statusBucket(status, paused)
-    val text = statusText(bucket, status, pauseState.resumeAtEpochMs)
+    // Replaced gets its own string resource; statusText's copy of the same wording exists only
+    // for the pure-function test surface.
+    val text =
+        if (status is TransportStatus.Replaced) {
+            stringResource(R.string.account_replaced_body)
+        } else {
+            statusText(bucket, status, pauseState.resumeAtEpochMs)
+        }
     val colors = bucketColors(bucket)
     var showPauseOptions by remember { mutableStateOf(false) }
 
